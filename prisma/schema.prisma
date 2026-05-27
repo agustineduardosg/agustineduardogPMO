@@ -172,3 +172,11 @@ model Stakeholder {
   updatedAt     DateTime @updatedAt
 }
 
+model MasterEquipment {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  section   String   @default("General")
+  category  String   @default("Clínico")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
