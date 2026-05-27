@@ -663,10 +663,18 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
   // Calculations for active project progress
   const progress = useMemo(() => {
     if (!project) return 0;
-    const allTasks = project.phases.flatMap(ph => ph.tasks);
-    if (allTasks.length === 0) return 0;
-    const total = allTasks.reduce((acc, t) => acc + t.progress, 0);
-    return Math.round(total / allTasks.length);
+    const rootTasks = project.phases.flatMap(ph => ph.tasks).filter(t => !t.parentId);
+    if (rootTasks.length === 0) return 0;
+    
+    let totalWeightedProgress = 0;
+    let totalDuration = 0;
+    
+    rootTasks.forEach(t => {
+      totalDuration += t.duration;
+      totalWeightedProgress += t.progress * t.duration;
+    });
+    
+    return totalDuration > 0 ? Math.round(totalWeightedProgress / totalDuration) : 0;
   }, [project]);
 
   // Dashboard Tab computations

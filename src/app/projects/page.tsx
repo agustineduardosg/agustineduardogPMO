@@ -44,10 +44,18 @@ const CircularProgress = ({ progress, size = 60, color = '#0079C1' }: { progress
 };
 
 const calcProjectProgress = (project: Project): number => {
-  const allTasks = project.phases.flatMap(ph => ph.tasks);
-  if (allTasks.length === 0) return 0;
-  const total = allTasks.reduce((acc, t) => acc + t.progress, 0);
-  return Math.round(total / allTasks.length);
+  const rootTasks = project.phases.flatMap(ph => ph.tasks).filter(t => !t.parentId);
+  if (rootTasks.length === 0) return 0;
+  
+  let totalWeightedProgress = 0;
+  let totalDuration = 0;
+  
+  rootTasks.forEach(t => {
+    totalDuration += t.duration;
+    totalWeightedProgress += t.progress * t.duration;
+  });
+  
+  return totalDuration > 0 ? Math.round(totalWeightedProgress / totalDuration) : 0;
 };
 
 const EmptyModal = ({ onClose, onSave }: { onClose: () => void; onSave: (p: Project) => void }) => {
