@@ -356,7 +356,7 @@ export default function ProjectsPage() {
                     </button>
                   </div>
                   <button className="btn btn-primary" onClick={() => handleOpenProjectConsole(project)} style={{ padding: '8px 16px', fontSize: '0.85rem', gap: '6px' }}>
-                    Ver Consola <ChevronRight size={15} />
+                    Ver Proyecto <ChevronRight size={15} />
                   </button>
                 </div>
               </div>

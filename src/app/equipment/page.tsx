@@ -3,11 +3,14 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useEquipmentStore, ClinicalEquipment, Recinto, EquipmentPhaseStatus } from '@/store/equipmentStore';
 import { useProjectStore } from '@/store/projectStore';
+import { useUserStore } from '@/store/userStore';
 import { useRouter } from 'next/navigation';
-import { Plus, Search, Trash2, Calendar, FileSpreadsheet, Building2, ShieldAlert, CheckCircle2, RefreshCw, Layers, X, UploadCloud, Loader2, Check, Edit2, Sliders, ChevronDown } from 'lucide-react';
+import { Plus, Search, Trash2, Calendar, FileSpreadsheet, Building2, ShieldAlert, CheckCircle2, RefreshCw, Layers, X, UploadCloud, Loader2, Check, Edit2, Sliders, ChevronDown, MessageSquare } from 'lucide-react';
 import { format } from 'date-fns';
 import { InlineInput, InlineTextarea } from '@/components/InlineInput';
 import ReportViewer from '@/components/ReportViewer';
+import { EquipmentCommentsModal } from '@/components/EquipmentCommentsModal';
+import { parseComments } from '@/utils/commentUtils';
 
 
 const PHASE_STATUSES: EquipmentPhaseStatus[] = ['No iniciado', 'En progreso', 'Completado', 'Descartado', 'Desestimado'];
@@ -96,9 +99,16 @@ export default function EquipmentTrackerPage() {
   const projects = useProjectStore(state => state.projects);
   const fetchProjects = useProjectStore(state => state.fetchProjects);
   const router = useRouter();
+
+  const users = useUserStore(state => state.users);
+  const fetchUsers = useUserStore(state => state.fetchUsers);
   
   // Auto-save Feedback State
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+
+  // Estado local para modal de comentarios históricos
+  const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+  const [selectedEqForComments, setSelectedEqForComments] = useState<ClinicalEquipment | null>(null);
 
   const handleUpdateEquipment = async (eqId: string, updates: any) => {
     setSaveStatus('saving');
@@ -115,12 +125,14 @@ export default function EquipmentTrackerPage() {
   useEffect(() => {
     fetchEquipmentData();
     fetchProjects();
+    fetchUsers();
 
     // Sincronización proactiva multidispositivo (Sondeo activo cada 15 segundos si la pestaña está activa)
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
         fetchEquipmentData();
         fetchProjects();
+        fetchUsers();
       }
     }, 15000);
 
@@ -1107,16 +1119,61 @@ export default function EquipmentTrackerPage() {
                               </td>
                             )}
 
-                            {/* Observaciones */}
+                            {/* Observaciones con Historial Completo */}
                             {!hiddenDefaultCols.includes('observaciones') && (
                               <td style={{ padding: '8px 12px' }}>
-                                <InlineInput
-                                  value={eq.observaciones}
-                                  onSave={(val) => handleUpdateEquipment(eq.id, { observaciones: val })}
-                                  style={{ width: '100%', padding: '6px', background: 'transparent', border: '1px solid transparent', borderRadius: '4px', outline: 'none', color: 'var(--text-secondary)', fontSize: '0.78rem' }}
-                                  className="cell-input"
-                                  title={eq.observaciones}
-                                />
+                                <button
+                                  onClick={() => {
+                                    setSelectedEqForComments(eq);
+                                    setIsCommentsOpen(true);
+                                  }}
+                                  style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    width: '100%',
+                                    padding: '6px 10px',
+                                    background: 'rgba(0, 75, 135, 0.03)',
+                                    border: '1px dashed rgba(0, 75, 135, 0.18)',
+                                    borderRadius: '6px',
+                                    textAlign: 'left',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.15s ease',
+                                    outline: 'none',
+                                    boxSizing: 'border-box'
+                                  }}
+                                  className="comments-history-btn"
+                                  title="Haga clic para ver o editar el historial completo de comentarios de este equipo"
+                                >
+                                  <MessageSquare size={13} style={{ color: '#004B87', flexShrink: 0 }} />
+                                  <span style={{ 
+                                    fontSize: '0.75rem', 
+                                    color: 'var(--text-secondary)',
+                                    overflow: 'hidden',
+                                    textOverflow: 'ellipsis',
+                                    whiteSpace: 'nowrap',
+                                    flex: 1
+                                  }}>
+                                    {(() => {
+                                      const list = parseComments(eq.observaciones);
+                                      if (list.length === 0) return 'Agregar comentario...';
+                                      const latest = list[list.length - 1];
+                                      // Si es legacy o primer comentario sin fecha, mostrar texto limpio
+                                      return latest.id === 'legacy' ? latest.text : `${latest.author}: ${latest.text}`;
+                                    })()}
+                                  </span>
+                                  <span style={{
+                                    fontSize: '0.65rem',
+                                    background: '#004B87',
+                                    color: 'white',
+                                    padding: '1px 5px',
+                                    borderRadius: '8px',
+                                    fontWeight: 'bold',
+                                    flexShrink: 0
+                                  }}>
+                                    {parseComments(eq.observaciones).length}
+                                  </span>
+                                </button>
                               </td>
                             )}
 
@@ -1185,6 +1242,24 @@ export default function EquipmentTrackerPage() {
         onClose={() => setIsReportOpen(false)}
         filterProjectId={filterProject}
       />
+
+      {/* Modal de Comentarios de Historial de Equipamiento */}
+      {isCommentsOpen && selectedEqForComments && (
+        <EquipmentCommentsModal
+          isOpen={isCommentsOpen}
+          onClose={() => {
+            setIsCommentsOpen(false);
+            setSelectedEqForComments(null);
+          }}
+          equipmentName={selectedEqForComments.name}
+          observaciones={selectedEqForComments.observaciones}
+          onSaveComments={async (updatedJson) => {
+            await handleUpdateEquipment(selectedEqForComments.id, { observaciones: updatedJson });
+            setSelectedEqForComments(prev => prev ? { ...prev, observaciones: updatedJson } : null);
+          }}
+          availableUsers={users}
+        />
+      )}
 
       <style dangerouslySetInnerHTML={{__html: `
         .table-row-hover:hover { background: var(--bg-tertiary) !important; }

@@ -67,6 +67,9 @@ import {
 import { addBusinessDays, differenceInBusinessDays } from '@/utils/dateUtils';
 import { InlineInput, InlineTextarea } from '@/components/InlineInput';
 import ReportViewer from '@/components/ReportViewer';
+import { EquipmentCommentsModal } from '@/components/EquipmentCommentsModal';
+import { parseComments } from '@/utils/commentUtils';
+import { MessageSquare } from 'lucide-react';
 
 
 type ViewMode = 'day' | 'week' | 'month';
@@ -351,6 +354,8 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
   const [newColEquipment, setNewColEquipment] = useState('');
   const [isAddingColEquipment, setIsAddingColEquipment] = useState(false);
   const [collapsedRecintos, setCollapsedRecintos] = useState<Record<string, boolean>>({});
+  const [isCommentsOpen, setIsCommentsOpen] = useState(false);
+  const [selectedEqForComments, setSelectedEqForComments] = useState<ClinicalEquipment | null>(null);
 
   // Modales & Reportability State
   const [isReportOpen, setIsReportOpen] = useState(false);
@@ -3839,15 +3844,59 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
                                     </td>
                                   )}
 
-                                  {/* Observaciones */}
+                                  {/* Observaciones con Historial Completo */}
                                   {!hiddenDefaultCols.includes('observaciones') && (
                                     <td style={{ padding: '8px 12px' }}>
-                                      <InlineInput
-                                        value={eq.observaciones}
-                                        onSave={(val) => handleUpdateEquipment(eq.id, { observaciones: val })}
-                                        style={{ width: '100%', padding: '6px', background: 'transparent', border: '1px solid transparent', borderRadius: '4px', outline: 'none', color: 'var(--text-secondary)', fontSize: '0.78rem' }}
-                                        title={eq.observaciones}
-                                      />
+                                      <button
+                                        onClick={() => {
+                                          setSelectedEqForComments(eq);
+                                          setIsCommentsOpen(true);
+                                        }}
+                                        style={{
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '6px',
+                                          width: '100%',
+                                          padding: '6px 10px',
+                                          background: 'rgba(0, 75, 135, 0.03)',
+                                          border: '1px dashed rgba(0, 75, 135, 0.18)',
+                                          borderRadius: '6px',
+                                          textAlign: 'left',
+                                          cursor: 'pointer',
+                                          transition: 'all 0.15s ease',
+                                          outline: 'none',
+                                          boxSizing: 'border-box'
+                                        }}
+                                        title="Haga clic para ver o editar el historial completo de comentarios de este equipo"
+                                      >
+                                        <MessageSquare size={13} style={{ color: '#004B87', flexShrink: 0 }} />
+                                        <span style={{ 
+                                          fontSize: '0.75rem', 
+                                          color: 'var(--text-secondary)',
+                                          overflow: 'hidden',
+                                          textOverflow: 'ellipsis',
+                                          whiteSpace: 'nowrap',
+                                          flex: 1
+                                        }}>
+                                          {(() => {
+                                            const list = parseComments(eq.observaciones);
+                                            if (list.length === 0) return 'Agregar comentario...';
+                                            const latest = list[list.length - 1];
+                                            return latest.id === 'legacy' ? latest.text : `${latest.author}: ${latest.text}`;
+                                          })()}
+                                        </span>
+                                        <span style={{
+                                          fontSize: '0.65rem',
+                                          background: '#004B87',
+                                          color: 'white',
+                                          padding: '1px 5px',
+                                          borderRadius: '8px',
+                                          fontWeight: 'bold',
+                                          flexShrink: 0
+                                        }}>
+                                          {parseComments(eq.observaciones).length}
+                                        </span>
+                                      </button>
                                     </td>
                                   )}
 
@@ -4230,6 +4279,24 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
             </div>
           </div>
         )}
+
+      {/* Modal de Comentarios de Historial de Equipamiento */}
+      {isCommentsOpen && selectedEqForComments && (
+        <EquipmentCommentsModal
+          isOpen={isCommentsOpen}
+          onClose={() => {
+            setIsCommentsOpen(false);
+            setSelectedEqForComments(null);
+          }}
+          equipmentName={selectedEqForComments.name}
+          observaciones={selectedEqForComments.observaciones}
+          onSaveComments={async (updatedJson) => {
+            await handleUpdateEquipment(selectedEqForComments.id, { observaciones: updatedJson });
+            setSelectedEqForComments(prev => prev ? { ...prev, observaciones: updatedJson } : null);
+          }}
+          availableUsers={users}
+        />
+      )}
 
       </div>
 
