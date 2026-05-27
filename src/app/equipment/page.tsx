@@ -115,6 +115,16 @@ export default function EquipmentTrackerPage() {
   useEffect(() => {
     fetchEquipmentData();
     fetchProjects();
+
+    // Sincronización proactiva multidispositivo (Sondeo activo cada 15 segundos si la pestaña está activa)
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchEquipmentData();
+        fetchProjects();
+      }
+    }, 15000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const [search, setSearch] = useState('');

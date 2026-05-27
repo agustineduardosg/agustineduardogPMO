@@ -291,11 +291,24 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
 
   // Fetch initial data
   useEffect(() => {
-    fetchProjects();
-    fetchStakeholders();
-    fetchIncidents();
-    fetchUsers();
-    fetchEquipmentData();
+    const loadAllData = () => {
+      fetchProjects();
+      fetchStakeholders();
+      fetchIncidents();
+      fetchUsers();
+      fetchEquipmentData();
+    };
+
+    loadAllData();
+
+    // Sincronización proactiva multidispositivo (Sondeo activo cada 15 segundos si la pestaña está activa)
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        loadAllData();
+      }
+    }, 15000);
+
+    return () => clearInterval(interval);
   }, []);
 
   // Set active project context
