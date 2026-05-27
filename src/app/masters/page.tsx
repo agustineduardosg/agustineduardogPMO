@@ -43,6 +43,26 @@ export default function MastersPage() {
   }, []);
 
   const [activeTab, setActiveTab] = useState<'recintos' | 'colaboradores' | 'equipos'>('recintos');
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSyncFromInventory = async () => {
+    setIsSyncing(true);
+    try {
+      const response = await fetch('/api/master-equipments/sync', {
+        method: 'POST'
+      });
+      if (!response.ok) throw new Error('Error al sincronizar');
+      const data = await response.json();
+      alert(`¡Sincronización Exitosa! ${data.message}`);
+      await fetchMasterEquipments();
+      await fetchEquipmentData();
+    } catch (e: any) {
+      console.error(e);
+      alert('Ocurrió un error al sincronizar los equipos desde el inventario.');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
 
   // Búsquedas y filtros locales
   const [recintoSearch, setRecintoSearch] = useState('');
@@ -492,6 +512,22 @@ export default function MastersPage() {
                     ))}
                   </select>
                 </div>
+
+                <button 
+                  className="btn btn-secondary shadow-sm" 
+                  onClick={handleSyncFromInventory} 
+                  disabled={isSyncing}
+                  style={{ 
+                    gap: '8px', 
+                    border: '1px dashed #10b981', 
+                    background: 'rgba(16, 185, 129, 0.05)', 
+                    color: '#10b981',
+                    fontWeight: 700,
+                    padding: '8px 16px'
+                  }}
+                >
+                  {isSyncing ? 'Cargando...' : '🔄 Cargar desde Inventario'}
+                </button>
 
                 <button className="btn btn-primary" onClick={() => handleOpenEqModal()} style={{ gap: '8px', padding: '8px 16px' }}>
                   <Plus size={16} /> Registrar Equipo
