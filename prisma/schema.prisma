@@ -1,0 +1,174 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Project {
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  manager      String?
+  area         String?
+  status       String   @default("Planificación")
+  hasEquipment Boolean  @default(false)
+  startDate    DateTime
+  endDate      DateTime
+  phases       Phase[]
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Phase {
+  id        String   @id @default(cuid())
+  wbsId     String?
+  name      String
+  progress  Int      @default(0)
+  startDate DateTime
+  endDate   DateTime
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  tasks     Task[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Task {
+  id           String       @id @default(cuid())
+  wbsId        String?
+  name         String
+  startDate    DateTime
+  endDate      DateTime
+  duration     Int
+  progress     Int          @default(0)
+  assignee     String       @default("Sin Asignar")
+  status       String       @default("Not Started")
+  priority     String       @default("Media")
+  notes        String?
+  jiraCode     String?      // Jira Integration
+  
+  phaseId      String
+  phase        Phase        @relation(fields: [phaseId], references: [id], onDelete: Cascade)
+  
+  // WBS Infinita: Tareas Padre e Hijas
+  parentId     String?
+  parent       Task?        @relation("TaskSubtasks", fields: [parentId], references: [id], onDelete: Cascade)
+  subtasks     Task[]       @relation("TaskSubtasks")
+  
+  // Dependencias (Cascada)
+  dependencies String?      // Almacenado como JSON array string para compatibilidad simple
+  
+  attachments  Attachment[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+}
+
+model Attachment {
+  id        String   @id @default(cuid())
+  name      String
+  type      String
+  url       String
+  taskId    String
+  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+}
+
+model Recinto {
+  id         String              @id @default(cuid())
+  name       String
+  code       String
+  isActive   Boolean             @default(true)
+  equipments ClinicalEquipment[]
+  createdAt  DateTime            @default(now())
+  updatedAt  DateTime            @updatedAt
+}
+
+model ClinicalEquipment {
+  id              String   @id @default(cuid())
+  recintoId       String
+  recinto         Recinto  @relation(fields: [recintoId], references: [id], onDelete: Cascade)
+  name            String
+  section         String
+  levantamiento   String   @default("No iniciado")
+  parametrizacion String   @default("No iniciado")
+  pruebas         String   @default("No iniciado")
+  capacitacion    String   @default("No iniciado")
+  validacion      String   @default("No iniciado")
+  golive          String   @default("No iniciado")
+  responsable     String
+  compromisoDate  String?
+  observaciones   String
+  pendienteDe     String
+  projectId       String?  // Asociación opcional a Proyecto
+  customFields    String   @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model MasterUser {
+  id            String   @id @default(cuid())
+  name          String
+  email         String   @unique
+  role          String
+  maxTasksLimit Int      @default(5)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Incident {
+  id            String   @id @default(cuid())
+  indexId       Int
+  fecha         String
+  recintoName   String
+  equipmentName String
+  faseAfectada  String
+  descripcion   String
+  impacto       String   @default("Bajo")
+  responsable   String
+  estado        String   @default("Abierto")
+  planDeAccion  String
+  fechaCierre   String
+  projectId     String?  // Asociación opcional a Proyecto
+  customFields  String   @default("{}")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Training {
+  id            String   @id @default(cuid())
+  indexId       Int
+  participant   String
+  role          String
+  recintoName   String
+  moduleTheme   String
+  equipmentName String
+  fecha         String
+  instructor    String
+  duration      Float    @default(0)
+  result        String   @default("Pendiente") // Aprobado, Pendiente, Reprobado
+  observaciones String
+  customFields  String   @default("{}")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Stakeholder {
+  id            String   @id @default(cuid())
+  indexId       Int      // ID numérico correlativo Excel-Like
+  name          String
+  role          String   // Cargo / Rol
+  orgSede       String   // Organización / Sede
+  area          String   // Área
+  contact       String   // Contacto (email/fono)
+  influence     String   @default("Medio") // Alto, Medio, Bajo
+  impact        String   @default("Medio") // Alto, Medio, Bajo
+  notes         String   // Notas / Expectativas
+  projectId     String?  // Asociación opcional a Proyecto
+  customFields  String   @default("{}") // JSON string para columnas dinámicas
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
