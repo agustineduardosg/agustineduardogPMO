@@ -227,7 +227,7 @@ export default function ProjectsPage() {
       </div>
 
       {/* KPI Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+      <div className="kpi-grid">
         {[
           { label: 'Total Proyectos', value: stats.total, color: '#0079C1', icon: <Folder size={22} /> },
           { label: 'En Ejecución', value: stats.enEjecucion, color: '#6366f1', icon: <BarChart3 size={22} /> },
@@ -290,7 +290,7 @@ export default function ProjectsPage() {
                   {/* Header */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
                     <div style={{ flex: 1, minWidth: 0 }}>
-                      <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: '0 0 6px', color: 'var(--text-primary)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={project.name}>{project.name}</h3>
+                      <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: '0 0 6px', color: 'var(--text-primary)', lineHeight: 1.3, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden', minHeight: '2.6em' }} title={project.name}>{project.name}</h3>
                       <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
                         <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '3px 8px', borderRadius: '20px', background: sc.bg, color: sc.color, display: 'flex', alignItems: 'center', gap: '4px' }}>
                           {sc.icon} {sc.label}
@@ -310,11 +310,20 @@ export default function ProjectsPage() {
                     <CircularProgress progress={progress} size={58} color={areaColor} />
                   </div>
 
-                  {project.description && (
-                    <p style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
-                      {project.description}
-                    </p>
-                  )}
+                  <p style={{ 
+                    fontSize: '0.82rem', 
+                    color: project.description ? 'var(--text-secondary)' : 'var(--text-muted)', 
+                    margin: 0, 
+                    lineHeight: 1.5, 
+                    display: '-webkit-box', 
+                    WebkitLineClamp: 2, 
+                    WebkitBoxOrient: 'vertical', 
+                    overflow: 'hidden',
+                    minHeight: '2.9em',
+                    fontStyle: project.description ? 'normal' : 'italic'
+                  }}>
+                    {project.description || 'Sin descripción detallada registrada para este proyecto clínico.'}
+                  </p>
 
                   {/* Meta */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>

@@ -324,7 +324,7 @@ export default function Home() {
       </section>
 
       {/* CUERPO CENTRAL: CURVA S & HEATMAP DE COLABORADORES */}
-      <section style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '20px' }}>
+      <section className="dashboard-grid-1">
         
         {/* GRÁFICO CURVA S */}
         <motion.div 
@@ -461,7 +461,7 @@ export default function Home() {
       </section>
 
       {/* SECCIÓN INFERIOR: PRÓXIMO HITO Y FEED DE INCIDENTES CRÍTICOS */}
-      <section style={{ display: 'grid', gridTemplateColumns: '2fr 3fr', gap: '20px' }}>
+      <section className="dashboard-grid-2">
         
         {/* MILESTONE / PRÓXIMO HITO CRÍTICO */}
         <motion.div 
