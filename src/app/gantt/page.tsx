@@ -37,6 +37,7 @@ export default function GanttPage() {
   const deletePhase = useProjectStore(state => state.deletePhase);
   const addProject = useProjectStore(state => state.addProject);
   const fetchProjects = useProjectStore(state => state.fetchProjects);
+  const setActiveProject = useProjectStore(state => state.setActiveProject);
 
   const users = useUserStore(state => state.users);
   const fetchUsers = useUserStore(state => state.fetchUsers);
@@ -55,6 +56,13 @@ export default function GanttPage() {
   const [draggedTask, setDraggedTask] = useState<{ id: string, startOffsetDays: number } | null>(null);
   
   const [collapsedPhases, setCollapsedPhases] = useState<Record<string, boolean>>({});
+  const [collapsedTasks, setCollapsedTasks] = useState<Record<string, boolean>>({});
+  const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
+  
+  const toggleTask = (taskId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // Evitar abrir drawer de edición
+    setCollapsedTasks(prev => ({ ...prev, [taskId]: !prev[taskId] }));
+  };
   
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -537,12 +545,29 @@ export default function GanttPage() {
     const dragOffsetPx = isDragged ? draggedTask.startOffsetDays * colWidth : 0;
     
     const subtasks = phase.tasks.filter(t => t.parentId === task.id);
+    const isTaskCollapsed = collapsedTasks[task.id];
+    const hasSubtasks = subtasks.length > 0;
 
     return (
       <React.Fragment key={task.id}>
         <div style={{ display: 'flex', borderBottom: '1px solid var(--border-subtle)', cursor: 'pointer', transition: 'background 0.2s', background: 'transparent', position: 'relative', zIndex: 3 }} onClick={() => handleTaskClick(task, phase.id)} className="task-row">
           <div style={{ width: `${wbsWidth}px`, flexShrink: 0, padding: `12px 16px 12px ${16 + (depth * 24)}px`, fontSize: '0.9rem', borderRight: '1px solid var(--border-light)', position: 'sticky', left: 0, background: isDragged ? 'var(--bg-tertiary)' : 'var(--bg-secondary)', zIndex: 5, borderLeft: depth > 0 ? '4px solid var(--border-light)' : 'none' }}>
             <div style={{ fontWeight: depth === 0 ? '600' : '500', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
+              
+              {/* Chevron botón de colapso de subtareas */}
+              {hasSubtasks ? (
+                <button 
+                  onClick={(e) => {
+                    toggleTask(task.id, e);
+                  }}
+                  style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', marginRight: '2px', outline: 'none' }}
+                >
+                  {isTaskCollapsed ? <ChevronRight size={14} color="var(--text-secondary)" /> : <ChevronDown size={14} color="var(--text-secondary)" />}
+                </button>
+              ) : (
+                depth > 0 && <div style={{ width: '16px' }} />
+              )}
+
               {isAtRisk && <AlertTriangle size={14} color="var(--accent-danger)" />}
               {task.wbsId && <span style={{ color: depth === 0 ? 'var(--text-secondary)' : 'var(--text-muted)', fontFamily: 'monospace', fontSize: '0.8rem' }}>{task.wbsId}</span>}
               <span style={{ flex: 1, whiteSpace: 'normal', lineHeight: '1.2' }}>{task.name}</span>
@@ -579,6 +604,7 @@ export default function GanttPage() {
                 return (
                   <div 
                     onMouseDown={(e) => handleTaskDragStart(e, task, phase.id)}
+                    onDoubleClick={() => handleTaskClick(task, phase.id)}
                     style={{ 
                       position: 'absolute', 
                       top: '15px', 
@@ -601,6 +627,7 @@ export default function GanttPage() {
               return (
                 <div 
                   onMouseDown={(e) => handleTaskDragStart(e, task, phase.id)}
+                  onDoubleClick={() => handleTaskClick(task, phase.id)}
                   style={{ 
                     position: 'absolute', 
                     top: '10px', 
@@ -628,16 +655,24 @@ export default function GanttPage() {
                 >
                   <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${task.progress}%`, background: 'rgba(255,255,255,0.25)' }} />
                   {width > 40 && <span style={{ position: 'relative', zIndex: 1, whiteSpace: 'nowrap', textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>{task.progress}%</span>}
+                  
+                  {/* Predecesores visuales al final de la barra */}
+                  {task.dependencies && task.dependencies.length > 0 && (
+                    <span style={{ fontSize: '0.65rem', color: 'rgba(255,255,255,0.85)', marginLeft: '6px', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: '2px', position: 'absolute', right: '8px', zIndex: 2 }}>
+                      🔗 {task.dependencies.map(depId => allTasks.find(t => t.id === depId)?.wbsId).filter(Boolean).join(', ')}
+                    </span>
+                  )}
                 </div>
               );
             })()}
           </div>
         </div>
-        {/* Renderizar subtareas recursivamente con animación de acordeón suave estilo Apple */}
+        
+        {/* Renderizar subtareas recursivamente con animación de acordeón y solución a bug de altura 0 inicial */}
         <AnimatePresence initial={false}>
-          {!collapsedPhases[phase.id] && subtasks.length > 0 && (
+          {!isTaskCollapsed && subtasks.length > 0 && (
             <motion.div
-              initial={{ height: 0, opacity: 0, overflow: 'hidden' }}
+              initial={false} // EVITA EL BUG DE ALTURA 0 AL MONTAR
               animate={{ height: 'auto', opacity: 1, transitionEnd: { overflow: 'visible' } }}
               exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
               transition={{ type: 'spring', damping: 26, stiffness: 220 }}
@@ -679,8 +714,85 @@ export default function GanttPage() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative' }}>
       <header style={{ marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
         <div>
-          <h1 style={{ fontSize: '2rem' }}>Gantt Enterprise</h1>
-          <p style={{ color: 'var(--text-secondary)' }}>{project.name}</p>
+          <h1 style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)' }}>Gantt Enterprise</h1>
+          
+          {/* Selector Dinámico de Proyectos con Estilo Glassmorphism */}
+          <div style={{ position: 'relative', marginTop: '6px' }}>
+            <button 
+              onClick={() => setIsProjectDropdownOpen(!isProjectDropdownOpen)}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '8px 14px',
+                background: 'var(--bg-secondary)',
+                border: '1px solid var(--border-light)',
+                borderRadius: 'var(--radius-sm)',
+                color: 'var(--text-primary)',
+                fontWeight: 600,
+                fontSize: '0.88rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                boxShadow: 'var(--shadow-sm)',
+                outline: 'none'
+              }}
+            >
+              <FolderPlus size={14} color="var(--accent-primary)" />
+              <span>{project.name}</span>
+              <ChevronDown size={14} style={{ transform: isProjectDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+            </button>
+            
+            {isProjectDropdownOpen && (
+              <>
+                <div style={{ position: 'fixed', inset: 0, zIndex: 99 }} onClick={() => setIsProjectDropdownOpen(false)} />
+                <div style={{
+                  position: 'absolute',
+                  top: '100%',
+                  left: 0,
+                  background: 'var(--bg-secondary)',
+                  border: '1px solid var(--border-strong)',
+                  borderRadius: 'var(--radius-sm)',
+                  boxShadow: '0 10px 30px rgba(0,0,0,0.15)',
+                  backdropFilter: 'blur(12px)',
+                  marginTop: '6px',
+                  width: '320px',
+                  zIndex: 100,
+                  overflow: 'hidden',
+                  animation: 'fadeIn 0.15s ease'
+                }}>
+                  <div style={{ padding: '8px 12px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', borderBottom: '1px solid var(--border-light)', background: 'var(--bg-tertiary)' }}>
+                    Seleccionar Proyecto Activo
+                  </div>
+                  {projects.map(p => (
+                    <div 
+                      key={p.id}
+                      onClick={() => {
+                        setActiveProject(p.id);
+                        setIsProjectDropdownOpen(false);
+                      }}
+                      style={{
+                        padding: '10px 16px',
+                        cursor: 'pointer',
+                        background: p.id === activeProjectId ? 'rgba(0,121,193,0.08)' : 'transparent',
+                        color: p.id === activeProjectId ? 'var(--accent-primary)' : 'var(--text-primary)',
+                        fontWeight: p.id === activeProjectId ? 700 : 500,
+                        fontSize: '0.85rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        borderBottom: '1px solid var(--border-subtle)',
+                        transition: 'background 0.2s'
+                      }}
+                      className="proj-select-option"
+                    >
+                      <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: p.id === activeProjectId ? 'var(--accent-primary)' : 'transparent' }} />
+                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </div>
         </div>
         
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
@@ -875,7 +987,7 @@ export default function GanttPage() {
                 <AnimatePresence initial={false}>
                   {!isCollapsed && (
                     <motion.div
-                      initial={{ height: 0, opacity: 0, overflow: 'hidden' }}
+                      initial={false} // Evita el bug de altura 0 al cargar la página
                       animate={{ height: 'auto', opacity: 1, transitionEnd: { overflow: 'visible' } }}
                       exit={{ height: 0, opacity: 0, overflow: 'hidden' }}
                       transition={{ type: 'spring', damping: 26, stiffness: 220 }}
@@ -1418,6 +1530,7 @@ export default function GanttPage() {
         .attachment-link:hover span { text-decoration: underline; color: var(--accent-secondary) !important; }
         .wbs-header-resizer:hover { background: rgba(2, 132, 199, 0.15) !important; }
         .pred-option:hover { background: var(--bg-tertiary) !important; }
+        .proj-select-option:hover { background: var(--bg-tertiary) !important; }
         @keyframes spin {
           0% { transform: rotate(0deg); }
           100% { transform: rotate(360deg); }
