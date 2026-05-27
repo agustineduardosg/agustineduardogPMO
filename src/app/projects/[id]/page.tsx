@@ -2053,10 +2053,11 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
                 </div>
 
                 {/* Grid guidelines */}
-                <div style={{ position: 'absolute', top: '64px', bottom: 0, left: '380px', width: `${gridWidth}px`, backgroundImage: `repeating-linear-gradient(to right, transparent, transparent ${colWidth - 1}px, var(--border-subtle) ${colWidth - 1}px, var(--border-subtle) ${colWidth}px)`, pointerEvents: 'none', zIndex: 0 }} />
-                {todayOffset > 0 && todayOffset < gridWidth && (
-                  <div style={{ position: 'absolute', top: '64px', bottom: 0, left: `calc(380px + ${todayOffset + (colWidth/2)}px)`, width: '2px', background: 'rgba(239, 68, 68, 0.4)', zIndex: 2, pointerEvents: 'none' }} />
-                )}
+                <div style={{ position: 'absolute', top: '64px', bottom: 0, left: '380px', width: `${gridWidth}px`, backgroundImage: `repeating-linear-gradient(to right, transparent, transparent ${colWidth - 1}px, var(--border-subtle) ${colWidth - 1}px, var(--border-subtle) ${colWidth}px)`, pointerEvents: 'none', zIndex: 0, overflow: 'hidden' }}>
+                  {todayOffset > 0 && todayOffset < gridWidth && (
+                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${todayOffset + (colWidth/2)}px`, width: '2px', background: 'rgba(239, 68, 68, 0.4)', zIndex: 2, pointerEvents: 'none' }} />
+                  )}
+                </div>
 
                 {/* Phases and Tasks renderer */}
                 <div style={{ position: 'relative', zIndex: 1 }}>
