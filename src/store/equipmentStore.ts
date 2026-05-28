@@ -25,6 +25,7 @@ export interface ClinicalEquipment {
   pendienteDe: string;
   projectId?: string | null; // Asociación opcional a Proyecto
   customFields?: string;
+  deletedAt?: string | null;
 }
 
 interface EquipmentState {
@@ -45,6 +46,8 @@ interface EquipmentState {
   addEquipment: (equipment: ClinicalEquipment) => Promise<void>;
   updateEquipment: (id: string, updates: Partial<ClinicalEquipment>) => Promise<void>;
   deleteEquipment: (id: string) => Promise<void>;
+  restoreEquipment: (id: string) => Promise<void>;
+  hardDeleteEquipment: (id: string) => Promise<void>;
 }
 
 export const useEquipmentStore = create<EquipmentState>()((set) => ({
@@ -225,6 +228,40 @@ export const useEquipmentStore = create<EquipmentState>()((set) => ({
           equipments: data.flatMap((r: any) => r.equipments || [])
         });
       }
+    }
+  },
+
+  restoreEquipment: async (id) => {
+    try {
+      const response = await fetch(`/api/equipments/${id}/restore`, {
+        method: 'POST'
+      });
+      if (!response.ok) throw new Error('Failed to restore equipment');
+      
+      // Recargar todo el estado para que vuelva al listado de recintos activos
+      const recResp = await fetch('/api/recintos');
+      if (recResp.ok) {
+        const data = await recResp.json();
+        set({
+          recintos: data.map((r: any) => ({ id: r.id, name: r.name, code: r.code, isActive: r.isActive })),
+          equipments: data.flatMap((r: any) => r.equipments || [])
+        });
+      }
+    } catch (err: any) {
+      console.error(err);
+      set({ error: err.message });
+    }
+  },
+
+  hardDeleteEquipment: async (id) => {
+    try {
+      const response = await fetch(`/api/equipments/${id}?hard=true`, {
+        method: 'DELETE'
+      });
+      if (!response.ok) throw new Error('Failed to hard delete equipment');
+    } catch (err: any) {
+      console.error(err);
+      set({ error: err.message });
     }
   }
 }));

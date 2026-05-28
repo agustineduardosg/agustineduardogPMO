@@ -104,6 +104,7 @@ model ClinicalEquipment {
   pendienteDe     String
   projectId       String?  // Asociación opcional a Proyecto
   customFields    String   @default("{}")
+  deletedAt       DateTime? // Soft Delete Support
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }

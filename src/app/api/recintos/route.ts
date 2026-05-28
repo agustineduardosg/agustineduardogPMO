@@ -18,7 +18,12 @@ export async function GET() {
     }
 
     const recintos = await prisma.recinto.findMany({
-      include: { equipments: true },
+      include: {
+        equipments: {
+          where: { deletedAt: null },
+          orderBy: { name: 'asc' }
+        }
+      },
       orderBy: { name: 'asc' }
     });
     return NextResponse.json(recintos);

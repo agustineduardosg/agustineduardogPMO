@@ -95,6 +95,7 @@ export default function EquipmentTrackerPage() {
   const addEquipment = useEquipmentStore(state => state.addEquipment);
   const updateEquipment = useEquipmentStore(state => state.updateEquipment);
   const deleteEquipment = useEquipmentStore(state => state.deleteEquipment);
+  const restoreEquipment = useEquipmentStore(state => state.restoreEquipment);
   const fetchEquipmentData = useEquipmentStore(state => state.fetchEquipmentData);
 
   const projects = useProjectStore(state => state.projects);
@@ -103,6 +104,71 @@ export default function EquipmentTrackerPage() {
 
   const users = useUserStore(state => state.users);
   const fetchUsers = useUserStore(state => state.fetchUsers);
+
+  // Soft Delete & Trash Bin State
+  const [showUndoToast, setShowUndoToast] = useState(false);
+  const [lastDeletedEq, setLastDeletedEq] = useState<ClinicalEquipment | null>(null);
+  const undoTimeoutRef = React.useRef<any>(null);
+
+  const [isTrashOpen, setIsTrashOpen] = useState(false);
+  const [deletedEquipments, setDeletedEquipments] = useState<ClinicalEquipment[]>([]);
+  const [loadingTrash, setLoadingTrash] = useState(false);
+  const [deletedCount, setDeletedCount] = useState(0);
+
+  const fetchDeletedEquipments = async () => {
+    setLoadingTrash(true);
+    try {
+      const resp = await fetch('/api/equipments?deleted=true');
+      if (resp.ok) {
+        const data = await resp.json();
+        setDeletedEquipments(data);
+      }
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setLoadingTrash(false);
+    }
+  };
+
+  const fetchDeletedCount = async () => {
+    try {
+      const resp = await fetch('/api/equipments?deleted=true');
+      if (resp.ok) {
+        const data = await resp.json();
+        setDeletedCount(data.length);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  useEffect(() => {
+    fetchDeletedCount();
+  }, [equipments]);
+
+  const handleDeleteClick = async (eq: ClinicalEquipment) => {
+    if (confirm(`¿Está seguro de eliminar el equipo "${eq.name}"?`)) {
+      setLastDeletedEq(eq);
+      setShowUndoToast(true);
+      await deleteEquipment(eq.id);
+
+      if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+      undoTimeoutRef.current = setTimeout(() => {
+        setShowUndoToast(false);
+        setLastDeletedEq(null);
+      }, 6000);
+    }
+  };
+
+  const handleUndo = async () => {
+    if (lastDeletedEq) {
+      if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+      await restoreEquipment(lastDeletedEq.id);
+      setShowUndoToast(false);
+      setLastDeletedEq(null);
+    }
+  };
+
   
   // Auto-save Feedback State
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -471,6 +537,50 @@ export default function EquipmentTrackerPage() {
           >
             <FileSpreadsheet size={16} />
             Generar Informe
+          </button>
+          <button 
+            className="btn btn-secondary shadow-sm"
+            onClick={() => {
+              fetchDeletedEquipments();
+              setIsTrashOpen(true);
+            }}
+            style={{ 
+              background: 'transparent', 
+              color: '#ef4444', 
+              border: '1px solid #ef4444', 
+              padding: '10px 18px', 
+              fontSize: '0.88rem', 
+              fontWeight: 700, 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px',
+              borderRadius: 'var(--radius-md)',
+              cursor: 'pointer',
+              position: 'relative'
+            }}
+          >
+            <Trash2 size={16} />
+            Papelera
+            {deletedCount > 0 && (
+              <span style={{
+                position: 'absolute',
+                top: '-8px',
+                right: '-8px',
+                background: '#ef4444',
+                color: 'white',
+                fontSize: '0.72rem',
+                fontWeight: 'bold',
+                borderRadius: '50%',
+                width: '20px',
+                height: '20px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                boxShadow: '0 2px 4px rgba(0,0,0,0.2)'
+              }}>
+                {deletedCount}
+              </span>
+            )}
           </button>
           <button 
             className="btn btn-secondary shadow-sm"
@@ -1211,13 +1321,10 @@ export default function EquipmentTrackerPage() {
                             })}
 
                             {/* Eliminar fila */}
+                            {/* Eliminar fila */}
                             <td style={{ padding: '8px 16px', textAlign: 'center' }}>
                               <button 
-                                onClick={() => {
-                                  if (confirm(`¿Está seguro de eliminar el equipo "${eq.name}"?`)) {
-                                    deleteEquipment(eq.id);
-                                  }
-                                }} 
+                                onClick={() => handleDeleteClick(eq)} 
                                 style={{ background: 'none', border: 'none', color: 'var(--accent-danger)', cursor: 'pointer', opacity: 0.7 }}
                                 title="Eliminar Equipo"
                               >
@@ -1300,7 +1407,169 @@ export default function EquipmentTrackerPage() {
           from { transform: scale(0.95); opacity: 0; }
           to { transform: scale(1); opacity: 1; }
         }
+
+        @keyframes slideInRight {
+          from { transform: translateX(100%); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
       `}} />
+
+      {/* Undo Toast flotante */}
+      {showUndoToast && lastDeletedEq && (
+        <div 
+          style={{
+            position: 'fixed',
+            bottom: '24px',
+            right: '24px',
+            background: '#0F172A',
+            color: 'white',
+            padding: '14px 20px',
+            borderRadius: '8px',
+            boxShadow: '0 10px 15px -3px rgba(0,0,0,0.3), 0 4px 6px -2px rgba(0,0,0,0.05)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '16px',
+            zIndex: 1000,
+            animation: 'slideInRight 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+            border: '1px solid rgba(255,255,255,0.1)'
+          }}
+        >
+          <span style={{ fontSize: '0.88rem' }}>
+            Se eliminó "<strong>{lastDeletedEq.name}</strong>"
+          </span>
+          <button
+            onClick={handleUndo}
+            style={{
+              background: '#004B87',
+              color: 'white',
+              border: 'none',
+              padding: '6px 12px',
+              borderRadius: '6px',
+              fontSize: '0.78rem',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              transition: 'background 0.2s',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px'
+            }}
+          >
+            <RefreshCw size={12} />
+            Deshacer
+          </button>
+        </div>
+      )}
+
+      {/* Modal de Papelera de Reciclaje */}
+      {isTrashOpen && (
+        <div className="custom-modal-backdrop">
+          <div className="custom-modal-card" style={{ width: '650px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#003B64', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Trash2 size={18} style={{ color: '#ef4444' }} />
+                Papelera de Reciclaje ({deletedEquipments.length})
+              </h3>
+              <button onClick={() => setIsTrashOpen(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {loadingTrash ? (
+              <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', padding: '40px', gap: '10px' }}>
+                <Loader2 size={24} style={{ animation: 'spin 1s linear infinite', color: '#004B87' }} />
+                <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>Cargando papelera...</span>
+              </div>
+            ) : deletedEquipments.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '40px var(--radius-md)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                <Trash2 size={48} style={{ color: 'var(--text-muted)', opacity: 0.4 }} />
+                <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', fontWeight: 600 }}>La papelera está vacía</span>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: 0 }}>Los equipos que elimines aparecerán aquí para que puedas restaurarlos.</p>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)', margin: '0 0 8px 0' }}>
+                  Los siguientes equipos han sido eliminados lógicamente. Puedes restaurarlos con todos sus campos e historial intactos, o borrarlos definitivamente de la base de datos.
+                </p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '400px', overflowY: 'auto', paddingRight: '4px' }}>
+                  {deletedEquipments.map((eq) => {
+                    const recintoName = recintos.find(r => r.id === eq.recintoId)?.name || 'Sede desconocida';
+                    const deletedDate = eq.deletedAt ? format(new Date(eq.deletedAt), 'dd/MM/yyyy HH:mm') : 'Fecha de eliminación desconocida';
+                    
+                    return (
+                      <div key={eq.id} style={{ display: 'flex', alignItems: 'center', gap: '12px', background: 'var(--bg-secondary)', padding: '12px 16px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 700, fontSize: '0.88rem', color: 'var(--text-primary)' }}>{eq.name}</div>
+                          <div style={{ display: 'flex', gap: '12px', marginTop: '4px', fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                            <span>📍 {recintoName}</span>
+                            <span>📁 {eq.section}</span>
+                            <span>🗑️ {deletedDate}</span>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                          <button
+                            onClick={async () => {
+                              await restoreEquipment(eq.id);
+                              await fetchDeletedEquipments();
+                            }}
+                            className="btn btn-secondary"
+                            style={{
+                              background: 'rgba(16, 185, 129, 0.1)',
+                              color: '#10b981',
+                              border: '1px solid rgba(16, 185, 129, 0.2)',
+                              padding: '6px 12px',
+                              fontSize: '0.78rem',
+                              fontWeight: 'bold',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                            title="Restaurar equipo a su sede original"
+                          >
+                            <RefreshCw size={12} />
+                            Restaurar
+                          </button>
+                          <button
+                            onClick={async () => {
+                              if (confirm(`¿Está seguro de eliminar definitivamente "${eq.name}"? Esta acción no se puede deshacer y borrará permanentemente todo su historial.`)) {
+                                await useEquipmentStore.getState().hardDeleteEquipment(eq.id);
+                                await fetchDeletedEquipments();
+                              }
+                            }}
+                            className="btn btn-secondary"
+                            style={{
+                              background: 'rgba(239, 68, 68, 0.1)',
+                              color: '#ef4444',
+                              border: '1px solid rgba(239, 68, 68, 0.2)',
+                              padding: '6px 12px',
+                              fontSize: '0.78rem',
+                              fontWeight: 'bold',
+                              borderRadius: '6px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: '4px'
+                            }}
+                            title="Eliminar permanentemente de la base de datos"
+                          >
+                            <X size={12} />
+                            Borrar definitivo
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px', borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
+              <button type="button" onClick={() => setIsTrashOpen(false)} className="btn btn-secondary" style={{ padding: '8px 16px', background: '#004B87', color: 'white', border: 'none', cursor: 'pointer', borderRadius: '6px' }}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -43,12 +43,21 @@ export async function DELETE(
 ) {
   try {
     const { id } = await params;
+    const { searchParams } = new URL(req.url);
+    const hardDelete = searchParams.get('hard') === 'true';
 
-    await prisma.clinicalEquipment.delete({
-      where: { id }
-    });
-
-    return NextResponse.json({ message: 'Equipment deleted successfully' });
+    if (hardDelete) {
+      await prisma.clinicalEquipment.delete({
+        where: { id }
+      });
+      return NextResponse.json({ message: 'Equipment hard-deleted successfully' });
+    } else {
+      await prisma.clinicalEquipment.update({
+        where: { id },
+        data: { deletedAt: new Date() }
+      });
+      return NextResponse.json({ message: 'Equipment soft-deleted successfully' });
+    }
   } catch (error: any) {
     console.error('Error deleting equipment:', error);
     return NextResponse.json({ error: error.message || 'Error deleting equipment' }, { status: 500 });

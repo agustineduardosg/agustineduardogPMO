@@ -80,8 +80,11 @@ const initialEquipments = [
   }
 ];
 
-export async function GET() {
+export async function GET(req: Request) {
   try {
+    const { searchParams } = new URL(req.url);
+    const onlyDeleted = searchParams.get('deleted') === 'true';
+
     const count = await prisma.clinicalEquipment.count();
     if (count === 0) {
       // Auto-sembrado inicial de equipos
@@ -103,6 +106,7 @@ export async function GET() {
     }
 
     const equipments = await prisma.clinicalEquipment.findMany({
+      where: onlyDeleted ? { NOT: { deletedAt: null } } : { deletedAt: null },
       orderBy: { name: 'asc' }
     });
     return NextResponse.json(equipments);
