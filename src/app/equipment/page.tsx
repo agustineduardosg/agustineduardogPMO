@@ -67,24 +67,25 @@ const CustomSelect = ({
       }}
     >
       {PHASE_STATUSES.map(status => (
-        <option key={status} value={status} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+        <option key={status} value={status} style={{ background: '#ffffff', color: '#0F172A' }}>
           {status}
         </option>
       ))}
       {customStatuses.map(status => (
-        <option key={status} value={status} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+        <option key={status} value={status} style={{ background: '#ffffff', color: '#0F172A' }}>
           {status}
         </option>
       ))}
       {!isStandard && !isCustomOption && value && (
-        <option value={value} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+        <option value={value} style={{ background: '#ffffff', color: '#0F172A' }}>
           {value}
         </option>
       )}
-      <option value="__custom__" style={{ background: 'var(--bg-secondary)', color: '#004B87', fontWeight: 'bold' }}>
+      <option value="__custom__" style={{ background: '#ffffff', color: '#004B87', fontWeight: 'bold' }}>
         ➕ Otro...
       </option>
     </select>
+
   );
 };
 
@@ -808,10 +809,10 @@ export default function EquipmentTrackerPage() {
             onChange={e => setFilterProject(e.target.value)}
             style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', outline: 'none', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}
           >
-            <option value="all" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>Todos los Proyectos</option>
-            <option value="none" style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>Sin Proyecto Asociado</option>
+            <option value="all" style={{ background: '#ffffff', color: '#0F172A' }}>Todos los Proyectos</option>
+            <option value="none" style={{ background: '#ffffff', color: '#0F172A' }}>Sin Proyecto Asociado</option>
             {projects.map(p => (
-              <option key={p.id} value={p.id} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>{p.name}</option>
+              <option key={p.id} value={p.id} style={{ background: '#ffffff', color: '#0F172A' }}>{p.name}</option>
             ))}
           </select>
         </div>
@@ -1055,9 +1056,9 @@ export default function EquipmentTrackerPage() {
                                 style={{ width: '100%', padding: '6px', background: 'transparent', border: '1px solid transparent', borderRadius: '4px', outline: 'none', color: eq.projectId ? '#0079C1' : 'var(--text-muted)', fontWeight: eq.projectId ? 700 : 500, fontSize: '0.8rem', cursor: 'pointer' }}
                                 className="cell-input"
                               >
-                                <option value="" style={{ background: 'var(--bg-secondary)', color: 'var(--text-muted)' }}>-- Sin Proyecto --</option>
+                                <option value="" style={{ background: '#ffffff', color: '#94A3B8' }}>-- Sin Proyecto --</option>
                                 {projects.map(p => (
-                                  <option key={p.id} value={p.id} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>{p.name}</option>
+                                  <option key={p.id} value={p.id} style={{ background: '#ffffff', color: '#0F172A' }}>{p.name}</option>
                                 ))}
                               </select>
                             </td>
