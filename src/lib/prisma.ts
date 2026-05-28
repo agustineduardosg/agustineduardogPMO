@@ -5,6 +5,7 @@ import fs from 'fs';
 // Resolves the absolute path to prisma/dev.db so Next.js runtime and Prisma CLI
 // always point to the exact same physical SQLite file.
 let databaseUrl = process.env.DATABASE_URL;
+let resolvedDbPath = '';
 
 if (databaseUrl) {
   // Si DATABASE_URL está configurada, verificamos si es una conexión a archivo SQLite
@@ -16,10 +17,10 @@ if (databaseUrl) {
       const rawFilePath = questionMarkIdx !== -1 ? urlWithoutScheme.substring(0, questionMarkIdx) : urlWithoutScheme;
       
       // Resolvemos la ruta absoluta
-      const targetDbPath = path.isAbsolute(rawFilePath) ? rawFilePath : path.resolve(process.cwd(), rawFilePath);
-      const targetDir = path.dirname(targetDbPath);
+      resolvedDbPath = path.isAbsolute(rawFilePath) ? rawFilePath : path.resolve(process.cwd(), rawFilePath);
+      const targetDir = path.dirname(resolvedDbPath);
       
-      console.log('🔍 [Prisma init] Detectada base de datos SQLite en:', targetDbPath);
+      console.log('🔍 [Prisma init] Detectada base de datos SQLite en:', resolvedDbPath);
       
       // Asegurar que el directorio destino existe (por ejemplo, /data)
       if (!fs.existsSync(targetDir)) {
@@ -31,10 +32,10 @@ if (databaseUrl) {
       const templateDbPath = path.join(process.cwd(), 'prisma', 'dev.db');
       
       // Si el archivo en la ruta destino no existe pero la plantilla existe, lo inicializamos copiándolo
-      if (!fs.existsSync(targetDbPath) && fs.existsSync(templateDbPath)) {
+      if (!fs.existsSync(resolvedDbPath) && fs.existsSync(templateDbPath)) {
         console.log('🚨 [Prisma init] Base de datos destino no encontrada. Copiando plantilla de datos pre-populada...');
-        fs.copyFileSync(templateDbPath, targetDbPath);
-        console.log('✅ [Prisma init] Base de datos auto-inicializada con éxito en:', targetDbPath);
+        fs.copyFileSync(templateDbPath, resolvedDbPath);
+        console.log('✅ [Prisma init] Base de datos auto-inicializada con éxito en:', resolvedDbPath);
       }
     } catch (err) {
       console.error('❌ [Prisma init] Error al inicializar/copiar base de datos SQLite persistente:', err);
@@ -42,8 +43,8 @@ if (databaseUrl) {
   }
 } else {
   // Fallback estándar de desarrollo local
-  const dbPath = path.join(process.cwd(), 'prisma', 'dev.db');
-  databaseUrl = `file:${dbPath}?connection_limit=1&socket_timeout=10000&busy_timeout=10000`;
+  resolvedDbPath = path.join(process.cwd(), 'prisma', 'dev.db');
+  databaseUrl = `file:${resolvedDbPath}?connection_limit=1&socket_timeout=10000&busy_timeout=10000`;
 }
 
 const globalForPrisma = global as unknown as { prisma: PrismaClient };
@@ -67,7 +68,7 @@ if (!globalForPrisma.prisma) {
       await prisma.$queryRawUnsafe('PRAGMA synchronous=NORMAL;');
       // Cache de memoria optimizado para lecturas rápidas
       await prisma.$queryRawUnsafe('PRAGMA cache_size=-64000;'); // ~64MB cache
-      console.log('⚡ Base de datos SQLite optimizada con éxito en modo WAL y apuntando a:', dbPath);
+      console.log('⚡ Base de datos SQLite optimizada con éxito en modo WAL y apuntando a:', resolvedDbPath);
     } catch (error) {
       console.error('❌ Error al configurar optimizaciones de SQLite:', error);
     }
