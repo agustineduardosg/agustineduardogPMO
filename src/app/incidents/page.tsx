@@ -22,6 +22,7 @@ import {
   Edit2
 } from 'lucide-react';
 import { InlineInput, InlineTextarea } from '@/components/InlineInput';
+import { Drawer } from '@/components/Drawer';
 
 // Estilos de impacto
 const IMPACT_STYLE: Record<IncidentImpact, { bg: string; color: string; border: string }> = {
@@ -66,6 +67,53 @@ export default function IncidentsPage() {
 
   // Auto-save Feedback State
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
+
+  // Estados para control del Drawer lateral (Master-Detail)
+  const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+
+  // Incidente seleccionado actualmente de forma reactiva
+  const selectedIncident = useMemo(() => {
+    if (!selectedIncidentId) return null;
+    return incidents.find(i => i.id === selectedIncidentId) || null;
+  }, [selectedIncidentId, incidents]);
+
+  // Estados locales para los campos del Drawer (evita lag al escribir en global store)
+  const [drawerFecha, setDrawerFecha] = useState('');
+  const [drawerFechaCierre, setDrawerFechaCierre] = useState('');
+  const [drawerRecintoName, setDrawerRecintoName] = useState('');
+  const [drawerProjectId, setDrawerProjectId] = useState<string | null>('');
+  const [drawerEquipmentName, setDrawerEquipmentName] = useState('');
+  const [drawerFaseAfectada, setDrawerFaseAfectada] = useState('');
+  const [drawerResponsable, setDrawerResponsable] = useState('');
+  const [drawerImpacto, setDrawerImpacto] = useState('');
+  const [drawerEstado, setDrawerEstado] = useState('');
+  const [drawerDescripcion, setDrawerDescripcion] = useState('');
+  const [drawerPlanDeAccion, setDrawerPlanDeAccion] = useState('');
+  const [drawerCustomFields, setDrawerCustomFields] = useState<Record<string, string>>({});
+
+  // Sincronizar estados locales cuando cambie el incidente seleccionado
+  useEffect(() => {
+    if (selectedIncident) {
+      setDrawerFecha(selectedIncident.fecha || '');
+      setDrawerFechaCierre(selectedIncident.fechaCierre || '');
+      setDrawerRecintoName(selectedIncident.recintoName || '');
+      setDrawerProjectId(selectedIncident.projectId || null);
+      setDrawerEquipmentName(selectedIncident.equipmentName || '');
+      setDrawerFaseAfectada(selectedIncident.faseAfectada || '');
+      setDrawerResponsable(selectedIncident.responsable || '');
+      setDrawerImpacto(selectedIncident.impacto || '');
+      setDrawerEstado(selectedIncident.estado || '');
+      setDrawerDescripcion(selectedIncident.descripcion || '');
+      setDrawerPlanDeAccion(selectedIncident.planDeAccion || '');
+      
+      try {
+        setDrawerCustomFields(selectedIncident.customFields ? JSON.parse(selectedIncident.customFields) : {});
+      } catch (e) {
+        setDrawerCustomFields({});
+      }
+    }
+  }, [selectedIncidentId, selectedIncident?.id]);
 
   const handleUpdateIncident = async (incId: string, updates: any) => {
     setSaveStatus('saving');
@@ -838,13 +886,18 @@ export default function IncidentsPage() {
                       </td>
 
                       {/* Descripción */}
-                      <td>
-                        <InlineTextarea
-                          value={inc.descripcion}
-                          onSave={(val) => handleUpdateIncident(inc.id, { descripcion: val })}
-                          placeholder="Detallar el incidente, anomalía técnica o bloqueo con el proveedor..."
-                          className="table-cell-textarea"
-                        />
+                      <td 
+                        onClick={() => { setSelectedIncidentId(inc.id); setIsDrawerOpen(true); }}
+                        className="clickable-preview-cell"
+                        title="Haga clic para ver/editar el detalle"
+                      >
+                        <div className="preview-text">
+                          {inc.descripcion ? (
+                            inc.descripcion.length > 70 ? `${inc.descripcion.substring(0, 70)}...` : inc.descripcion
+                          ) : (
+                            <span className="placeholder-text">Detallar incidente...</span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Impacto (Píldora interactiva) */}
@@ -959,13 +1012,18 @@ export default function IncidentsPage() {
                       </td>
 
                       {/* Plan de Acción */}
-                      <td>
-                        <InlineTextarea
-                          value={inc.planDeAccion}
-                          onSave={(val) => handleUpdateIncident(inc.id, { planDeAccion: val })}
-                          placeholder="Ingresar plan inmediato, ticket soporte, acuerdos con proveedor..."
-                          className="table-cell-textarea"
-                        />
+                      <td 
+                        onClick={() => { setSelectedIncidentId(inc.id); setIsDrawerOpen(true); }}
+                        className="clickable-preview-cell"
+                        title="Haga clic para ver/editar el detalle"
+                      >
+                        <div className="preview-text">
+                          {inc.planDeAccion ? (
+                            inc.planDeAccion.length > 70 ? `${inc.planDeAccion.substring(0, 70)}...` : inc.planDeAccion
+                          ) : (
+                            <span className="placeholder-text">Ingresar plan inmediato...</span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Fecha de Cierre */}
@@ -999,17 +1057,29 @@ export default function IncidentsPage() {
 
                       {/* Botón de acción */}
                       <td style={{ textAlign: 'center' }}>
-                        <button 
-                          onClick={() => {
-                            if (confirm(`¿Está seguro de eliminar el incidente #${inc.indexId}?`)) {
-                              deleteIncident(inc.id);
-                            }
-                          }}
-                          className="delete-row-btn"
-                          title="Eliminar Incidente"
-                        >
-                          <Trash2 size={15} />
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
+                          <button
+                            onClick={() => {
+                              setSelectedIncidentId(inc.id);
+                              setIsDrawerOpen(true);
+                            }}
+                            className="edit-row-btn"
+                            title="Editar / Ver Detalle"
+                          >
+                            <Edit2 size={14} />
+                          </button>
+                          <button 
+                            onClick={() => {
+                              if (confirm(`¿Está seguro de eliminar el incidente #${inc.indexId}?`)) {
+                                deleteIncident(inc.id);
+                              }
+                            }}
+                            className="delete-row-btn"
+                            title="Eliminar Incidente"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
                       </td>
 
                     </tr>
@@ -1020,6 +1090,329 @@ export default function IncidentsPage() {
           </table>
         </div>
       </div>
+
+      {/* Drawer Deslizante de Edición Detallada (Master-Detail UX) */}
+      <Drawer
+        isOpen={isDrawerOpen}
+        onClose={() => {
+          setIsDrawerOpen(false);
+          setSelectedIncidentId(null);
+        }}
+        title={selectedIncident ? `Detalle del Incidente #${selectedIncident.indexId}` : "Detalle del Incidente"}
+      >
+        {selectedIncident ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            
+            {/* Cabecera / Estado dentro del Drawer */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              background: 'var(--bg-tertiary)',
+              padding: '12px 16px',
+              borderRadius: '8px',
+              border: '1px solid var(--border-subtle)'
+            }}>
+              <div>
+                <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', display: 'block' }}>ID Incidente</span>
+                <span style={{ fontSize: '1rem', fontWeight: 800, color: '#004B87' }}>#{selectedIncident.indexId}</span>
+              </div>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <span style={{
+                  background: (IMPACT_STYLE[selectedIncident.impacto as IncidentImpact] || IMPACT_STYLE['Bajo']).bg,
+                  color: (IMPACT_STYLE[selectedIncident.impacto as IncidentImpact] || IMPACT_STYLE['Bajo']).color,
+                  border: `1px solid ${(IMPACT_STYLE[selectedIncident.impacto as IncidentImpact] || IMPACT_STYLE['Bajo']).border}`,
+                  padding: '4px 10px',
+                  borderRadius: '12px',
+                  fontSize: '0.72rem',
+                  fontWeight: 'bold'
+                }}>
+                  {selectedIncident.impacto}
+                </span>
+                <span style={{
+                  background: (STATUS_STYLE[selectedIncident.estado as IncidentStatus] || STATUS_STYLE['Abierto']).bg,
+                  color: (STATUS_STYLE[selectedIncident.estado as IncidentStatus] || STATUS_STYLE['Abierto']).color,
+                  border: `1px solid ${(STATUS_STYLE[selectedIncident.estado as IncidentStatus] || STATUS_STYLE['Abierto']).border}`,
+                  padding: '4px 10px',
+                  borderRadius: '12px',
+                  fontSize: '0.72rem',
+                  fontWeight: 'bold'
+                }}>
+                  {selectedIncident.estado}
+                </span>
+              </div>
+            </div>
+
+            {/* Fila 1: Fechas */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <div>
+                <label className="drawer-label">Fecha Registro</label>
+                <input 
+                  type="date" 
+                  value={drawerFecha}
+                  onChange={(e) => setDrawerFecha(e.target.value)}
+                  onBlur={() => handleUpdateIncident(selectedIncident.id, { fecha: drawerFecha })}
+                  className="drawer-input"
+                />
+              </div>
+              <div>
+                <label className="drawer-label">Fecha Cierre</label>
+                <input 
+                  type="date" 
+                  value={drawerFechaCierre}
+                  onChange={(e) => setDrawerFechaCierre(e.target.value)}
+                  onBlur={() => handleUpdateIncident(selectedIncident.id, { fechaCierre: drawerFechaCierre })}
+                  className="drawer-input"
+                />
+              </div>
+            </div>
+
+            {/* Fila 2: Sede y Proyecto */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <div>
+                <label className="drawer-label">Sede / Clínica</label>
+                <select
+                  value={drawerRecintoName}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setDrawerRecintoName(val);
+                    handleUpdateIncident(selectedIncident.id, { recintoName: val });
+                  }}
+                  className="drawer-select"
+                >
+                  {recintos.map(r => (
+                    <option key={r.id} value={r.name}>{r.name}</option>
+                  ))}
+                  {uniqueRecintosInIncidents.map(name => {
+                    if (recintos.some(r => r.name === name)) return null;
+                    return <option key={name} value={name}>{name}</option>;
+                  })}
+                </select>
+              </div>
+              <div>
+                <label className="drawer-label">Proyecto Asociado</label>
+                <select
+                  value={drawerProjectId || ''}
+                  onChange={(e) => {
+                    const val = e.target.value || null;
+                    setDrawerProjectId(val);
+                    handleUpdateIncident(selectedIncident.id, { projectId: val });
+                  }}
+                  className="drawer-select"
+                >
+                  <option value="">-- Sin Proyecto --</option>
+                  {projects.map(p => (
+                    <option key={p.id} value={p.id}>{p.name}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Fila 3: Equipo y Fase */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <div>
+                <label className="drawer-label">Equipo Afectado</label>
+                <input
+                  type="text"
+                  value={drawerEquipmentName}
+                  onChange={(e) => setDrawerEquipmentName(e.target.value)}
+                  onBlur={() => handleUpdateIncident(selectedIncident.id, { equipmentName: drawerEquipmentName })}
+                  placeholder="Ej: CA 600"
+                  className="drawer-input"
+                />
+              </div>
+              <div>
+                <label className="drawer-label">Fase Afectada</label>
+                <select
+                  value={drawerFaseAfectada}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    setDrawerFaseAfectada(val);
+                    handleUpdateIncident(selectedIncident.id, { faseAfectada: val });
+                  }}
+                  className="drawer-select"
+                >
+                  {FASES_CLINICAS.map(fase => (
+                    <option key={fase} value={fase}>{fase}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            {/* Fila 4: Responsable */}
+            <div>
+              <label className="drawer-label">Responsable</label>
+              <select
+                value={drawerResponsable}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setDrawerResponsable(val);
+                  handleUpdateIncident(selectedIncident.id, { responsable: val });
+                }}
+                className="drawer-select"
+              >
+                <optgroup label="Equipo de Proyecto">
+                  {users.map(u => (
+                    <option key={u.id} value={u.name}>{u.name} ({u.role})</option>
+                  ))}
+                </optgroup>
+                <optgroup label="Equipos de Apoyo">
+                  <option value="Equipo técnico">Equipo técnico</option>
+                  <option value="Laboratorio">Laboratorio</option>
+                  <option value="Usuario / Clínica">Usuario / Clínica</option>
+                  <option value="Proveedor Siemens">Proveedor Siemens</option>
+                  <option value="Sistemas TI Bupa">Sistemas TI Bupa</option>
+                </optgroup>
+              </select>
+            </div>
+
+            {/* Fila 5: Impacto y Estado */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px' }}>
+              <div>
+                <label className="drawer-label">Impacto</label>
+                <select
+                  value={drawerImpacto}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '__custom__') {
+                      const customVal = prompt("Ingrese el impacto de incidente personalizado:");
+                      if (customVal && customVal.trim()) {
+                        const cleanVal = customVal.trim();
+                        setDrawerImpacto(cleanVal);
+                        handleUpdateIncident(selectedIncident.id, { impacto: cleanVal });
+                      }
+                    } else {
+                      setDrawerImpacto(val);
+                      handleUpdateIncident(selectedIncident.id, { impacto: val });
+                    }
+                  }}
+                  className="drawer-select"
+                >
+                  <option value="Crítico">Crítico</option>
+                  <option value="Medio">Medio</option>
+                  <option value="Bajo">Bajo</option>
+                  {uniqueIncidentImpact.map(opt => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                  <option value="__custom__">➕ Otro...</option>
+                </select>
+              </div>
+              <div>
+                <label className="drawer-label">Estado</label>
+                <select
+                  value={drawerEstado}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (val === '__custom__') {
+                      const customVal = prompt("Ingrese el estado de incidente personalizado:");
+                      if (customVal && customVal.trim()) {
+                        const cleanVal = customVal.trim();
+                        const closureDate = cleanVal === 'Cerrado' ? new Date().toISOString().split('T')[0] : '';
+                        setDrawerEstado(cleanVal);
+                        if (closureDate) setDrawerFechaCierre(closureDate);
+                        handleUpdateIncident(selectedIncident.id, { 
+                          estado: cleanVal,
+                          fechaCierre: closureDate
+                        });
+                      }
+                    } else {
+                      const closureDate = val === 'Cerrado' ? new Date().toISOString().split('T')[0] : '';
+                      setDrawerEstado(val);
+                      if (closureDate) setDrawerFechaCierre(closureDate);
+                      handleUpdateIncident(selectedIncident.id, { 
+                        estado: val,
+                        fechaCierre: closureDate
+                      });
+                    }
+                  }}
+                  className="drawer-select"
+                >
+                  <option value="Abierto">Abierto</option>
+                  <option value="En proceso">En proceso</option>
+                  <option value="Cerrado">Cerrado</option>
+                  {uniqueIncidentStatus.map(opt => (
+                    <option key={opt} value={opt}>{opt}</option>
+                  ))}
+                  <option value="__custom__">➕ Otro...</option>
+                </select>
+              </div>
+            </div>
+
+            {/* Editores Amplios */}
+            <div>
+              <label className="drawer-label">Descripción del Incidente / Desviación</label>
+              <textarea
+                value={drawerDescripcion}
+                onChange={(e) => setDrawerDescripcion(e.target.value)}
+                onBlur={() => handleUpdateIncident(selectedIncident.id, { descripcion: drawerDescripcion })}
+                placeholder="Detallar el incidente, anomalía técnica o bloqueo con el proveedor..."
+                className="drawer-textarea"
+                rows={4}
+              />
+            </div>
+
+            <div>
+              <label className="drawer-label">Plan de Acción Inmediato / Mitigación</label>
+              <textarea
+                value={drawerPlanDeAccion}
+                onChange={(e) => setDrawerPlanDeAccion(e.target.value)}
+                onBlur={() => handleUpdateIncident(selectedIncident.id, { planDeAccion: drawerPlanDeAccion })}
+                placeholder="Ingresar plan inmediato, ticket soporte, acuerdos con proveedor..."
+                className="drawer-textarea"
+                rows={4}
+              />
+            </div>
+
+            {/* Campos Personalizados Dinámicos */}
+            {customColumns.length > 0 && (
+              <div style={{
+                marginTop: '10px',
+                borderTop: '1px solid var(--border-subtle)',
+                paddingTop: '16px'
+              }}>
+                <span style={{
+                  fontSize: '0.78rem',
+                  fontWeight: 800,
+                  color: 'var(--text-secondary)',
+                  textTransform: 'uppercase',
+                  display: 'block',
+                  marginBottom: '12px'
+                }}>
+                  Campos Personalizados
+                </span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                  {customColumns.map(col => {
+                    const cellValue = drawerCustomFields[col] || '';
+                    return (
+                      <div key={col}>
+                        <label className="drawer-label">{col}</label>
+                        <input
+                          type="text"
+                          value={cellValue}
+                          onChange={(e) => {
+                            const updatedFields = { ...drawerCustomFields, [col]: e.target.value };
+                            setDrawerCustomFields(updatedFields);
+                          }}
+                          onBlur={() => {
+                            handleUpdateIncident(selectedIncident.id, { customFields: JSON.stringify(drawerCustomFields) });
+                          }}
+                          placeholder={`Ingresar ${col.toLowerCase()}...`}
+                          className="drawer-input"
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+          </div>
+        ) : (
+          <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>
+            No hay ningún incidente seleccionado.
+          </div>
+        )}
+      </Drawer>
 
       {/* Estilos CSS Scoped para lograr la estética World-Class */}
       <style dangerouslySetInnerHTML={{__html: `
@@ -1330,6 +1723,92 @@ export default function IncidentsPage() {
         .delete-row-btn:hover {
           color: var(--accent-danger);
           background: rgba(225, 29, 72, 0.08);
+        }
+
+        /* Botón de edición rápida */
+        .edit-row-btn {
+          background: none;
+          border: none;
+          color: var(--text-muted);
+          cursor: pointer;
+          padding: 6px;
+          border-radius: 6px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          transition: all var(--transition-fast);
+        }
+
+        .edit-row-btn:hover {
+          color: var(--accent-primary);
+          background: rgba(0, 75, 135, 0.08);
+        }
+
+        /* Vista scannable de celdas de texto */
+        .clickable-preview-cell {
+          cursor: pointer;
+          transition: background-color var(--transition-fast);
+        }
+
+        .clickable-preview-cell:hover {
+          background-color: rgba(0, 75, 135, 0.02) !important;
+        }
+
+        .preview-text {
+          font-size: 0.8rem;
+          color: var(--text-primary);
+          line-height: 1.4;
+          white-space: normal;
+          word-break: break-word;
+          transition: color 0.15s ease, text-decoration 0.15s ease;
+        }
+
+        .clickable-preview-cell:hover .preview-text {
+          color: var(--accent-primary);
+          text-decoration: underline dotted 1.5px;
+        }
+
+        .placeholder-text {
+          color: var(--text-muted);
+          font-style: italic;
+        }
+
+        /* Formulario premium del Drawer lateral */
+        .drawer-label {
+          font-size: 0.72rem;
+          font-weight: 800;
+          color: var(--text-secondary);
+          text-transform: uppercase;
+          display: block;
+          margin-bottom: 6px;
+          letter-spacing: 0.03em;
+        }
+
+        .drawer-input,
+        .drawer-select,
+        .drawer-textarea {
+          width: 100%;
+          padding: 10px 12px;
+          background: var(--bg-primary);
+          border: 1px solid var(--border-light);
+          border-radius: var(--radius-sm);
+          color: var(--text-primary);
+          font-family: inherit;
+          font-size: 0.85rem;
+          outline: none;
+          transition: border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .drawer-input:focus,
+        .drawer-select:focus,
+        .drawer-textarea:focus {
+          border-color: var(--accent-primary);
+          box-shadow: 0 0 0 3px rgba(0, 75, 135, 0.08);
+        }
+
+        .drawer-textarea {
+          resize: vertical;
+          line-height: 1.4;
         }
 
         .no-data-cell {

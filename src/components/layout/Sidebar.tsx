@@ -165,11 +165,46 @@ export const Sidebar = () => {
           </ul>
         </nav>
    
-        <div className="sidebar-footer">
+        <div className="sidebar-footer" style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           <Link href="/settings" className={`nav-link ${isActive("/settings") ? "active" : ""}`} title={collapsed ? "Ajustes" : undefined}>
             <Settings size={20} />
             {!collapsed && <span>Ajustes</span>}
           </Link>
+          
+          {/* SQLite WAL health badge */}
+          <div style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '8px 12px',
+            background: 'rgba(13, 148, 136, 0.05)',
+            border: '1px solid rgba(13, 148, 136, 0.15)',
+            borderRadius: '8px',
+            marginTop: '4px',
+            justifyContent: collapsed ? 'center' : 'flex-start',
+            transition: 'all 0.2s ease'
+          }} title="Base de datos SQLite optimizada con éxito en modo Write-Ahead Logging (WAL)">
+            <span style={{
+              width: '7px',
+              height: '7px',
+              borderRadius: '50%',
+              background: '#0d9488',
+              flexShrink: 0,
+              animation: 'pulseHealth 2s infinite'
+            }} />
+            {!collapsed && (
+              <span style={{ fontSize: '0.66rem', fontWeight: 700, color: '#0d9488', letterSpacing: '0.2px', textTransform: 'uppercase' }}>
+                DB Optimizada (WAL)
+              </span>
+            )}
+          </div>
+          <style dangerouslySetInnerHTML={{__html: `
+            @keyframes pulseHealth {
+              0% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(13, 148, 136, 0.4); }
+              70% { transform: scale(1.08); box-shadow: 0 0 0 5px rgba(13, 148, 136, 0); }
+              100% { transform: scale(0.92); box-shadow: 0 0 0 0 rgba(13, 148, 136, 0); }
+            }
+          `}} />
         </div>
       </div>
 

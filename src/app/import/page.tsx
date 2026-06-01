@@ -19,7 +19,8 @@ import {
   ChevronRight,
   Activity,
   FileSpreadsheet,
-  Link2
+  Link2,
+  Building
 } from 'lucide-react';
 import { useProjectStore, Task, Phase, Project, TaskStatus } from '@/store/projectStore';
 import { useEquipmentStore, ClinicalEquipment, Recinto, EquipmentPhaseStatus } from '@/store/equipmentStore';
@@ -29,6 +30,7 @@ import { format } from 'date-fns';
 
 type GanttMappingKeys = 'taskName' | 'phaseName' | 'startDate' | 'endDate' | 'duration' | 'assignee' | 'progress' | 'status' | 'priority' | 'notes';
 type EquipmentMappingKeys = 'name' | 'section' | 'recintoName' | 'responsable' | 'observaciones' | 'pendienteDe' | 'compromisoDate' | 'levantamiento' | 'parametrizacion' | 'pruebas' | 'capacitacion' | 'validacion' | 'golive';
+type AnalyteMappingKeys = 'instrumentName' | 'transmissionCode' | 'testCode' | 'name' | 'description' | 'section' | 'state';
 
 interface ValidationError {
   row: number;
@@ -68,10 +70,21 @@ const EQUIP_FIELD_OPTIONS = [
   { value: 'compromisoDate', label: 'Fecha de Compromiso' }
 ];
 
+const ANALYTE_FIELD_OPTIONS = [
+  { value: '', label: 'No usar esta columna' },
+  { value: 'instrumentName', label: '✅ Instrumento / Equipo (Requerido)' },
+  { value: 'transmissionCode', label: '✅ Cód. Transmisión (Requerido)' },
+  { value: 'testCode', label: '✅ Cód. Test / Código Analito (Requerido)' },
+  { value: 'name', label: '✅ Nombre del Analito (Requerido)' },
+  { value: 'description', label: 'Descripción Extensa' },
+  { value: 'section', label: 'Sección / Laboratorio' },
+  { value: 'state', label: 'Estado Actual' }
+];
+
 export default function ImportPage() {
   // Stepper state: 1 = Config/Upload, 2 = Mapping, 3 = Validation, 4 = Syncing/Success
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
-  const [importType, setImportType] = useState<'gantt' | 'equipment'>('gantt');
+  const [importType, setImportType] = useState<'gantt' | 'equipment' | 'analyte'>('gantt');
   const [isContextual, setIsContextual] = useState(false);
   
   const [file, setFile] = useState<File | null>(null);
@@ -90,6 +103,11 @@ export default function ImportPage() {
   // Mapping structures
   const [ganttMapping, setGanttMapping] = useState<Record<string, GanttMappingKeys | ''>>({});
   const [equipMapping, setEquipMapping] = useState<Record<string, EquipmentMappingKeys | ''>>({});
+  const [analyteMapping, setAnalyteMapping] = useState<Record<string, AnalyteMappingKeys | ''>>({});
+  
+  // Asignación interactiva de sedes para analitos sin sigla visible
+  const [instrumentSedeMap, setInstrumentSedeMap] = useState<Record<string, string>>({});
+  const [uniqueInstrumentsList, setUniqueInstrumentsList] = useState<string[]>([]);
   
   // Meta Configuration
   const [projectName, setProjectName] = useState('Nuevo Proyecto Importado');
@@ -111,7 +129,7 @@ export default function ImportPage() {
   
   // Global Stores
   const { projects, addProject, fetchProjects } = useProjectStore();
-  const { recintos, addRecinto, addEquipment, fetchEquipmentData } = useEquipmentStore();
+  const { recintos, addRecinto, addEquipment, fetchEquipmentData, bulkImportAnalytes } = useEquipmentStore();
 
   useEffect(() => {
     fetchProjects();
@@ -128,8 +146,8 @@ export default function ImportPage() {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const typeParam = params.get('type');
-      if (typeParam === 'gantt' || typeParam === 'equipment') {
-        setImportType(typeParam);
+      if (typeParam === 'gantt' || typeParam === 'equipment' || typeParam === 'analyte') {
+        setImportType(typeParam as any);
         setIsContextual(true);
       }
     }
@@ -161,7 +179,7 @@ export default function ImportPage() {
       const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
       XLSX.utils.book_append_sheet(wb, ws, "Cronograma Gantt");
       XLSX.writeFile(wb, "Plantilla_Gantt_SmartPM.xlsx");
-    } else {
+    } else if (importType === 'equipment') {
       const headers = ['Nombre del Recinto', 'Nombre del Equipo', 'Sección / Especialidad', 'Responsable', 'Levantamiento', 'Parametrización', 'Pruebas', 'Capacitación', 'Validación', 'Go Live', 'Observaciones'];
       const rows = [
         ['BUPA CLA', 'Advia 2120 Hematología', 'Hematología', 'Dr. Juan Gómez', 'Completado', 'Completado', 'En progreso', 'No iniciado', 'No iniciado', 'No iniciado', 'Calibración anual al día'],
@@ -171,6 +189,17 @@ export default function ImportPage() {
       const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
       XLSX.utils.book_append_sheet(wb, ws, "Equipamiento Clínico");
       XLSX.writeFile(wb, "Plantilla_Equipos_Clinicos_SmartPM.xlsx");
+    } else {
+      const headers = ['Instrumento', 'Cod transmision', 'Cod Test', 'Nombre analito', 'Descripcion Extensa', 'Seccion', 'estado'];
+      const rows = [
+        ['A15', 'ADA', '302050', 'ADA', 'Adenosindeaminasa', 'TECNICAS ESPECIALES', 'No Iniciado'],
+        ['A15_2', 'FCAL', '302530', 'Calpro', 'Calprotectina', 'INMUNOLOGIA', 'No Iniciado'],
+        ['Advia1201AD', 'HemImage', '301045-AD', 'HemImage', 'HemImage', 'HEMATOLOGIA', 'Transmitiendo'],
+        ['Advia1201AD', '5', '301045-D', 'VCM', 'VCM', 'HEMATOLOGIA', 'Transmitiendo']
+      ];
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+      XLSX.utils.book_append_sheet(wb, ws, "Matriz de Analitos");
+      XLSX.writeFile(wb, "Plantilla_Analitos_Bupa.xlsx");
     }
   };
 
@@ -270,7 +299,7 @@ export default function ImportPage() {
         }
       });
       setGanttMapping(initialGantt);
-    } else {
+    } else if (importType === 'equipment') {
       const initialEquip: Record<string, EquipmentMappingKeys | ''> = {};
       headers.forEach(col => initialEquip[col] = '');
 
@@ -309,6 +338,29 @@ export default function ImportPage() {
         }
       });
       setEquipMapping(initialEquip);
+    } else {
+      const initialAnalyte: Record<string, AnalyteMappingKeys | ''> = {};
+      headers.forEach(col => initialAnalyte[col] = '');
+
+      headers.forEach(col => {
+        const norm = normalizeStr(col);
+        if (norm.includes('instrumento') || norm.includes('equipo') || norm.includes('aparato')) {
+          initialAnalyte[col] = 'instrumentName';
+        } else if (norm.includes('cod transmision') || norm.includes('transmision') || norm.includes('codigo transmision')) {
+          initialAnalyte[col] = 'transmissionCode';
+        } else if (norm.includes('cod test') || norm.includes('codigo test') || norm.includes('test')) {
+          initialAnalyte[col] = 'testCode';
+        } else if (norm.includes('nombre analito') || norm.includes('analito') || norm.includes('nombre')) {
+          initialAnalyte[col] = 'name';
+        } else if (norm.includes('descripcion') || norm.includes('extensa')) {
+          initialAnalyte[col] = 'description';
+        } else if (norm.includes('seccion') || norm.includes('departamento') || norm.includes('laboratorio')) {
+          initialAnalyte[col] = 'section';
+        } else if (norm.includes('estado') || norm.includes('status')) {
+          initialAnalyte[col] = 'state';
+        }
+      });
+      setAnalyteMapping(initialAnalyte);
     }
   };
 
@@ -514,7 +566,7 @@ export default function ImportPage() {
           }
         }
       });
-    } else {
+    } else if (importType === 'equipment') {
       const colName = Object.keys(equipMapping).find(k => equipMapping[k] === 'name');
       const colRec = Object.keys(equipMapping).find(k => equipMapping[k] === 'recintoName');
 
@@ -559,6 +611,109 @@ export default function ImportPage() {
           }
         }
       });
+    } else {
+      // Validar Analitos
+      const colInst = Object.keys(analyteMapping).find(k => analyteMapping[k] === 'instrumentName');
+      const colTrans = Object.keys(analyteMapping).find(k => analyteMapping[k] === 'transmissionCode');
+      const colTest = Object.keys(analyteMapping).find(k => analyteMapping[k] === 'testCode');
+      const colName = Object.keys(analyteMapping).find(k => analyteMapping[k] === 'name');
+
+      if (!colInst || !colTrans || !colTest || !colName) {
+        alert("¡Falta Mapeo Crítico! Debes seleccionar las columnas de Instrumento, Cód. Transmisión, Cód. Test y Nombre de Analito.");
+        return;
+      }
+
+      const uniqueInstruments = new Set<string>();
+
+      parsedData.forEach((row, index) => {
+        const rowNum = index + 1;
+        const instVal = row[colInst];
+        const transVal = row[colTrans];
+        const testVal = row[colTest];
+        const nameVal = row[colName];
+
+        if (!instVal || String(instVal).trim() === '') {
+          errors.push({
+            row: rowNum,
+            column: colInst,
+            level: 'critical',
+            message: 'Nombre del instrumento vacío. Fila descartada.'
+          });
+          criticalRowsSet.add(index);
+        } else {
+          uniqueInstruments.add(String(instVal).trim());
+        }
+
+        if (!transVal || String(transVal).trim() === '') {
+          errors.push({
+            row: rowNum,
+            column: colTrans,
+            level: 'critical',
+            message: 'Código de transmisión vacío. Fila descartada.'
+          });
+          criticalRowsSet.add(index);
+        }
+
+        if (!testVal || String(testVal).trim() === '') {
+          errors.push({
+            row: rowNum,
+            column: colTest,
+            level: 'critical',
+            message: 'Código de Test vacío. Fila descartada.'
+          });
+          criticalRowsSet.add(index);
+        }
+
+        if (!nameVal || String(nameVal).trim() === '') {
+          errors.push({
+            row: rowNum,
+            column: colName,
+            level: 'critical',
+            message: 'Nombre del analito vacío. Fila descartada.'
+          });
+          criticalRowsSet.add(index);
+        }
+      });
+
+      // Inicializar el listado único de instrumentos y autodetección de sedes clínicas
+      const instList = Array.from(uniqueInstruments);
+      setUniqueInstrumentsList(instList);
+
+      const map: Record<string, string> = {};
+      instList.forEach(name => {
+        const norm = name.toUpperCase().trim();
+        let matchedRecId = '';
+
+        // Algoritmo de mapeo de siglas del usuario (AD, CLC, DSJ, CLBS, TAR, CAR, CLL, COR, CSJ, R, CI, A, CDSJ)
+        if (norm.endsWith('AD') || norm.endsWith('CLBS') || norm.endsWith('CI') || norm.endsWith('A')) {
+          const rec = recintos.find(r => r.name.toLowerCase().includes('cla') || r.name.toLowerCase().includes('bupa cla'));
+          matchedRecId = rec ? rec.id : 'rec-4527';
+        } else if (norm.endsWith('CLR') || norm.endsWith('R')) {
+          const rec = recintos.find(r => r.name.toLowerCase().includes('clr') || r.name.toLowerCase().includes('bupa clr'));
+          matchedRecId = rec ? rec.id : 'rec-4528';
+        } else if (norm.endsWith('CLC')) {
+          const rec = recintos.find(r => r.name.toLowerCase().includes('las condes') || r.name.toLowerCase().includes('clc'));
+          matchedRecId = rec ? rec.id : 'rec-4529';
+        } else if (norm.endsWith('CSJ') || norm.endsWith('DSJ') || norm.endsWith('CDSJ')) {
+          const rec = recintos.find(r => r.name.toLowerCase().includes('arica') || r.name.toLowerCase().includes('san jose'));
+          matchedRecId = rec ? rec.id : 'rec-4530';
+        } else if (norm.endsWith('COR')) {
+          const rec = recintos.find(r => r.name.toLowerCase().includes('cordillera') || r.name.toLowerCase().includes('cor'));
+          matchedRecId = rec ? rec.id : 'rec-4531';
+        } else if (norm.endsWith('CAR')) {
+          const rec = recintos.find(r => r.name.toLowerCase().includes('carrera') || r.name.toLowerCase().includes('car'));
+          matchedRecId = rec ? rec.id : 'rec-4532';
+        } else if (norm.endsWith('CLL')) {
+          const rec = recintos.find(r => r.name.toLowerCase().includes('leones') || r.name.toLowerCase().includes('cll'));
+          matchedRecId = rec ? rec.id : 'rec-4533';
+        } else if (norm.endsWith('TAR')) {
+          const rec = recintos.find(r => r.name.toLowerCase().includes('tarapaca') || r.name.toLowerCase().includes('tar'));
+          matchedRecId = rec ? rec.id : 'rec-4534';
+        }
+
+        map[name] = matchedRecId; // Si no hay sigla conocida, queda vacío '' para selección interactiva
+      });
+      setInstrumentSedeMap(map);
     }
 
     setValidationErrors(errors);
@@ -716,7 +871,7 @@ export default function ImportPage() {
         setStep(3);
         setIsImporting(false);
       }
-    } else {
+    } else if (importType === 'equipment') {
       // Equipment Import
       try {
         const colName = Object.keys(equipMapping).find(k => equipMapping[k] === 'name')!;
@@ -818,6 +973,68 @@ export default function ImportPage() {
         setStep(3);
         setIsImporting(false);
       }
+    } else {
+      // Importar Analitos
+      try {
+        const colInst = Object.keys(analyteMapping).find(k => analyteMapping[k] === 'instrumentName')!;
+        const colTrans = Object.keys(analyteMapping).find(k => analyteMapping[k] === 'transmissionCode')!;
+        const colTest = Object.keys(analyteMapping).find(k => analyteMapping[k] === 'testCode')!;
+        const colName = Object.keys(analyteMapping).find(k => analyteMapping[k] === 'name')!;
+        const colDesc = Object.keys(analyteMapping).find(k => analyteMapping[k] === 'description');
+        const colSection = Object.keys(analyteMapping).find(k => analyteMapping[k] === 'section');
+        const colState = Object.keys(analyteMapping).find(k => analyteMapping[k] === 'state');
+
+        // Si hay instrumentos sin sede asignada, preguntar si desean continuar e importarlos sin sede
+        const unassigned = uniqueInstrumentsList.filter(name => !instrumentSedeMap[name]);
+        if (unassigned.length > 0) {
+          const proceed = confirm(`⚠️ Tienes ${unassigned.length} instrumentos sin sede asignada (ej: ${unassigned.slice(0, 3).join(', ')}).\n\n¿Deseas importarlos de todas formas? Podrás asignarles su recinto/sede en cascada en cualquier momento desde la pantalla de Matriz de Analitos.`);
+          if (!proceed) {
+            setIsImporting(false);
+            setStep(3);
+            return;
+          }
+        }
+
+        setStatusMessage('Estructurando analitos y resolviendo mapeos de sede en cascada...');
+        setImportProgress(30);
+
+        const analytesPayload = validRows.map(row => {
+          const instName = String(row[colInst]).trim();
+          return {
+            instrumentName: instName,
+            transmissionCode: String(row[colTrans]).trim(),
+            testCode: String(row[colTest]).trim(),
+            name: String(row[colName]).trim(),
+            description: colDesc && row[colDesc] ? String(row[colDesc]).trim() : '',
+            section: colSection && row[colSection] ? String(row[colSection]).trim() : 'General',
+            state: colState && row[colState] ? String(row[colState]).trim() : 'No Iniciado',
+            recintoId: instrumentSedeMap[instName]
+          };
+        });
+
+        setStatusMessage('Enviando analitos y auto-creando equipos clínicos en el servidor...');
+        setImportProgress(65);
+
+        const importResult = await bulkImportAnalytes(analytesPayload);
+        
+        if (importResult.success) {
+          setImportSummary({ 
+            success: importResult.details.importedAnalytes, 
+            failed: criticalRows.size, 
+            recintosCreated: importResult.details.createdEquipments 
+          });
+          setImportProgress(100);
+          setStatusMessage(`¡Éxito! Se importaron ${importResult.details.importedAnalytes} analitos. Se crearon ${importResult.details.createdEquipments} equipos clínicos nuevos.`);
+        } else {
+          throw new Error(importResult.details || 'Error en la importación masiva');
+        }
+        setIsImporting(false);
+      } catch (err: any) {
+        console.error(err);
+        alert(`Error durante la importación de analitos: ${err.message || 'Error desconocido'}`);
+        setStep(3);
+        setIsImporting(false);
+      }
     }
   };
 
@@ -841,6 +1058,17 @@ export default function ImportPage() {
     }
     newMapping[colName] = value as EquipmentMappingKeys | '';
     setEquipMapping(newMapping);
+  };
+
+  const handleSelectAnalyteChange = (colName: string, value: string) => {
+    const newMapping = { ...analyteMapping };
+    if (value !== '') {
+      Object.keys(newMapping).forEach(k => {
+        if (newMapping[k] === value) newMapping[k] = '';
+      });
+    }
+    newMapping[colName] = value as AnalyteMappingKeys | '';
+    setAnalyteMapping(newMapping);
   };
 
   return (
@@ -921,15 +1149,17 @@ export default function ImportPage() {
                   {isContextual
                     ? (importType === 'gantt' 
                         ? 'Carga el cronograma de tareas del proyecto para tu portafolio PMO.' 
-                        : 'Carga el inventario de activos biomédicos para monitoreo clínico.')
-                    : 'Tráete tus datos de forma segura desde hojas de cálculo locales.'}
+                        : importType === 'analyte'
+                          ? 'Carga la matriz de analitos para monitoreo de transmisión de laboratorio.'
+                          : 'Carga el inventario de activos biomédicos para monitoreo clínico.')
+                    : 'Tráete tus datos de forma segura desde hojas de cálculo locales o de la nube.'}
                 </p>
               </div>
             </div>
 
-            {/* Split Options Panel (Gantt vs Equipment) */}
+            {/* Split Options Panel (Gantt vs Equipment vs Analyte) */}
             {!isContextual && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
                 
                 <div 
                   onClick={() => setImportType('gantt')}
@@ -977,6 +1207,29 @@ export default function ImportPage() {
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0, lineHeight: 1.4 }}>Activos biomédicos, marcas, modelos, ubicaciones de recintos y estado de calibración.</p>
                 </div>
 
+                <div 
+                  onClick={() => setImportType('analyte')}
+                  style={{
+                    padding: '24px',
+                    borderRadius: '12px',
+                    border: '2px solid',
+                    borderColor: importType === 'analyte' ? '#7c3aed' : 'var(--border-subtle)',
+                    background: importType === 'analyte' ? 'rgba(124, 58, 237, 0.04)' : 'var(--bg-secondary)',
+                    cursor: 'pointer',
+                    transition: 'all var(--transition-fast)'
+                  }}
+                  className="hover-card"
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'rgba(124, 58, 237, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7c3aed' }}>
+                      <Database size={20} />
+                    </div>
+                    {importType === 'analyte' && <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: '#7c3aed' }} />}
+                  </div>
+                  <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px 0' }}>🔬 Matriz de Analitos</h3>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0, lineHeight: 1.4 }}>Mapeo de códigos de transmisión, códigos de test, nombres de analitos y estados de transmisión.</p>
+                </div>
+
               </div>
             )}
 
@@ -987,7 +1240,11 @@ export default function ImportPage() {
                 padding: '50px 30px', 
                 textAlign: 'center', 
                 border: '2.5px dashed var(--border-strong)',
-                borderColor: importType === 'equipment' ? 'rgba(16, 185, 129, 0.3)' : 'var(--border-strong)',
+                borderColor: importType === 'equipment' 
+                  ? 'rgba(16, 185, 129, 0.35)' 
+                  : importType === 'analyte' 
+                    ? 'rgba(124, 58, 237, 0.35)' 
+                    : 'var(--border-strong)',
                 borderRadius: '16px',
                 cursor: 'pointer',
                 transition: 'all 0.3s',
@@ -1007,12 +1264,18 @@ export default function ImportPage() {
               />
               {importType === 'equipment' ? (
                 <Activity size={48} style={{ color: '#10b981', opacity: 0.8 }} />
+              ) : importType === 'analyte' ? (
+                <Database size={48} style={{ color: '#7c3aed', opacity: 0.8 }} />
               ) : (
                 <FileSpreadsheet size={48} style={{ color: 'var(--accent-primary)', opacity: 0.8 }} />
               )}
               <div>
                 <h3 style={{ fontSize: '1.2rem', marginBottom: '6px', color: 'var(--text-primary)', fontWeight: 800 }}>
-                  {importType === 'equipment' ? 'Sube tu inventario de equipamiento clínico' : 'Sube tu cronograma de proyecto'}
+                  {importType === 'equipment' 
+                    ? 'Sube tu inventario de equipamiento clínico' 
+                    : importType === 'analyte'
+                      ? 'Sube tu matriz de analitos de laboratorio'
+                      : 'Sube tu cronograma de proyecto'}
                 </h3>
                 <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', margin: 0 }}>Soporta formatos estándar de Excel (.xlsx, .xls) o valores delimitados por comas (.csv)</p>
               </div>
@@ -1021,8 +1284,8 @@ export default function ImportPage() {
                 style={{ 
                   fontSize: '0.85rem', 
                   marginTop: '8px',
-                  color: importType === 'equipment' ? '#10b981' : undefined,
-                  borderColor: importType === 'equipment' ? '#10b981' : undefined
+                  color: importType === 'equipment' ? '#10b981' : importType === 'analyte' ? '#7c3aed' : undefined,
+                  borderColor: importType === 'equipment' ? '#10b981' : importType === 'analyte' ? '#7c3aed' : undefined
                 }}
               >
                 Buscar en mi computador
@@ -1057,11 +1320,19 @@ export default function ImportPage() {
                   width: '36px', 
                   height: '36px', 
                   borderRadius: '8px', 
-                  background: importType === 'equipment' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(0, 121, 193, 0.1)', 
+                  background: importType === 'equipment' 
+                    ? 'rgba(16, 185, 129, 0.1)' 
+                    : importType === 'analyte' 
+                      ? 'rgba(124, 58, 237, 0.1)' 
+                      : 'rgba(0, 121, 193, 0.1)', 
                   display: 'flex', 
                   alignItems: 'center', 
                   justifyContent: 'center', 
-                  color: importType === 'equipment' ? '#10b981' : 'var(--accent-primary)' 
+                  color: importType === 'equipment' 
+                    ? '#10b981' 
+                    : importType === 'analyte' 
+                      ? '#7c3aed' 
+                      : 'var(--accent-primary)' 
                 }}>
                   <Link2 size={20} />
                 </div>
@@ -1084,7 +1355,11 @@ export default function ImportPage() {
                     padding: '12px 16px',
                     borderRadius: '8px',
                     border: '1.5px solid var(--border-strong)',
-                    borderColor: importType === 'equipment' ? 'rgba(16, 185, 129, 0.3)' : 'var(--border-strong)',
+                    borderColor: importType === 'equipment' 
+                      ? 'rgba(16, 185, 129, 0.3)' 
+                      : importType === 'analyte' 
+                        ? 'rgba(124, 58, 237, 0.3)' 
+                        : 'var(--border-strong)',
                     background: 'var(--bg-primary)',
                     color: 'var(--text-primary)',
                     fontSize: '0.9rem',
@@ -1107,8 +1382,16 @@ export default function ImportPage() {
                     gap: '8px',
                     minWidth: '130px',
                     justifyContent: 'center',
-                    background: importType === 'equipment' ? '#10b981' : undefined,
-                    borderColor: importType === 'equipment' ? '#10b981' : undefined
+                    background: importType === 'equipment' 
+                      ? '#10b981' 
+                      : importType === 'analyte' 
+                        ? '#7c3aed' 
+                        : undefined,
+                    borderColor: importType === 'equipment' 
+                      ? '#10b981' 
+                      : importType === 'analyte' 
+                        ? '#7c3aed' 
+                        : undefined
                   }}
                 >
                   {isLoadingUrl ? (
@@ -1252,7 +1535,7 @@ export default function ImportPage() {
                     </div>
                   )}
                 </div>
-              ) : (
+              ) : importType === 'equipment' ? (
                 <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, maxWidth: '280px', minWidth: '220px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 700 }}>Asociación de Proyecto</label>
@@ -1352,6 +1635,55 @@ export default function ImportPage() {
                     </div>
                   )}
                 </div>
+              ) : (
+                <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: '280px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                    <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 700 }}>Módulo de Destino</label>
+                    <div style={{
+                      fontSize: '0.95rem',
+                      fontWeight: 'bold',
+                      color: '#7c3aed',
+                      background: 'rgba(124, 58, 237, 0.05)',
+                      border: '1.5px solid rgba(124, 58, 237, 0.2)',
+                      borderRadius: 'var(--radius-md)',
+                      padding: '10px 14px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px'
+                    }}>
+                      <Database size={16} /> Matriz de Analitos de Laboratorio (Bupa Chile)
+                    </div>
+                  </div>
+                  {sheetNames.length > 1 && (
+                    <div style={{ width: '280px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                      <label style={{ fontSize: '0.85rem', color: '#7c3aed', fontWeight: 800 }}>📄 Pestaña de Excel a Importar</label>
+                      <select 
+                        value={selectedSheet}
+                        onChange={e => {
+                          setSelectedSheet(e.target.value);
+                          if (workbook) processSheet(workbook, e.target.value);
+                        }}
+                        style={{
+                          padding: '10px 14px',
+                          background: 'rgba(124, 58, 237, 0.05)',
+                          border: '2px solid #7c3aed',
+                          borderRadius: 'var(--radius-md)',
+                          color: 'var(--text-primary)',
+                          fontWeight: 'bold',
+                          outline: 'none',
+                          cursor: 'pointer',
+                          fontSize: '0.9rem'
+                        }}
+                      >
+                        {sheetNames.map(name => (
+                          <option key={name} value={name} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+                            {name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
 
@@ -1361,8 +1693,18 @@ export default function ImportPage() {
                 <thead>
                   <tr>
                     {columns.map(col => {
-                      const isMapped = importType === 'gantt' ? ganttMapping[col] !== '' : equipMapping[col] !== '';
-                      const mapVal = importType === 'gantt' ? ganttMapping[col] : equipMapping[col];
+                      const isMapped = 
+                        importType === 'gantt' 
+                          ? ganttMapping[col] !== '' 
+                          : importType === 'equipment' 
+                            ? equipMapping[col] !== '' 
+                            : analyteMapping[col] !== '';
+                      const mapVal = 
+                        importType === 'gantt' 
+                          ? ganttMapping[col] 
+                          : importType === 'equipment' 
+                            ? equipMapping[col] 
+                            : analyteMapping[col];
                       
                       return (
                         <th key={`mapth-${col}`} style={{ padding: '0 12px 16px 12px', minWidth: '220px', verticalAlign: 'top' }}>
@@ -1394,7 +1736,7 @@ export default function ImportPage() {
                                   </option>
                                 ))}
                               </select>
-                            ) : (
+                            ) : importType === 'equipment' ? (
                               <select 
                                 value={mapVal}
                                 onChange={(e) => handleSelectEquipChange(col, e.target.value)}
@@ -1412,6 +1754,29 @@ export default function ImportPage() {
                                 }}
                               >
                                 {EQUIP_FIELD_OPTIONS.map(opt => (
+                                  <option key={opt.value} value={opt.value} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <select 
+                                value={mapVal}
+                                onChange={(e) => handleSelectAnalyteChange(col, e.target.value)}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px',
+                                  background: isMapped ? 'rgba(124, 58, 237, 0.08)' : 'var(--bg-tertiary)',
+                                  border: `2px solid ${isMapped ? '#7c3aed' : 'var(--border-strong)'}`,
+                                  borderRadius: 'var(--radius-md)',
+                                  color: isMapped ? '#7c3aed' : 'var(--text-primary)',
+                                  outline: 'none',
+                                  fontWeight: isMapped ? 800 : 500,
+                                  fontSize: '0.85rem',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                {ANALYTE_FIELD_OPTIONS.map(opt => (
                                   <option key={opt.value} value={opt.value} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
                                     {opt.label}
                                   </option>
@@ -1521,6 +1886,156 @@ export default function ImportPage() {
 
           </div>
 
+          {/* ASIGNACIÓN EN CASCADA INTERACTIVA DE SEDES PARA ANALITOS */}
+          {importType === 'analyte' && (
+            <div style={{ 
+              background: 'var(--bg-secondary)', 
+              border: '1.5px solid var(--border-subtle)', 
+              borderRadius: '16px',
+              padding: '24px', 
+              marginBottom: '24px', 
+              boxShadow: '0 4px 20px rgba(0,0,0,0.015)' 
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '18px' }}>
+                <div style={{
+                  width: '38px',
+                  height: '38px',
+                  borderRadius: '10px',
+                  background: 'rgba(124, 58, 237, 0.1)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  color: '#7c3aed'
+                }}>
+                  <Building size={20} />
+                </div>
+                <div>
+                  <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0 }}>
+                    Asignación en Cascada (Un solo clic)
+                  </h3>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '2px 0 0 0', lineHeight: 1.4 }}>
+                    Asigna cada equipo/instrumento a su Sede Clínica correspondiente. Todos los analitos asociados a ese instrumento en el archivo Excel heredarán la sede en cascada de forma automática al presionar "Confirmar e Importar".
+                  </p>
+                </div>
+              </div>
+
+              {/* Grid of unique instruments */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
+                {uniqueInstrumentsList.map(instName => {
+                  const currentRecId = instrumentSedeMap[instName] || '';
+                  const matchedRec = recintos.find(r => r.id === currentRecId);
+                  const isAutodetected = !!matchedRec && currentRecId !== '';
+                  
+                  return (
+                    <div 
+                      key={`cascade-${instName}`}
+                      style={{
+                        padding: '16px',
+                        background: 'var(--bg-primary)',
+                        border: '1.5px solid',
+                        borderColor: isAutodetected ? 'rgba(16, 185, 129, 0.25)' : 'rgba(245, 158, 11, 0.3)',
+                        borderRadius: '12px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '12px',
+                        boxShadow: '0 2px 8px rgba(0,0,0,0.01)',
+                        transition: 'all 0.2s ease'
+                      }}
+                    >
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                        <span style={{ fontWeight: 800, fontSize: '0.92rem', color: 'var(--text-primary)', wordBreak: 'break-all' }}>
+                          🔬 {instName}
+                        </span>
+                        
+                        {isAutodetected ? (
+                          <span style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 800,
+                            padding: '3px 8px',
+                            borderRadius: '99px',
+                            background: 'rgba(16, 185, 129, 0.1)',
+                            color: 'var(--accent-success)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}>
+                            <CheckCircle2 size={12} /> Autodetectado
+                          </span>
+                        ) : (
+                          <span style={{
+                            fontSize: '0.72rem',
+                            fontWeight: 800,
+                            padding: '3px 8px',
+                            borderRadius: '99px',
+                            background: 'rgba(245, 158, 11, 0.1)',
+                            color: 'var(--accent-warning)',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px'
+                          }}>
+                            <AlertTriangle size={12} /> Sede por Definir
+                          </span>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <label style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.5px' }}>SEDE / RECINTO ASOCIADO</label>
+                        <select
+                          value={currentRecId}
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            setInstrumentSedeMap(prev => ({
+                              ...prev,
+                              [instName]: val
+                            }));
+                          }}
+                          style={{
+                            width: '100%',
+                            padding: '8px 12px',
+                            background: 'var(--bg-tertiary)',
+                            border: `1.5px solid ${isAutodetected ? 'var(--border-subtle)' : 'var(--accent-warning)'}`,
+                            borderRadius: '8px',
+                            color: 'var(--text-primary)',
+                            fontSize: '0.85rem',
+                            outline: 'none',
+                            cursor: 'pointer',
+                            fontWeight: 'bold'
+                          }}
+                        >
+                          <option value="">-- Seleccionar Sede Clínica --</option>
+                          {recintos.map(rec => (
+                            <option key={rec.id} value={rec.id}>
+                              {rec.name} ({rec.code})
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Warning if there are unassigned instruments */}
+              {uniqueInstrumentsList.some(name => !instrumentSedeMap[name]) && (
+                <div style={{
+                  display: 'flex',
+                  gap: '10px',
+                  alignItems: 'center',
+                  background: 'rgba(225, 29, 72, 0.05)',
+                  border: '1px solid rgba(225, 29, 72, 0.15)',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  marginTop: '16px'
+                }}>
+                  <AlertTriangle size={16} color="var(--accent-danger)" style={{ flexShrink: 0 }} />
+                  <span style={{ fontSize: '0.8rem', color: 'var(--accent-danger)', fontWeight: 700 }}>
+                    Requisito Crítico: Debes asignar una sede clínica para cada instrumento para poder importar los analitos de forma consistente.
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Split layout: Errors log & preview */}
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '20px', marginBottom: '32px' }}>
             
@@ -1573,14 +2088,22 @@ export default function ImportPage() {
                 <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', borderRadius: '8px', padding: '14px', marginBottom: '16px' }}>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>TIPO DE IMPORTACION</div>
                   <div style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    {importType === 'gantt' ? '📅 Cronograma WBS Gantt' : '🩺 Equipamiento Clínico'}
+                    {importType === 'gantt' 
+                      ? '📅 Cronograma WBS Gantt' 
+                      : importType === 'equipment' 
+                        ? '🩺 Equipamiento Clínico' 
+                        : '🔬 Matriz de Analitos de Laboratorio'}
                   </div>
                 </div>
 
                 <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', borderRadius: '8px', padding: '14px' }}>
                   <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 600 }}>PROYECTO DESTINO</div>
                   <div style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '4px' }}>
-                    {importType === 'gantt' || linkProjectOption === 'new' ? projectName : projects.find(p => p.id === selectedProjectId)?.name || 'Proyecto Seleccionado'}
+                    {importType === 'gantt' || linkProjectOption === 'new' 
+                      ? projectName 
+                      : importType === 'analyte'
+                        ? 'Sedes Clínicas (Cascada)'
+                        : projects.find(p => p.id === selectedProjectId)?.name || 'Proyecto Seleccionado'}
                   </div>
                 </div>
               </div>
@@ -1589,7 +2112,17 @@ export default function ImportPage() {
                 <button 
                   className="btn btn-primary" 
                   onClick={handleConfirmImport}
-                  style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '12px 0', fontSize: '0.95rem' }}
+                  style={{ 
+                    width: '100%', 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center', 
+                    gap: '8px', 
+                    padding: '12px 0', 
+                    fontSize: '0.95rem',
+                    background: importType === 'analyte' ? '#7c3aed' : undefined,
+                    borderColor: importType === 'analyte' ? '#7c3aed' : undefined
+                  }}
                 >
                   <Sparkles size={18} /> Confirmar e Importar a DB
                 </button>
@@ -1614,21 +2147,37 @@ export default function ImportPage() {
           
           {isImporting ? (
             <div className="glass-panel" style={{ padding: '50px 40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '24px' }}>
-              <Loader2 className="animate-spin" size={48} color="var(--accent-primary)" />
+              <Loader2 className="animate-spin" size={48} color={importType === 'analyte' ? '#7c3aed' : 'var(--accent-primary)'} />
               <div>
                 <h2 style={{ fontSize: '1.4rem', fontWeight: 900, color: 'var(--text-primary)', margin: '0 0 6px 0' }}>Procesando Importación Corporativa</h2>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', margin: 0 }}>{statusMessage}</p>
               </div>
               <div style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '8px' }}>
                 <div style={{ height: '8px', width: '100%', background: 'var(--border-subtle)', borderRadius: '99px', overflow: 'hidden' }}>
-                  <div style={{ height: '100%', width: `${importProgress}%`, background: 'var(--gradient-primary)', borderRadius: '99px', transition: 'width 0.4s ease' }} />
+                  <div style={{ 
+                    height: '100%', 
+                    width: `${importProgress}%`, 
+                    background: importType === 'analyte' ? '#7c3aed' : 'var(--gradient-primary)', 
+                    borderRadius: '99px', 
+                    transition: 'width 0.4s ease' 
+                  }} />
                 </div>
                 <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', fontWeight: 800, alignSelf: 'flex-end' }}>{importProgress}% completado</div>
               </div>
             </div>
           ) : (
             <div className="glass-panel" style={{ padding: '50px 40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '24px' }}>
-              <div style={{ width: '64px', height: '64px', borderRadius: '50%', background: 'rgba(16, 185, 129, 0.1)', color: 'var(--accent-success)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 8px 24px rgba(16, 185, 129, 0.2)' }}>
+              <div style={{ 
+                width: '64px', 
+                height: '64px', 
+                borderRadius: '50%', 
+                background: importType === 'analyte' ? 'rgba(124, 58, 237, 0.1)' : 'rgba(16, 185, 129, 0.1)', 
+                color: importType === 'analyte' ? '#7c3aed' : 'var(--accent-success)', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                boxShadow: importType === 'analyte' ? '0 8px 24px rgba(124, 58, 237, 0.2)' : '0 8px 24px rgba(16, 185, 129, 0.2)' 
+              }}>
                 <CheckCircle2 size={36} />
               </div>
               
@@ -1659,6 +2208,13 @@ export default function ImportPage() {
                     <strong style={{ color: 'var(--accent-primary)' }}>+{importSummary.recintosCreated}</strong>
                   </div>
                 )}
+
+                {importType === 'analyte' && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.88rem' }}>
+                    <span style={{ color: 'var(--text-secondary)', fontWeight: 600 }}>Nuevos Equipos Clínicos Auto-creados:</span>
+                    <strong style={{ color: '#7c3aed' }}>+{importSummary.recintosCreated}</strong>
+                  </div>
+                )}
               </div>
 
               <button 
@@ -1666,11 +2222,22 @@ export default function ImportPage() {
                 onClick={() => {
                   if (importType === 'gantt') {
                     router.push('/gantt');
+                  } else if (importType === 'analyte') {
+                    router.push('/equipment?tab=analytes');
                   } else {
                     router.push('/equipment');
                   }
                 }}
-                style={{ padding: '12px 40px', fontSize: '0.95rem', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}
+                style={{ 
+                  padding: '12px 40px', 
+                  fontSize: '0.95rem', 
+                  display: 'flex', 
+                  alignItems: 'center', 
+                  gap: '8px', 
+                  marginTop: '8px',
+                  background: importType === 'analyte' ? '#7c3aed' : undefined,
+                  borderColor: importType === 'analyte' ? '#7c3aed' : undefined
+                }}
               >
                 Ir a Ver mis Datos <ArrowRight size={18} />
               </button>

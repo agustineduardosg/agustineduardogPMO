@@ -28,14 +28,31 @@ export interface ClinicalEquipment {
   deletedAt?: string | null;
 }
 
+export interface Analyte {
+  id: string;
+  instrumentName: string;
+  transmissionCode: string;
+  testCode: string;
+  name: string;
+  description?: string;
+  section: string;
+  state: string;
+  equipmentId?: string | null;
+  recintoId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
 interface EquipmentState {
   recintos: Recinto[];
   equipments: ClinicalEquipment[];
+  analytes: Analyte[];
   isLoading: boolean;
   error: string | null;
 
   // Carga
   fetchEquipmentData: () => Promise<void>;
+  fetchAnalytes: () => Promise<void>;
   
   // Acciones Recintos
   addRecinto: (recinto: Recinto) => Promise<void>;
@@ -48,11 +65,19 @@ interface EquipmentState {
   deleteEquipment: (id: string) => Promise<void>;
   restoreEquipment: (id: string) => Promise<void>;
   hardDeleteEquipment: (id: string) => Promise<void>;
+
+  // Acciones Analitos
+  addAnalyte: (analyte: Omit<Analyte, 'id'>) => Promise<void>;
+  updateAnalyte: (id: string, updates: Partial<Analyte>) => Promise<void>;
+  deleteAnalyte: (id: string) => Promise<void>;
+  bulkImportAnalytes: (analytes: Omit<Analyte, 'id'>[]) => Promise<{ success: boolean; details: any }>;
+  assignRecintoToInstrument: (instrumentName: string, recintoId: string, sourceRecintoId?: string) => Promise<{ success: boolean; message: string }>;
 }
 
 export const useEquipmentStore = create<EquipmentState>()((set) => ({
   recintos: [],
   equipments: [],
+  analytes: [],
   isLoading: false,
   error: null,
 
@@ -262,6 +287,160 @@ export const useEquipmentStore = create<EquipmentState>()((set) => ({
     } catch (err: any) {
       console.error(err);
       set({ error: err.message });
+    }
+  },
+
+  fetchAnalytes: async () => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await fetch('/api/analytes');
+      if (!response.ok) throw new Error('Failed to fetch analytes');
+      const data = await response.json();
+      set({ analytes: data, isLoading: false });
+    } catch (err: any) {
+      console.error(err);
+      set({ error: err.message, isLoading: false });
+    }
+  },
+
+  addAnalyte: async (analyte) => {
+    try {
+      const response = await fetch('/api/analytes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(analyte)
+      });
+      if (!response.ok) throw new Error('Failed to create analyte');
+      
+      // Recargar analitos
+      const resp = await fetch('/api/analytes');
+      if (resp.ok) {
+        const data = await resp.json();
+        set({ analytes: data });
+      }
+    } catch (err: any) {
+      console.error(err);
+      set({ error: err.message });
+    }
+  },
+
+  updateAnalyte: async (id, updates) => {
+    // Sincronización optimista inmediata en la UI
+    set((state) => ({
+      analytes: state.analytes.map(a => a.id === id ? { ...a, ...updates } : a)
+    }));
+    try {
+      const response = await fetch(`/api/analytes/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updates)
+      });
+      if (!response.ok) throw new Error('Failed to update analyte');
+    } catch (err: any) {
+      console.error('❌ Error al actualizar analito de forma persistente, realizando rollback:', err);
+      set({ error: err.message });
+      // Rollback al estado del servidor en caso de falla
+      const response = await fetch('/api/analytes');
+      if (response.ok) {
+        const data = await response.json();
+        set({ analytes: data });
+      }
+    }
+  },
+
+  deleteAnalyte: async (id) => {
+    // Sincronización optimista inmediata en la UI
+    set((state) => ({
+      analytes: state.analytes.filter(a => a.id !== id)
+    }));
+    try {
+      const response = await fetch(`/api/analytes/${id}`, {
+        method: 'DELETE'
+      });
+      if (!response.ok) throw new Error('Failed to delete analyte');
+    } catch (err: any) {
+      console.error('❌ Error al eliminar analito de forma persistente, realizando rollback:', err);
+      set({ error: err.message });
+      // Rollback
+      const response = await fetch('/api/analytes');
+      if (response.ok) {
+        const data = await response.json();
+        set({ analytes: data });
+      }
+    }
+  },
+
+  bulkImportAnalytes: async (analytesList) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await fetch('/api/analytes/bulk-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(analytesList)
+      });
+      if (!response.ok) throw new Error('Failed to bulk import analytes');
+      const result = await response.json();
+      
+      // Sincronizar recintos y equipos (por si se auto-crearon equipos nuevos!)
+      const eqResp = await fetch('/api/recintos');
+      if (eqResp.ok) {
+        const data = await eqResp.json();
+        set({
+          recintos: data.map((r: any) => ({ id: r.id, name: r.name, code: r.code, isActive: r.isActive })),
+          equipments: data.flatMap((r: any) => r.equipments || [])
+        });
+      }
+      
+      // Sincronizar analitos
+      const anResp = await fetch('/api/analytes');
+      if (anResp.ok) {
+        const data = await anResp.json();
+        set({ analytes: data });
+      }
+      
+      set({ isLoading: false });
+      return { success: true, details: result.details };
+    } catch (err: any) {
+      console.error(err);
+      set({ error: err.message, isLoading: false });
+      return { success: false, details: err.message };
+    }
+  },
+
+  assignRecintoToInstrument: async (instrumentName, recintoId, sourceRecintoId) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await fetch('/api/analytes/bulk-assign-recinto', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instrumentName, recintoId, sourceRecintoId })
+      });
+      if (!response.ok) throw new Error('Error al asignar sede en masa');
+      const result = await response.json();
+
+      // Sincronizar recintos y equipos
+      const eqResp = await fetch('/api/recintos');
+      if (eqResp.ok) {
+        const data = await eqResp.json();
+        set({
+          recintos: data.map((r: any) => ({ id: r.id, name: r.name, code: r.code, isActive: r.isActive })),
+          equipments: data.flatMap((r: any) => r.equipments || [])
+        });
+      }
+
+      // Sincronizar analitos
+      const anResp = await fetch('/api/analytes');
+      if (anResp.ok) {
+        const data = await anResp.json();
+        set({ analytes: data });
+      }
+
+      set({ isLoading: false });
+      return { success: true, message: result.message };
+    } catch (err: any) {
+      console.error(err);
+      set({ error: err.message, isLoading: false });
+      return { success: false, message: err.message };
     }
   }
 }));

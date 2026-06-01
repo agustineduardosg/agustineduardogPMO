@@ -23,10 +23,21 @@ export const EquipmentCommentsModal: React.FC<EquipmentCommentsModalProps> = ({
   availableUsers
 }) => {
   const comments = useMemo(() => parseComments(observaciones), [observaciones]);
+  const [searchQuery, setSearchQuery] = useState('');
   
   const [newComment, setNewComment] = useState('');
   const [selectedAuthor, setSelectedAuthor] = useState(availableUsers[0]?.name || 'Ingeniero Biomédico');
   const [isSaving, setIsSaving] = useState(false);
+
+  const filteredComments = useMemo(() => {
+    if (!searchQuery.trim()) return comments;
+    const q = searchQuery.toLowerCase();
+    return comments.filter(c => 
+      c.text.toLowerCase().includes(q) || 
+      c.author.toLowerCase().includes(q) || 
+      c.role.toLowerCase().includes(q)
+    );
+  }, [comments, searchQuery]);
 
   if (!isOpen) return null;
 
@@ -142,15 +153,38 @@ export const EquipmentCommentsModal: React.FC<EquipmentCommentsModalProps> = ({
 
           {/* Timeline of Comments */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <span style={timelineTitleStyle}>Historial Cronológico ({comments.length})</span>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '6px' }}>
+              <span style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', border: 'none', padding: 0 }}>
+                Historial Cronológico ({comments.length})
+              </span>
+              {comments.length > 0 && (
+                <input 
+                  type="text" 
+                  placeholder="🔍 Buscar comentario..." 
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  style={{
+                    padding: '4px 10px',
+                    fontSize: '0.75rem',
+                    border: '1px solid var(--border-light)',
+                    borderRadius: '20px',
+                    outline: 'none',
+                    width: '160px',
+                    background: 'white',
+                    transition: 'all 0.15s ease'
+                  }}
+                  className="cell-input"
+                />
+              )}
+            </div>
             
-            {comments.length === 0 ? (
+            {filteredComments.length === 0 ? (
               <div style={emptyStateStyle}>
-                No hay comentarios registrados. Comience agregando uno arriba.
+                {comments.length === 0 ? 'No hay comentarios registrados. Comience agregando uno arriba.' : 'No se encontraron comentarios que coincidan con la búsqueda.'}
               </div>
             ) : (
               <div style={timelineContainerStyle}>
-                {comments.slice().reverse().map((comment) => (
+                {filteredComments.slice().reverse().map((comment) => (
                   <div key={comment.id} style={commentCardStyle}>
                     
                     <div style={commentHeaderStyle}>

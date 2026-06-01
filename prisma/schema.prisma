@@ -82,6 +82,7 @@ model Recinto {
   code       String
   isActive   Boolean             @default(true)
   equipments ClinicalEquipment[]
+  analytes   Analyte[]           // Relación con analitos
   createdAt  DateTime            @default(now())
   updatedAt  DateTime            @updatedAt
 }
@@ -105,6 +106,7 @@ model ClinicalEquipment {
   projectId       String?  // Asociación opcional a Proyecto
   customFields    String   @default("{}")
   deletedAt       DateTime? // Soft Delete Support
+  analytes        Analyte[] // Relación con analitos
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
@@ -180,4 +182,24 @@ model MasterEquipment {
   category  String   @default("Clínico")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model Analyte {
+  id               String             @id @default(cuid())
+  instrumentName   String             // Nombre original del instrumento (ej: "Advia1201AD")
+  transmissionCode String             // Código de transmisión
+  testCode         String             // Código de Test
+  name             String             // Nombre de analito
+  description      String?            // Descripción extensa
+  section          String             // Sección de laboratorio (Hematología, etc)
+  state            String             @default("No Iniciado") // Estado de transmisión
+  
+  // Relaciones
+  equipmentId      String?            // Enlace opcional a ClinicalEquipment
+  equipment        ClinicalEquipment? @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
+  recintoId        String?            // Enlace opcional a Recinto
+  recinto          Recinto?           @relation(fields: [recintoId], references: [id], onDelete: SetNull)
+
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
 }

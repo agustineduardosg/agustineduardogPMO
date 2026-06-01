@@ -1,16 +1,17 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { useEquipmentStore, ClinicalEquipment, Recinto, EquipmentPhaseStatus } from '@/store/equipmentStore';
+import { useEquipmentStore, ClinicalEquipment, Recinto, EquipmentPhaseStatus, Analyte } from '@/store/equipmentStore';
 import { useProjectStore } from '@/store/projectStore';
 import { useUserStore } from '@/store/userStore';
 import { useRouter } from 'next/navigation';
-import { Plus, Search, Trash2, Calendar, FileSpreadsheet, Building2, ShieldAlert, CheckCircle2, RefreshCw, Layers, X, UploadCloud, Loader2, Check, Edit2, Sliders, ChevronDown, MessageSquare } from 'lucide-react';
+import { Plus, Search, Trash2, Calendar, FileSpreadsheet, Building2, ShieldAlert, CheckCircle2, RefreshCw, Layers, X, UploadCloud, Loader2, Check, Edit2, Sliders, ChevronDown, MessageSquare, Database, Info } from 'lucide-react';
 import { format } from 'date-fns';
 import { InlineInput, InlineTextarea } from '@/components/InlineInput';
 import ReportViewer from '@/components/ReportViewer';
 import { EquipmentCommentsModal } from '@/components/EquipmentCommentsModal';
 import { parseComments } from '@/utils/commentUtils';
+import * as XLSX from 'xlsx';
 
 
 const PHASE_STATUSES: EquipmentPhaseStatus[] = ['No iniciado', 'En progreso', 'Completado', 'Descartado', 'Desestimado'];
@@ -89,6 +90,247 @@ const CustomSelect = ({
   );
 };
 
+const ANALYTE_STATUS_STYLE: Record<string, { bg: string; color: string; border: string }> = {
+  'Transmitiendo': { bg: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: 'rgba(16, 185, 129, 0.2)' },
+  'En Pausa': { bg: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', border: 'rgba(245, 158, 11, 0.2)' },
+  'No Iniciado': { bg: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: 'var(--border-light)' }
+};
+
+const CustomAnalyteSelect = ({ 
+  value, 
+  onChange 
+}: { 
+  value: string; 
+  onChange: (val: string) => void;
+}) => {
+  const style = ANALYTE_STATUS_STYLE[value] || { bg: 'rgba(107, 114, 128, 0.1)', color: '#6b7280', border: 'rgba(107, 114, 128, 0.2)' };
+
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      style={{
+        background: style.bg,
+        color: style.color,
+        border: `1px solid ${style.border}`,
+        padding: '6px 10px',
+        borderRadius: '20px',
+        fontSize: '0.75rem',
+        fontWeight: 'bold',
+        outline: 'none',
+        cursor: 'pointer',
+        width: '100%',
+        maxWidth: '140px',
+        textAlign: 'center',
+        transition: 'all 0.15s ease'
+      }}
+    >
+      <option value="No Iniciado" style={{ background: '#ffffff', color: '#6b7280' }}>⚫ No Iniciado</option>
+      <option value="Transmitiendo" style={{ background: '#ffffff', color: '#10b981' }}>🟢 Transmitiendo</option>
+      <option value="En Pausa" style={{ background: '#ffffff', color: '#f59e0b' }}>🟡 En Pausa</option>
+    </select>
+  );
+};
+
+const AnalyteModal = ({
+  isOpen,
+  onClose,
+  editingAnalyte,
+  recintos,
+  analytes,
+  onSave
+}: {
+  isOpen: boolean;
+  onClose: () => void;
+  editingAnalyte: Analyte | null;
+  recintos: Recinto[];
+  analytes: Analyte[];
+  onSave: (data: any) => Promise<void>;
+}) => {
+  const [name, setName] = useState(editingAnalyte?.name || '');
+  const [instrumentName, setInstrumentName] = useState(editingAnalyte?.instrumentName || '');
+  const [transmissionCode, setTransmissionCode] = useState(editingAnalyte?.transmissionCode || '');
+  const [testCode, setTestCode] = useState(editingAnalyte?.testCode || '');
+  const [section, setSection] = useState(editingAnalyte?.section || '');
+  const [description, setDescription] = useState(editingAnalyte?.description || '');
+  const [state, setState] = useState(editingAnalyte?.state || 'No Iniciado');
+  const [recintoId, setRecintoId] = useState(editingAnalyte?.recintoId || '');
+
+  // Buscar instrumentos únicos para autocompletar
+  const uniqueInstruments = useMemo(() => {
+    const list = new Set<string>();
+    analytes.forEach(a => {
+      if (a.instrumentName) list.add(a.instrumentName);
+    });
+    return Array.from(list);
+  }, [analytes]);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) return alert("El nombre del analito es obligatorio.");
+    if (!transmissionCode.trim()) return alert("El código de transmisión es obligatorio.");
+    if (!instrumentName.trim()) return alert("El nombre del instrumento es obligatorio.");
+
+    onSave({
+      name: name.trim(),
+      instrumentName: instrumentName.trim(),
+      transmissionCode: transmissionCode.trim(),
+      testCode: testCode.trim(),
+      section: section.trim() || 'General',
+      description: description.trim(),
+      state,
+      recintoId: recintoId || null
+    });
+  };
+
+  return (
+    <div className="custom-modal-backdrop">
+      <div className="custom-modal-card" style={{ width: '500px', maxWidth: '95vw', animation: 'scaleUp 0.25s cubic-bezier(0.4, 0, 0.2, 1)' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px' }}>
+          <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#7c3aed', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span>{editingAnalyte ? '📝 Editar Analito' : '🔬 Agregar Analito de Laboratorio'}</span>
+          </h3>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px', borderRadius: '50%', transition: 'background 0.15s' }} className="btn-light-hover">
+            <X size={18} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div>
+              <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Sede Prestadora (Recinto)</label>
+              <select
+                value={recintoId}
+                onChange={e => setRecintoId(e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.82rem', color: 'var(--text-primary)', outline: 'none' }}
+              >
+                <option value="">-- Sin sede (Pendiente) --</option>
+                {recintos.map(r => (
+                  <option key={r.id} value={r.id}>{r.name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Estado Transmisión</label>
+              <select
+                value={state}
+                onChange={e => setState(e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.82rem', color: 'var(--text-primary)', outline: 'none' }}
+              >
+                <option value="No Iniciado">⚫ No Iniciado</option>
+                <option value="Transmitiendo">🟢 Transmitiendo</option>
+                <option value="En Pausa">🟡 En Pausa</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Nombre Instrumento / Equipo Biomédico *</label>
+            <div style={{ position: 'relative' }}>
+              <input
+                type="text"
+                value={instrumentName}
+                onChange={e => setInstrumentName(e.target.value)}
+                placeholder="Ej. Cobas c501 CLBS"
+                list="autocomplete-instruments"
+                required
+                style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.82rem', color: 'var(--text-primary)', outline: 'none' }}
+              />
+              <datalist id="autocomplete-instruments">
+                {uniqueInstruments.map(inst => (
+                  <option key={inst} value={inst} />
+                ))}
+              </datalist>
+            </div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Nombre del Analito *</label>
+            <input
+              type="text"
+              value={name}
+              onChange={e => setName(e.target.value)}
+              placeholder="Ej. Colesterol Total"
+              required
+              style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.82rem', color: 'var(--text-primary)', outline: 'none' }}
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div>
+              <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Cód. Transmisión LIS *</label>
+              <input
+                type="text"
+                value={transmissionCode}
+                onChange={e => setTransmissionCode(e.target.value)}
+                placeholder="Ej. CHOL2"
+                required
+                style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.82rem', color: 'var(--text-primary)', outline: 'none', fontFamily: 'monospace', fontWeight: 700 }}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Cód. Test / Código Analito</label>
+              <input
+                type="text"
+                value={testCode}
+                onChange={e => setTestCode(e.target.value)}
+                placeholder="Ej. 102030"
+                style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.82rem', color: 'var(--text-primary)', outline: 'none' }}
+              />
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '12px' }}>
+            <div>
+              <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Sección / Lab</label>
+              <input
+                type="text"
+                value={section}
+                onChange={e => setSection(e.target.value)}
+                placeholder="Ej. Química Clínica"
+                style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.82rem', color: 'var(--text-primary)', outline: 'none' }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Descripción Extensa</label>
+            <textarea
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              placeholder="Notas u observaciones de este analito..."
+              rows={3}
+              style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.82rem', color: 'var(--text-primary)', outline: 'none', resize: 'vertical' }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px', borderTop: '1px solid var(--border-light)', paddingTop: '14px' }}>
+            <button
+              type="button"
+              onClick={onClose}
+              style={{ padding: '8px 16px', borderRadius: '6px', border: '1px solid var(--border-light)', background: 'white', color: 'var(--text-secondary)', fontSize: '0.82rem', fontWeight: 'bold', cursor: 'pointer' }}
+              className="btn-light-hover"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              style={{ padding: '8px 20px', borderRadius: '6px', border: 'none', background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)', color: 'white', fontSize: '0.82rem', fontWeight: 'bold', cursor: 'pointer', boxShadow: '0 2px 6px rgba(124,58,237,0.15)' }}
+              className="btn-primary-hover"
+            >
+              {editingAnalyte ? 'Guardar Cambios' : 'Crear Analito'}
+            </button>
+          </div>
+
+        </form>
+      </div>
+    </div>
+  );
+};
+
 export default function EquipmentTrackerPage() {
   const recintos = useEquipmentStore(state => state.recintos);
   const equipments = useEquipmentStore(state => state.equipments);
@@ -97,6 +339,11 @@ export default function EquipmentTrackerPage() {
   const deleteEquipment = useEquipmentStore(state => state.deleteEquipment);
   const restoreEquipment = useEquipmentStore(state => state.restoreEquipment);
   const fetchEquipmentData = useEquipmentStore(state => state.fetchEquipmentData);
+  const analytes = useEquipmentStore(state => state.analytes);
+  const fetchAnalytes = useEquipmentStore(state => state.fetchAnalytes);
+  const addAnalyte = useEquipmentStore(state => state.addAnalyte);
+  const updateAnalyte = useEquipmentStore(state => state.updateAnalyte);
+  const deleteAnalyte = useEquipmentStore(state => state.deleteAnalyte);
 
   const projects = useProjectStore(state => state.projects);
   const fetchProjects = useProjectStore(state => state.fetchProjects);
@@ -193,6 +440,7 @@ export default function EquipmentTrackerPage() {
     fetchEquipmentData();
     fetchProjects();
     fetchUsers();
+    fetchAnalytes();
 
     // Sincronización proactiva multidispositivo (Sondeo activo cada 15 segundos si la pestaña está activa)
     const interval = setInterval(() => {
@@ -200,6 +448,7 @@ export default function EquipmentTrackerPage() {
         fetchEquipmentData();
         fetchProjects();
         fetchUsers();
+        fetchAnalytes();
       }
     }, 15000);
 
@@ -209,6 +458,16 @@ export default function EquipmentTrackerPage() {
   const [search, setSearch] = useState('');
   const [filterProject, setFilterProject] = useState<string>('all');
   const [activeTab, setActiveTab] = useState<'all' | 'clinical' | 'non-clinical'>('all');
+  
+  // Estados para Matriz de Analitos
+  const [currentTab, setCurrentTab] = useState<'tracking' | 'analytes'>('tracking');
+  const [hiddenAnalyteCols, setHiddenAnalyteCols] = useState<string[]>([]);
+  const [analyteSearch, setAnalyteSearch] = useState('');
+  const [collapsedRecintoAnalytes, setCollapsedRecintoAnalytes] = useState<Record<string, boolean>>({});
+  const [statusFilter, setStatusFilter] = useState<'all' | 'Transmitiendo' | 'En Pausa' | 'No Iniciado'>('all');
+  const [expandedInstruments, setExpandedInstruments] = useState<Record<string, boolean>>({});
+  const [isAnalyteModalOpen, setIsAnalyteModalOpen] = useState(false);
+  const [editingAnalyte, setEditingAnalyte] = useState<Analyte | null>(null);
 
   // Estado para columnas dinámicas
   const [customColumns, setCustomColumns] = useState<string[]>([]);
@@ -274,7 +533,20 @@ export default function EquipmentTrackerPage() {
         console.error('Error loading hidden columns', e);
       }
     }
+    const savedHiddenAnalytes = localStorage.getItem('hidden_cols_analytes');
+    if (savedHiddenAnalytes) {
+      try {
+        setHiddenAnalyteCols(JSON.parse(savedHiddenAnalytes));
+      } catch (e) {
+        console.error('Error loading hidden analyte columns', e);
+      }
+    }
   }, []);
+
+  const saveHiddenAnalyteCols = (cols: string[]) => {
+    setHiddenAnalyteCols(cols);
+    localStorage.setItem('hidden_cols_analytes', JSON.stringify(cols));
+  };
 
   const saveDefaultColNames = (names: Record<string, string>) => {
     setDefaultColNames(names);
@@ -402,6 +674,73 @@ export default function EquipmentTrackerPage() {
       return matchSearch && matchProject;
     });
   }, [equipments, search, filterProject]);
+
+  const filteredAnalytes = useMemo(() => {
+    return analytes.filter(a => {
+      const recintoName = recintos.find(r => r.id === a.recintoId)?.name || 'Sede sin Asignar';
+      
+      const matchSearch = 
+        a.name.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+        (a.description || '').toLowerCase().includes(analyteSearch.toLowerCase()) ||
+        a.transmissionCode.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+        a.testCode.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+        a.section.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+        a.instrumentName.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+        recintoName.toLowerCase().includes(analyteSearch.toLowerCase());
+      
+      const matchStatus = 
+        statusFilter === 'all' ||
+        (statusFilter === 'No Iniciado' && (!a.state || a.state === 'No Iniciado')) ||
+        a.state === statusFilter;
+      
+      return matchSearch && matchStatus;
+    });
+  }, [analytes, analyteSearch, recintos, statusFilter]);
+
+  const exportAnalytesToExcel = () => {
+    if (filteredAnalytes.length === 0) {
+      alert("No hay analitos en la lista para exportar.");
+      return;
+    }
+
+    const wb = XLSX.utils.book_new();
+
+    // Headers
+    const headers = [
+      "Sede Clínica",
+      "Código Sede",
+      "Nombre Instrumento / Equipo",
+      "Nombre del Analito",
+      "Código de Transmisión LIS",
+      "Código de Test / Código Analito",
+      "Sección / Laboratorio",
+      "Estado de Transmisión",
+      "Descripción / Observaciones"
+    ];
+
+    const rows = [headers];
+
+    filteredAnalytes.forEach(a => {
+      const recinto = recintos.find(r => r.id === a.recintoId);
+      rows.push([
+        recinto?.name || "Sin Sede (Pendiente)",
+        recinto?.code || "N/A",
+        a.instrumentName || "Sin Instrumento",
+        a.name,
+        a.transmissionCode,
+        a.testCode || "",
+        a.section || "General",
+        a.state || "No Iniciado",
+        a.description || ""
+      ]);
+    });
+
+    const ws = XLSX.utils.aoa_to_sheet(rows);
+    XLSX.utils.book_append_sheet(wb, ws, "Matriz de Analitos");
+
+    // Guardar archivo
+    XLSX.writeFile(wb, `Matriz_Analitos_Laboratorio_${new Date().toISOString().slice(0, 10)}.xlsx`);
+  };
 
   // Obtener opciones dinámicas personalizadas ingresadas
   const uniquePhaseStatuses = useMemo(() => {
@@ -608,21 +947,153 @@ export default function EquipmentTrackerPage() {
         </div>
       </div>
 
+      {/* Dynamic Tab Switcher */}
+      <div style={{
+        display: 'flex',
+        gap: '8px',
+        padding: '6px',
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border-subtle)',
+        borderRadius: '12px',
+        alignSelf: 'flex-start',
+        marginBottom: '4px',
+        boxShadow: '0 4px 12px rgba(0,0,0,0.02)'
+      }}>
+        <button
+          onClick={() => setCurrentTab('tracking')}
+          style={{
+            padding: '10px 20px',
+            borderRadius: '8px',
+            border: 'none',
+            background: currentTab === 'tracking' ? '#004B87' : 'transparent',
+            color: currentTab === 'tracking' ? '#FFFFFF' : 'var(--text-secondary)',
+            fontWeight: 800,
+            fontSize: '0.88rem',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <Layers size={16} />
+          <span>Seguimiento Clínico (Fases)</span>
+          <span style={{
+            fontSize: '0.72rem',
+            background: currentTab === 'tracking' ? 'rgba(255,255,255,0.22)' : 'rgba(0, 75, 135, 0.08)',
+            color: currentTab === 'tracking' ? '#FFFFFF' : '#004B87',
+            padding: '2px 8px',
+            borderRadius: '12px',
+            fontWeight: 'bold',
+            marginLeft: '4px',
+            transition: 'all 0.2s ease'
+          }}>
+            {equipments.length}
+          </span>
+        </button>
+        <button
+          onClick={() => setCurrentTab('analytes')}
+          style={{
+            padding: '10px 20px',
+            borderRadius: '8px',
+            border: 'none',
+            background: currentTab === 'analytes' ? '#7c3aed' : 'transparent',
+            color: currentTab === 'analytes' ? '#FFFFFF' : 'var(--text-secondary)',
+            fontWeight: 800,
+            fontSize: '0.88rem',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            transition: 'all 0.2s ease'
+          }}
+        >
+          <Building2 size={16} />
+          <span>Matriz de Analitos de Laboratorio</span>
+          <span style={{
+            fontSize: '0.72rem',
+            background: currentTab === 'analytes' ? 'rgba(255,255,255,0.22)' : 'rgba(124, 58, 237, 0.08)',
+            color: currentTab === 'analytes' ? '#FFFFFF' : '#7c3aed',
+            padding: '2px 8px',
+            borderRadius: '12px',
+            fontWeight: 'bold',
+            marginLeft: '4px',
+            transition: 'all 0.2s ease'
+          }}>
+            {analytes.length}
+          </span>
+        </button>
+      </div>
+
       {/* Modal de Administración de Columnas */}
       {isAddingCol && (
         <div className="custom-modal-backdrop">
           <div className="custom-modal-card" style={{ width: '480px', maxHeight: '90vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
-              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#003B64', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: currentTab === 'analytes' ? '#7c3aed' : '#003B64', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 <Sliders size={18} />
-                Administrar Columnas
+                {currentTab === 'analytes' ? 'Administrar Columnas de Analitos' : 'Administrar Columnas'}
               </h3>
               <button onClick={() => setIsAddingCol(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}>
                 <X size={18} />
               </button>
             </div>
 
-            {/* 1. SECCIÓN COLUMNAS PREDETERMINADAS DEL SISTEMA */}
+            {currentTab === 'analytes' ? (
+              /* SECCIÓN COLUMNAS DE ANALITOS */
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#7c3aed', textTransform: 'uppercase', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '6px', display: 'block' }}>
+                    Columnas de la Matriz de Analitos
+                  </span>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '4px' }}>
+                    {[
+                      { key: 'transmissionCode', name: 'Código de Transmisión' },
+                      { key: 'testCode', name: 'Código de Test / Código Analito' },
+                      { key: 'description', name: 'Descripción Extensa' },
+                      { key: 'section', name: 'Sección / Laboratorio' },
+                      { key: 'state', name: 'Estado de Transmisión' }
+                    ].map(({ key, name }) => {
+                      const isHidden = hiddenAnalyteCols.includes(key);
+                      return (
+                        <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: isHidden ? 'var(--bg-tertiary)' : 'var(--bg-primary)', padding: '10px 14px', borderRadius: '6px', border: '1px solid var(--border-subtle)', opacity: isHidden ? 0.6 : 1 }}>
+                          <span style={{ flex: 1, fontSize: '0.82rem', fontWeight: 600, color: 'var(--text-primary)', textDecoration: isHidden ? 'line-through' : 'none' }}>
+                            {name} {isHidden && <span style={{ fontSize: '0.7rem', color: 'red', fontWeight: 'normal' }}>(Oculta)</span>}
+                          </span>
+                          {isHidden ? (
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const updated = hiddenAnalyteCols.filter(c => c !== key);
+                                saveHiddenAnalyteCols(updated);
+                              }}
+                              className="btn"
+                              style={{ padding: '4px 8px', fontSize: '0.72rem', background: '#10b981', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                            >
+                              Mostrar
+                            </button>
+                          ) : (
+                            <button 
+                              type="button"
+                              onClick={() => {
+                                const updated = [...hiddenAnalyteCols, key];
+                                saveHiddenAnalyteCols(updated);
+                              }}
+                              className="btn"
+                              style={{ padding: '4px 8px', fontSize: '0.72rem', background: '#ef4444', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontWeight: 'bold' }}
+                            >
+                              Ocultar
+                            </button>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <>
+              /* 1. SECCIÓN COLUMNAS PREDETERMINADAS DEL SISTEMA */
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '20px' }}>
               <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#004B87', textTransform: 'uppercase', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '6px', display: 'block' }}>
                 Columnas del Sistema (Predeterminadas)
@@ -826,16 +1297,25 @@ export default function EquipmentTrackerPage() {
                 </div>
               </div>
             </div>
+            </>
+            )}
 
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px', borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
-              <button type="button" onClick={() => setIsAddingCol(false)} className="btn btn-secondary" style={{ padding: '8px 16px', background: '#004B87', color: 'white', border: 'none' }}>Listo</button>
+              <button type="button" onClick={() => setIsAddingCol(false)} className="btn btn-secondary" style={{ padding: '8px 16px', background: currentTab === 'analytes' ? '#7c3aed' : '#004B87', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer' }}>Listo</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* KPI Panel */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
+      {/* TAB CONTENT: SEGUIMIENTO CLINICO (FASES) */}
+      <div style={{ 
+        display: currentTab === 'tracking' ? 'flex' : 'none', 
+        flexDirection: 'column', 
+        gap: '24px', 
+        animation: currentTab === 'tracking' ? 'fadeIn 0.28s cubic-bezier(0.4, 0, 0.2, 1)' : 'none' 
+      }}>
+          {/* KPI Panel */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>
         <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
           <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(0,121,193,0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-primary)', flexShrink: 0 }}>
             <Layers size={22} />
@@ -1010,6 +1490,9 @@ export default function EquipmentTrackerPage() {
                   <Building2 size={18} />
                   <span style={{ fontWeight: 700, fontSize: '1.05rem', letterSpacing: '0.5px' }}>{recinto.name}</span>
                   <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: '4px' }}>{recinto.code}</span>
+                  <span style={{ fontSize: '0.72rem', background: 'rgba(255,255,255,0.22)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold', marginLeft: '4px' }}>
+                    {recintoEquips.length} {recintoEquips.length === 1 ? 'Equipo' : 'Equipos'}
+                  </span>
                 </div>
 
                 <div 
@@ -1343,6 +1826,888 @@ export default function EquipmentTrackerPage() {
           );
         })}
       </div>
+      </div>
+
+{/* TAB CONTENT: MATRIZ DE ANALITOS DE LABORATORIO */}
+      <div style={{ 
+        display: currentTab === 'analytes' ? 'flex' : 'none', 
+        flexDirection: 'column', 
+        gap: '20px', 
+        animation: currentTab === 'analytes' ? 'fadeIn 0.28s cubic-bezier(0.4, 0, 0.2, 1)' : 'none' 
+      }}>
+          
+          {/* Analyte Tab Specific KPI Panel */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+            <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(124, 58, 237, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7c3aed', flexShrink: 0 }}>
+                <Database size={22} />
+              </div>
+              <div>
+                <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{analytes.length}</div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Analitos Totales Registrados</div>
+              </div>
+            </div>
+
+            <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981', flexShrink: 0 }}>
+                <CheckCircle2 size={22} />
+              </div>
+              <div>
+                <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>
+                  {analytes.filter(a => a.state === 'Transmitiendo').length}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>En Transmisión Activa</div>
+              </div>
+            </div>
+
+            <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(245, 158, 11, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b', flexShrink: 0 }}>
+                <RefreshCw size={22} />
+              </div>
+              <div>
+                <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>
+                  {analytes.filter(a => a.state === 'En Pausa').length}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Transmisión en Pausa</div>
+              </div>
+            </div>
+
+            <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+              <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(107, 114, 128, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280', flexShrink: 0 }}>
+                <Layers size={22} />
+              </div>
+              <div>
+                <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>
+                  {analytes.filter(a => a.state === 'No Iniciado' || !a.state).length}
+                </div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Pendientes de Iniciar</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Controles y Filtros de la Matriz de Analitos */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', background: 'var(--bg-secondary)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
+            
+            {/* Fila 1: Píldoras de estado & Acordeones colectivos */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+              
+              {/* Píldoras de Estado */}
+              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('all')}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '20px',
+                    fontSize: '0.78rem',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    background: statusFilter === 'all' ? '#7c3aed' : 'var(--bg-primary)',
+                    color: statusFilter === 'all' ? 'white' : 'var(--text-secondary)',
+                    border: `1px solid ${statusFilter === 'all' ? '#7c3aed' : 'var(--border-light)'}`,
+                    boxShadow: statusFilter === 'all' ? '0 2px 8px rgba(124, 58, 237, 0.2)' : 'none'
+                  }}
+                >
+                  🌐 Todos ({analytes.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('Transmitiendo')}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '20px',
+                    fontSize: '0.78rem',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    background: statusFilter === 'Transmitiendo' ? '#10b981' : 'rgba(16, 185, 129, 0.05)',
+                    color: statusFilter === 'Transmitiendo' ? 'white' : '#10b981',
+                    border: `1px solid ${statusFilter === 'Transmitiendo' ? '#10b981' : 'rgba(16, 185, 129, 0.2)'}`,
+                    boxShadow: statusFilter === 'Transmitiendo' ? '0 2px 8px rgba(16, 185, 129, 0.2)' : 'none'
+                  }}
+                >
+                  🟢 Transmitiendo ({analytes.filter(a => a.state === 'Transmitiendo').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('En Pausa')}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '20px',
+                    fontSize: '0.78rem',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    background: statusFilter === 'En Pausa' ? '#f59e0b' : 'rgba(245, 158, 11, 0.05)',
+                    color: statusFilter === 'En Pausa' ? 'white' : '#f59e0b',
+                    border: `1px solid ${statusFilter === 'En Pausa' ? '#f59e0b' : 'rgba(245, 158, 11, 0.2)'}`,
+                    boxShadow: statusFilter === 'En Pausa' ? '0 2px 8px rgba(245, 158, 11, 0.2)' : 'none'
+                  }}
+                >
+                  🟡 En Pausa ({analytes.filter(a => a.state === 'En Pausa').length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStatusFilter('No Iniciado')}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '20px',
+                    fontSize: '0.78rem',
+                    fontWeight: 'bold',
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    background: statusFilter === 'No Iniciado' ? '#6b7280' : 'var(--bg-primary)',
+                    color: statusFilter === 'No Iniciado' ? 'white' : 'var(--text-secondary)',
+                    border: `1px solid ${statusFilter === 'No Iniciado' ? '#6b7280' : 'var(--border-light)'}`,
+                    boxShadow: statusFilter === 'No Iniciado' ? '0 2px 8px rgba(107, 114, 128, 0.2)' : 'none'
+                  }}
+                >
+                  ⚫ No Iniciado ({analytes.filter(a => a.state === 'No Iniciado' || !a.state).length})
+                </button>
+              </div>
+
+              {/* Botones de Acordeón Colectivo */}
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const obj: Record<string, boolean> = { unassigned: false };
+                    recintos.forEach(r => { obj[r.id] = false; });
+                    setCollapsedRecintoAnalytes(obj);
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border-light)',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    transition: 'all 0.15s ease'
+                  }}
+                  className="btn-light-hover"
+                >
+                  📂 Expandir Sedes
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const obj: Record<string, boolean> = { unassigned: true };
+                    recintos.forEach(r => { obj[r.id] = true; });
+                    setCollapsedRecintoAnalytes(obj);
+                  }}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: '6px',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    background: 'var(--bg-primary)',
+                    border: '1px solid var(--border-light)',
+                    color: 'var(--text-primary)',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    transition: 'all 0.15s ease'
+                  }}
+                  className="btn-light-hover"
+                >
+                  📁 Colapsar Sedes
+                </button>
+              </div>
+            </div>
+
+            {/* Fila 2: Buscador & CTA Manual & Auto-save */}
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <div style={{ position: 'relative', flex: '1', minWidth: '280px' }}>
+                <Search size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                <input 
+                  type="text" 
+                  placeholder="Buscar analito, cod. transmisión, cod. test, sección, instrumento o sede prestadora..." 
+                  value={analyteSearch} 
+                  onChange={e => setAnalyteSearch(e.target.value)} 
+                  style={{ width: '100%', padding: '10px 10px 10px 42px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }} 
+                />
+              </div>
+
+              {/* Botón para Crear Analito Manualmente */}
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingAnalyte(null);
+                  setIsAnalyteModalOpen(true);
+                }}
+                style={{
+                  padding: '10px 16px',
+                  background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: 'var(--radius-sm)',
+                  fontWeight: 'bold',
+                  fontSize: '0.82rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  boxShadow: '0 4px 12px rgba(124, 58, 237, 0.15)',
+                  transition: 'all 0.2s ease',
+                  height: '40px'
+                }}
+                className="btn-primary-hover"
+              >
+                <span>➕ Nuevo Analito</span>
+              </button>
+
+              {/* Botón para Exportar Matriz a Excel */}
+              <button
+                type="button"
+                onClick={exportAnalytesToExcel}
+                style={{
+                  padding: '10px 16px',
+                  background: 'transparent',
+                  color: '#7c3aed',
+                  border: '1px solid #7c3aed',
+                  borderRadius: 'var(--radius-sm)',
+                  fontWeight: 'bold',
+                  fontSize: '0.82rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s ease',
+                  height: '40px'
+                }}
+                className="btn-light-hover"
+              >
+                <FileSpreadsheet size={16} />
+                <span>Exportar Matriz LIS</span>
+              </button>
+              
+              {/* Auto-save indicator */}
+              {saveStatus !== 'idle' && (
+                <div 
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    padding: '8px 12px',
+                    borderRadius: '8px',
+                    background: saveStatus === 'saving' ? 'rgba(124, 58, 237, 0.08)' : 'rgba(13, 148, 136, 0.08)',
+                    color: saveStatus === 'saving' ? '#7c3aed' : '#0d9488',
+                    fontSize: '0.78rem',
+                    fontWeight: 700,
+                    border: `1px solid ${saveStatus === 'saving' ? 'rgba(124, 58, 237, 0.15)' : 'rgba(13, 148, 136, 0.15)'}`,
+                    whiteSpace: 'nowrap',
+                    height: '40px',
+                    alignSelf: 'center'
+                  }}
+                >
+                  {saveStatus === 'saving' ? (
+                    <>
+                      <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                      <span>Guardando...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Check size={12} />
+                      <span>Cambios guardados</span>
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Grouped Accordion / Grid list of Analytes */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            
+            {/* 🔬 SECCIÓN DE ANALITOS PENDIENTES DE ASIGNACIÓN DE SEDE */}
+            {(() => {
+              const unassignedAnalytes = filteredAnalytes.filter(a => !a.recintoId);
+              if (unassignedAnalytes.length === 0) return null;
+
+              const isCollapsed = collapsedRecintoAnalytes['unassigned'] || false;
+              const totalCount = unassignedAnalytes.length;
+              
+              // Agrupar por instrumento
+              const groupedByEquip: Record<string, any> = {};
+              unassignedAnalytes.forEach(a => {
+                const eqName = a.instrumentName || 'Instrumento Sin Nombre';
+                if (!groupedByEquip[eqName]) groupedByEquip[eqName] = [];
+                groupedByEquip[eqName].push(a);
+              });
+
+              return (
+                <div className="glass-panel" style={{ padding: 0, overflow: 'hidden', background: 'var(--bg-primary)', border: '1.5px solid var(--accent-warning)', boxShadow: '0 4px 20px rgba(245, 158, 11, 0.05)' }}>
+                  {/* Header Banner - Warning Orange themed */}
+                  <div
+                    style={{
+                      background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)',
+                      color: 'white',
+                      padding: '14px 20px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      cursor: 'pointer',
+                      userSelect: 'none'
+                    }}
+                    onClick={() => {
+                      setCollapsedRecintoAnalytes(prev => ({
+                        ...prev,
+                        unassigned: !prev.unassigned
+                      }));
+                    }}
+                    className="recinto-header-banner"
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <ChevronDown 
+                        size={18} 
+                        style={{ 
+                          transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', 
+                          transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                          flexShrink: 0
+                        }} 
+                      />
+                      <ShieldAlert size={18} />
+                      <span style={{ fontWeight: 700, fontSize: '1.05rem', letterSpacing: '0.5px' }}>
+                        Analitos Sin Sede Asignada (Pendientes de Configuración)
+                      </span>
+                      <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.2)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold' }}>
+                        {totalCount} Analitos
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Body grid list */}
+                  <div 
+                    style={{ 
+                      maxHeight: isCollapsed ? '0px' : '2000px', 
+                      opacity: isCollapsed ? 0 : 1,
+                      overflow: 'hidden',
+                      transition: 'max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease-out',
+                      width: '100%',
+                      padding: isCollapsed ? '0px' : '20px',
+                      background: '#FFFBEB'
+                    }}
+                  >
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'rgba(245, 158, 11, 0.08)', padding: '12px 16px', borderRadius: '8px', border: '1px solid rgba(245, 158, 11, 0.15)', color: '#b45309', fontSize: '0.82rem' }}>
+                        <Info size={16} />
+                        <span>Asigna cada equipo/instrumento a su Sede Clínica correspondiente. Todos los analitos asociados a ese instrumento se trasladarán automáticamente en cascada en la base de datos.</span>
+                      </div>
+
+                      {Object.entries(groupedByEquip).map(([equipName, list]) => {
+                        return (
+                          <div key={equipName} style={{ background: '#ffffff', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px', boxShadow: '0 4px 10px rgba(0,0,0,0.01)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                <span style={{ fontSize: '1rem', fontWeight: 800, color: '#b45309' }}>
+                                  🔬 {equipName}
+                                </span>
+                                <span style={{ fontSize: '0.72rem', fontWeight: 800, padding: '2px 8px', borderRadius: '99px', background: 'rgba(245,158,11,0.1)', color: '#b45309' }}>
+                                  {list.length} {list.length === 1 ? 'Analito' : 'Analitos'}
+                                </span>
+                              </div>
+
+                              {/* Dropdown de asignación interactiva */}
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#b45309' }}>📍 Asignar Sede:</span>
+                                  <select
+                                    value=""
+                                    onChange={async (e) => {
+                                      const recId = e.target.value;
+                                      if (!recId) return;
+                                      const targetRecinto = recintos.find(r => r.id === recId);
+                                      if (!targetRecinto) return;
+
+                                      if (confirm(`⚠️ ¿Deseas asignar el instrumento "${equipName}" y trasladar sus ${list.length} analitos en cascada al recinto "${targetRecinto.name}"?`)) {
+                                        setSaveStatus('saving');
+                                        const res = await useEquipmentStore.getState().assignRecintoToInstrument(equipName, recId);
+                                        if (res.success) {
+                                          setSaveStatus('saved');
+                                          setTimeout(() => setSaveStatus('idle'), 1500);
+                                        } else {
+                                          alert(`Error: ${res.message}`);
+                                          setSaveStatus('idle');
+                                        }
+                                      }
+                                    }} 
+                                    style={{
+                                      padding: '6px 12px',
+                                      borderRadius: '6px',
+                                      border: '1px solid #f59e0b',
+                                      background: 'white',
+                                      color: '#b45309',
+                                      fontWeight: 'bold',
+                                      fontSize: '0.78rem',
+                                      outline: 'none',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    <option value="">-- Seleccionar Sede --</option>
+                                    {recintos.map(r => (
+                                      <option key={r.id} value={r.id}>{r.name}</option>
+                                    ))}
+                                  </select>
+                                </div>
+
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                  <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#b45309' }}>⚡ Estado masivo:</span>
+                                  <select
+                                    value=""
+                                    onChange={async (e) => {
+                                      const targetState = e.target.value;
+                                      if (!targetState) return;
+                                      if (confirm(`¿Deseas cambiar el estado de los ${list.length} analitos de este instrumento a "${targetState}"?`)) {
+                                        setSaveStatus('saving');
+                                        try {
+                                          await Promise.all(list.map((a: any) => updateAnalyte(a.id, { state: targetState })));
+                                          setSaveStatus('saved');
+                                        } catch (error) {
+                                          console.error(error);
+                                          setSaveStatus('idle');
+                                        } finally {
+                                          setTimeout(() => setSaveStatus('idle'), 1500);
+                                        }
+                                      }
+                                    }} 
+                                    style={{
+                                      padding: '6px 12px',
+                                      borderRadius: '6px',
+                                      border: '1px solid #f59e0b',
+                                      background: 'white',
+                                      color: '#b45309',
+                                      fontWeight: 'bold',
+                                      fontSize: '0.78rem',
+                                      outline: 'none',
+                                      cursor: 'pointer'
+                                    }}
+                                  >
+                                    <option value="">-- Cambiar todos a --</option>
+                                    <option value="No Iniciado">⚫ No Iniciado</option>
+                                    <option value="Transmitiendo">🟢 Transmitiendo</option>
+                                    <option value="En Pausa">🟡 En Pausa</option>
+                                  </select>
+                                </div>
+                              </div>
+                            </div>
+
+                            {/* Subtabla de Analitos Pendientes */}
+                            <div style={{ overflowX: 'auto' }}>
+                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'left' }}>
+                                <thead>
+                                  <tr style={{ background: 'rgba(0,0,0,0.01)', borderBottom: '1px solid var(--border-light)', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                                    <th style={{ padding: '10px 16px' }}>#</th>
+                                    {!hiddenAnalyteCols.includes('transmissionCode') && <th style={{ padding: '10px 16px' }}>Cód. Transmisión</th>}
+                                    {!hiddenAnalyteCols.includes('testCode') && <th style={{ padding: '10px 12px' }}>Cód. Test / Código Analito</th>}
+                                    <th style={{ padding: '10px 12px' }}>Nombre del Analito</th>
+                                    {!hiddenAnalyteCols.includes('description') && <th style={{ padding: '10px 12px' }}>Descripción Extensa</th>}
+                                    {!hiddenAnalyteCols.includes('section') && <th style={{ padding: '10px 12px' }}>Sección / Lab</th>}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {list.map((analyte: any, idx: number) => (
+                                    <tr key={analyte.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.02)', background: 'var(--bg-primary)' }}>
+                                      <td style={{ padding: '10px 16px', fontWeight: 'bold', color: 'var(--text-muted)' }}>{idx + 1}</td>
+                                      {!hiddenAnalyteCols.includes('transmissionCode') && (
+                                        <td style={{ padding: '10px 16px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+                                          {analyte.transmissionCode}
+                                        </td>
+                                      )}
+                                      {!hiddenAnalyteCols.includes('testCode') && (
+                                        <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                                          {analyte.testCode}
+                                        </td>
+                                      )}
+                                      <td style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--accent-warning)' }}>
+                                        {analyte.name}
+                                      </td>
+                                      {!hiddenAnalyteCols.includes('description') && (
+                                        <td style={{ padding: '10px 12px', color: 'var(--text-muted)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={analyte.description}>
+                                          {analyte.description || <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Sin descripción</span>}
+                                        </td>
+                                      )}
+                                      {!hiddenAnalyteCols.includes('section') && (
+                                        <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
+                                          {analyte.section}
+                                        </td>
+                                      )}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+              );
+            })()}
+
+            {/* ACCORDEONES DE SEDES Y CLINICAS PRINCIPALES */}
+            {recintos.map((rec) => {
+              const recAnalytes = filteredAnalytes.filter(a => a.recintoId === rec.id);
+              const isCollapsed = collapsedRecintoAnalytes[rec.id] || false;
+              const recEquips = equipments.filter(e => e.recintoId === rec.id);
+
+              // Avance de sede en analitos transmitiendo
+              const total = recAnalytes.length;
+              const activeCount = recAnalytes.filter(a => a.state === 'Transmitiendo').length;
+              const pct = total === 0 ? 0 : Math.round((activeCount / total) * 100);
+
+              // Agrupar por instrumento
+              const groupedByEquip: Record<string, any> = {};
+              recAnalytes.forEach(a => {
+                const eqName = a.instrumentName || 'Instrumento Sin Nombre';
+                if (!groupedByEquip[eqName]) groupedByEquip[eqName] = [];
+                groupedByEquip[eqName].push(a);
+              });
+
+              return (
+                <div key={rec.id} className="glass-panel" style={{ padding: 0, overflow: 'hidden', background: 'var(--bg-primary)', border: '1px solid var(--border-light)' }}>
+                  {/* Header Banner - Purple analytes themed */}
+                  <div
+                    style={{
+                      background: 'linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%)',
+                      color: 'white',
+                      padding: '14px 20px',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      cursor: 'pointer',
+                      userSelect: 'none'
+                    }}
+                    onClick={() => {
+                      setCollapsedRecintoAnalytes(prev => ({
+                        ...prev,
+                        [rec.id]: !prev[rec.id]
+                      }));
+                    }}
+                    className="recinto-header-banner"
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <ChevronDown 
+                        size={18} 
+                        style={{ 
+                          transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', 
+                          transition: 'transform 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+                          flexShrink: 0
+                        }} 
+                      />
+                      <Building2 size={18} />
+                      <span style={{ fontWeight: 700, fontSize: '1.05rem', letterSpacing: '0.5px' }}>{rec.name}</span>
+                      <span style={{ fontSize: '0.75rem', background: 'rgba(255,255,255,0.15)', padding: '2px 8px', borderRadius: '4px' }}>{rec.code}</span>
+                      <span style={{ fontSize: '0.72rem', background: 'rgba(255,255,255,0.22)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold', marginLeft: '4px' }} title="Instrumentos de laboratorio configurados en esta sede">
+                        {Object.keys(groupedByEquip).length} {Object.keys(groupedByEquip).length === 1 ? 'Instrumento LIS' : 'Instrumentos LIS'}
+                      </span>
+                      <span style={{ fontSize: '0.72rem', background: 'rgba(255,255,255,0.11)', border: '1px dashed rgba(255,255,255,0.25)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold', marginLeft: '4px', opacity: 0.85 }} title="Equipos Clínicos registrados en Seguimiento General">
+                        {recEquips.length} {recEquips.length === 1 ? 'Eq. Físico' : 'Eq. Físicos'}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                      {total > 0 && ( 
+                        <div 
+                          style={{ 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            gap: '10px', 
+                            background: 'rgba(255,255,255,0.12)', 
+                            padding: '6px 14px', 
+                            borderRadius: '20px', 
+                            fontSize: '0.78rem',
+                            border: '1px solid rgba(255,255,255,0.15)'
+                          }} 
+                          title="Porcentaje de Analitos Transmitiendo en este Recinto"
+                        >
+                          <span style={{ fontWeight: 800 }}>Transmisión: {pct}%</span>
+                          <div style={{ width: '80px', height: '6px', background: 'rgba(255,255,255,0.2)', borderRadius: '3px', overflow: 'hidden' }}>
+                            <div style={{ width: `${pct}%`, height: '100%', background: '#10b981', borderRadius: '3px' }} />
+                          </div>
+                          <span style={{ opacity: 0.85, fontSize: '0.72rem' }}>({total} Analitos)</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Body Content */}
+                  <div 
+                    style={{ 
+                      maxHeight: isCollapsed ? '0px' : '3000px', 
+                      opacity: isCollapsed ? 0 : 1,
+                      overflow: 'hidden',
+                      transition: 'max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease-out',
+                      width: '100%',
+                      padding: isCollapsed ? '0px' : '20px'
+                    }}
+                  >
+                    {total === 0 ? (
+                      <div style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.85rem' }}>
+                        No hay analitos registrados en esta sede clínica. Puedes importarlos usando el botón superior "Importar Equipos".
+                      </div>
+                    ) : (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                        {Object.entries(groupedByEquip).map(([equipName, list]) => {
+                          const eqTotal = list.length;
+                          return (
+                            <div key={equipName} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.005)' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                                      🔬 {equipName}
+                                    </span>
+                                    <span style={{
+                                      fontSize: '0.72rem',
+                                      fontWeight: 800,
+                                      padding: '2px 8px',
+                                      borderRadius: '99px',
+                                      background: 'rgba(124, 58, 237, 0.08)',
+                                      color: '#7c3aed'
+                                    }}>
+                                      {eqTotal} {eqTotal === 1 ? 'Analito' : 'Analitos'}
+                                    </span>
+                                  </div>
+
+                                  {/* Cambiar Sede Selector (Rectificación en caliente) */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>SEDE:</span>
+                                    <select
+                                      value={rec.id}
+                                      onChange={async (e) => {
+                                        const newRecId = e.target.value;
+                                        if (!newRecId || newRecId === rec.id) return;
+                                        const targetRec = recintos.find(r => r.id === newRecId);
+                                        if (!targetRec) return;
+                                        
+                                        if (confirm(`⚠️ ¿Deseas rectificar la ubicación de "${equipName}" y trasladar sus ${eqTotal} analitos en cascada al recinto "${targetRec.name}"?`)) {
+                                          setSaveStatus('saving');
+                                          const res = await useEquipmentStore.getState().assignRecintoToInstrument(equipName, newRecId, rec.id);
+                                          if (res.success) {
+                                            setSaveStatus('saved');
+                                            setTimeout(() => setSaveStatus('idle'), 1500);
+                                          } else {
+                                            alert(`Error: ${res.message}`);
+                                            setSaveStatus('idle');
+                                          }
+                                        }
+                                      }} 
+                                      style={{
+                                        padding: '3px 8px',
+                                        background: 'var(--bg-primary)',
+                                        border: '1px solid rgba(124, 58, 237, 0.25)',
+                                        borderRadius: '6px',
+                                        color: '#7c3aed',
+                                        fontSize: '0.72rem',
+                                        fontWeight: 'bold',
+                                        outline: 'none',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      {recintos.map(r => (
+                                        <option key={r.id} value={r.id}>
+                                          {r.name}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
+
+                                  {/* Cambiar Estado Masivo Selector */}
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>ESTADO:</span>
+                                    <select
+                                      value=""
+                                      onChange={async (e) => {
+                                        const targetState = e.target.value;
+                                        if (!targetState) return;
+                                        if (confirm(`¿Deseas cambiar el estado de los ${list.length} analitos de este instrumento a "${targetState}"?`)) {
+                                          setSaveStatus('saving');
+                                          try {
+                                            await Promise.all(list.map((a: any) => updateAnalyte(a.id, { state: targetState })));
+                                            setSaveStatus('saved');
+                                          } catch (error) {
+                                            console.error(error);
+                                            setSaveStatus('idle');
+                                          } finally {
+                                            setTimeout(() => setSaveStatus('idle'), 1500);
+                                          }
+                                        }
+                                      }} 
+                                      style={{
+                                        padding: '3px 8px',
+                                        background: 'var(--bg-primary)',
+                                        border: '1px solid rgba(124, 58, 237, 0.25)',
+                                        borderRadius: '6px',
+                                        color: '#7c3aed',
+                                        fontSize: '0.72rem',
+                                        fontWeight: 'bold',
+                                        outline: 'none',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      <option value="">-- Cambiar todos a --</option>
+                                      <option value="No Iniciado">⚫ No Iniciado</option>
+                                      <option value="Transmitiendo">🟢 Transmitiendo</option>
+                                      <option value="En Pausa">🟡 En Pausa</option>
+                                    </select>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Subtabla de Analitos */}
+                              <div style={{ overflowX: 'auto' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'left' }}>
+                                  <thead>
+                                    <tr style={{ background: 'rgba(0,0,0,0.01)', borderBottom: '1px solid var(--border-light)', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                                      <th style={{ padding: '10px 16px' }}>#</th>
+                                      {!hiddenAnalyteCols.includes('transmissionCode') && <th style={{ padding: '10px 16px' }}>Cód. Transmisión</th>}
+                                      {!hiddenAnalyteCols.includes('testCode') && <th style={{ padding: '10px 12px' }}>Cód. Test / Código Analito</th>}
+                                      <th style={{ padding: '10px 12px' }}>Nombre del Analito</th>
+                                      {!hiddenAnalyteCols.includes('description') && <th style={{ padding: '10px 12px' }}>Descripción</th>}
+                                      {!hiddenAnalyteCols.includes('section') && <th style={{ padding: '10px 12px' }}>Sección / Lab</th>}
+                                      {!hiddenAnalyteCols.includes('state') && <th style={{ padding: '10px 16px', width: '150px', textAlign: 'center' }}>Estado Transmisión</th>}
+                                      <th style={{ padding: '10px 16px', width: '50px', textAlign: 'center' }}>Acción</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {(() => {
+                                      const equipKey = rec.id + '_' + equipName;
+                                      const isExpanded = expandedInstruments[equipKey] || false;
+                                      const visibleAnalytes = isExpanded ? list : list.slice(0, 12);
+                                      return visibleAnalytes.map((analyte: any, idx: number) => (
+                                        <tr key={analyte.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.02)', background: 'var(--bg-primary)' }} className="table-row-hover">
+                                          <td style={{ padding: '10px 16px', fontWeight: 'bold', color: 'var(--text-muted)' }}>{idx + 1}</td>
+                                          
+                                          {!hiddenAnalyteCols.includes('transmissionCode') && (
+                                            <td style={{ padding: '10px 16px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+                                              {analyte.transmissionCode}
+                                            </td>
+                                          )}
+                                          
+                                          {!hiddenAnalyteCols.includes('testCode') && (
+                                            <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                                              {analyte.testCode}
+                                            </td>
+                                          )}
+                                          
+                                          <td style={{ padding: '10px 12px', fontWeight: 700, color: '#7c3aed' }}>
+                                            {analyte.name}
+                                          </td>
+                                          
+                                          {!hiddenAnalyteCols.includes('description') && (
+                                            <td style={{ padding: '10px 12px', color: 'var(--text-muted)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={analyte.description}>
+                                              {analyte.description || <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Sin descripción</span>}
+                                            </td>
+                                          )}
+                                          
+                                          {!hiddenAnalyteCols.includes('section') && (
+                                            <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
+                                              {analyte.section}
+                                            </td>
+                                          )}
+                                          
+                                          {!hiddenAnalyteCols.includes('state') && (
+                                            <td style={{ padding: '6px 16px', textAlign: 'center' }}>
+                                              <CustomAnalyteSelect 
+                                                value={analyte.state} 
+                                                onChange={(val) => {
+                                                  updateAnalyte(analyte.id, { state: val });
+                                                }} 
+                                              />
+                                            </td>
+                                          )}
+
+                                          <td style={{ padding: '6px 16px', textAlign: 'center' }}>
+                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setEditingAnalyte(analyte);
+                                                  setIsAnalyteModalOpen(true);
+                                                }} 
+                                                style={{ background: 'none', border: 'none', color: '#7c3aed', cursor: 'pointer', opacity: 0.8 }}
+                                                title="Editar analito"
+                                              >
+                                                <Edit2 size={13} />
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={async () => {
+                                                  if (confirm(`¿Estás seguro de eliminar el analito "${analyte.name}"?`)) {
+                                                    setSaveStatus('saving');
+                                                    await deleteAnalyte(analyte.id);
+                                                    setSaveStatus('saved');
+                                                    setTimeout(() => setSaveStatus('idle'), 1500);
+                                                  }
+                                                }} 
+                                                style={{ background: 'none', border: 'none', color: 'var(--accent-danger)', cursor: 'pointer', opacity: 0.8 }}
+                                                title="Eliminar analito"
+                                              >
+                                                <Trash2 size={13} />
+                                              </button>
+                                            </div>
+                                          </td>
+                                        </tr>
+                                      ));
+                                    })()}
+                                  </tbody>
+                                </table>
+                              </div>
+                              {/* Mostrar más/menos de assigned */}
+                              {(() => {
+                                const equipKey = rec.id + '_' + equipName;
+                                const isExpanded = expandedInstruments[equipKey] || false;
+                                if (list.length <= 12) return null;
+                                return (
+                                  <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setExpandedInstruments(prev => ({
+                                          ...prev,
+                                          [equipKey]: !isExpanded
+                                        }));
+                                      }}
+                                      style={{
+                                        padding: '6px 16px',
+                                        background: 'rgba(124, 58, 237, 0.08)',
+                                        border: '1px solid rgba(124, 58, 237, 0.2)',
+                                        borderRadius: '20px',
+                                        color: '#7c3aed',
+                                        fontWeight: 'bold',
+                                        fontSize: '0.74rem',
+                                        cursor: 'pointer',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        transition: 'all 0.15s ease'
+                                      }}
+                                      className="btn-light-hover"
+                                    >
+                                      {isExpanded ? '⬆️ Mostrar menos' : `⬇️ Ver ${list.length - 12} analitos más...`}
+                                    </button>
+                                  </div>
+                                );
+                              })()}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+      </div>
 
       {/* Visor de Informes Corporativo */}
       <ReportViewer 
@@ -1366,6 +2731,39 @@ export default function EquipmentTrackerPage() {
             setSelectedEqForComments(prev => prev ? { ...prev, observaciones: updatedJson } : null);
           }}
           availableUsers={users}
+        />
+      )}
+      {/* MODAL DE GESTIÓN DE ANALITOS (CREACIÓN / EDICIÓN EN CALIENTE) */}
+      {isAnalyteModalOpen && (
+        <AnalyteModal
+          isOpen={isAnalyteModalOpen}
+          onClose={() => {
+            setIsAnalyteModalOpen(false);
+            setEditingAnalyte(null);
+          }}
+          editingAnalyte={editingAnalyte}
+          recintos={recintos}
+          analytes={analytes}
+          onSave={async (analyteData) => {
+            setSaveStatus('saving');
+            try {
+              if (editingAnalyte) {
+                // Modo Edición
+                await updateAnalyte(editingAnalyte.id, analyteData);
+              } else {
+                // Modo Creación
+                await addAnalyte(analyteData);
+              }
+              setSaveStatus('saved');
+            } catch (e) {
+              console.error("Error saving analyte:", e);
+              alert("Error al guardar el analito. Por favor, intente de nuevo.");
+            } finally {
+              setTimeout(() => setSaveStatus('idle'), 1500);
+              setIsAnalyteModalOpen(false);
+              setEditingAnalyte(null);
+            }
+          }}
         />
       )}
 
