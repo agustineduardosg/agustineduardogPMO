@@ -1534,9 +1534,9 @@ export default function EquipmentTrackerPage() {
               {/* Data Table Grid (Collapsible) */}
               <div 
                 style={{ 
-                  maxHeight: isCollapsed ? '0px' : '3000px', 
+                  maxHeight: isCollapsed ? '0px' : 'none', 
                   opacity: isCollapsed ? 0 : 1,
-                  overflow: 'hidden',
+                  overflow: isCollapsed ? 'hidden' : 'visible',
                   transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
                   width: '100%'
                 }}
@@ -2186,9 +2186,9 @@ export default function EquipmentTrackerPage() {
                   {/* Body grid list */}
                   <div 
                     style={{ 
-                      maxHeight: isCollapsed ? '0px' : '2000px', 
+                      maxHeight: isCollapsed ? '0px' : 'none', 
                       opacity: isCollapsed ? 0 : 1,
-                      overflow: 'hidden',
+                      overflow: isCollapsed ? 'hidden' : 'visible',
                       transition: 'max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease-out',
                       width: '100%',
                       padding: isCollapsed ? '0px' : '20px',
@@ -2441,9 +2441,9 @@ export default function EquipmentTrackerPage() {
                   {/* Body Content */}
                   <div 
                     style={{ 
-                      maxHeight: isCollapsed ? '0px' : '3000px', 
+                      maxHeight: isCollapsed ? '0px' : 'none', 
                       opacity: isCollapsed ? 0 : 1,
-                      overflow: 'hidden',
+                      overflow: isCollapsed ? 'hidden' : 'visible',
                       transition: 'max-height 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease-out',
                       width: '100%',
                       padding: isCollapsed ? '0px' : '20px'

@@ -3689,9 +3689,9 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
                     {/* Collapsible Container */}
                     <div 
                       style={{ 
-                        maxHeight: isCollapsed ? '0px' : '3000px', 
+                        maxHeight: isCollapsed ? '0px' : 'none', 
                         opacity: isCollapsed ? 0 : 1,
-                        overflow: 'hidden',
+                        overflow: isCollapsed ? 'hidden' : 'visible',
                         transition: 'all 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
                         width: '100%'
                       }}
