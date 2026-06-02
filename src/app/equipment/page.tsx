@@ -94,25 +94,61 @@ const ANALYTE_STATUS_STYLE: Record<string, { bg: string; color: string; border: 
   'Transmitiendo': { bg: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: 'rgba(16, 185, 129, 0.2)' },
   'En Pausa': { bg: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', border: 'rgba(245, 158, 11, 0.2)' },
   'No Iniciado': { bg: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: 'var(--border-light)' },
-  'No aplica': { bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'rgba(239, 68, 68, 0.2)' },
-  'No requerido': { bg: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', border: 'rgba(59, 130, 246, 0.2)' },
-  'Desestimado': { bg: 'rgba(107, 114, 128, 0.1)', color: '#6b7280', border: 'rgba(107, 114, 128, 0.2)' },
-  'Descartado': { bg: 'rgba(239, 68, 68, 0.15)', color: '#b91c1c', border: 'rgba(239, 68, 68, 0.25)' }
+  'No aplica': { bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'rgba(239, 68, 68, 0.2)' }
+};
+
+const getAnalyteStatusStyle = (value: string) => {
+  if (ANALYTE_STATUS_STYLE[value]) return ANALYTE_STATUS_STYLE[value];
+  
+  const lowerVal = value.toLowerCase();
+  const isExcluded = ['no aplica', 'no requiere', 'no requerido', 'n-a', 'na', 'desestimado', 'descartado', 'excluido'].some(k => lowerVal.includes(k));
+  
+  if (isExcluded) {
+    return { bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'rgba(239, 68, 68, 0.2)' }; // Red for excluded custom status
+  }
+  return { bg: 'rgba(0, 121, 193, 0.08)', color: '#0079C1', border: 'rgba(0, 121, 193, 0.15)' }; // Blue for active custom status
+};
+
+const isAnalyteExcluded = (a: any) => {
+  if (!a) return false;
+  const state = (a.state || '').trim().toLowerCase();
+  const desc = (a.description || '').trim().toLowerCase();
+  
+  const keywords = ['no aplica', 'no requiere', 'no requerido', 'n-a', 'na', 'desestimado', 'descartado', 'excluido'];
+  
+  const stateExcluded = keywords.some(k => state.includes(k));
+  const descExcluded = keywords.some(k => desc === k || desc.includes('no aplica') || desc === 'n-a' || desc === 'n/a');
+  
+  return stateExcluded || descExcluded;
 };
 
 const CustomAnalyteSelect = ({ 
   value, 
-  onChange 
+  onChange,
+  customStatuses = []
 }: { 
   value: string; 
   onChange: (val: string) => void;
+  customStatuses?: string[];
 }) => {
-  const style = ANALYTE_STATUS_STYLE[value] || { bg: 'rgba(107, 114, 128, 0.1)', color: '#6b7280', border: 'rgba(107, 114, 128, 0.2)' };
+  const style = getAnalyteStatusStyle(value);
+
+  const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    if (val === '__custom__') {
+      const customVal = prompt("Ingrese el estado de transmisión personalizado:");
+      if (customVal && customVal.trim()) {
+        onChange(customVal.trim());
+      }
+    } else {
+      onChange(val);
+    }
+  };
 
   return (
     <select
       value={value}
-      onChange={(e) => onChange(e.target.value)}
+      onChange={handleSelectChange}
       style={{
         background: style.bg,
         color: style.color,
@@ -133,9 +169,14 @@ const CustomAnalyteSelect = ({
       <option value="Transmitiendo" style={{ background: '#ffffff', color: '#10b981' }}>🟢 Transmitiendo</option>
       <option value="En Pausa" style={{ background: '#ffffff', color: '#f59e0b' }}>🟡 En Pausa</option>
       <option value="No aplica" style={{ background: '#ffffff', color: '#ef4444' }}>🔴 No aplica</option>
-      <option value="No requerido" style={{ background: '#ffffff', color: '#3b82f6' }}>🔵 No requerido</option>
-      <option value="Desestimado" style={{ background: '#ffffff', color: '#6b7280' }}>⚪ Desestimado</option>
-      <option value="Descartado" style={{ background: '#ffffff', color: '#b91c1c' }}>❌ Descartado</option>
+      {customStatuses.map(status => (
+        <option key={status} value={status} style={{ background: '#ffffff', color: '#0079C1' }}>
+          🔵 {status}
+        </option>
+      ))}
+      <option value="__custom__" style={{ background: '#ffffff', color: '#004B87', fontWeight: 'bold' }}>
+        ➕ Otro...
+      </option>
     </select>
   );
 };
@@ -171,6 +212,18 @@ const AnalyteModal = ({
       if (a.instrumentName) list.add(a.instrumentName);
     });
     return Array.from(list);
+  }, [analytes]);
+
+  // Buscar estados personalizados dinámicos para el dropdown
+  const uniqueAnalyteStatuses = useMemo(() => {
+    const defaults = ['No Iniciado', 'Transmitiendo', 'En Pausa', 'No aplica'];
+    const uniques = new Set<string>();
+    analytes.forEach(a => {
+      if (a.state && !defaults.includes(a.state)) {
+        uniques.add(a.state);
+      }
+    });
+    return Array.from(uniques);
   }, [analytes]);
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -224,16 +277,29 @@ const AnalyteModal = ({
               <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Estado Transmisión</label>
               <select
                 value={state}
-                onChange={e => setState(e.target.value)}
+                onChange={e => {
+                  const val = e.target.value;
+                  if (val === '__custom__') {
+                    const customVal = prompt("Ingrese el estado de transmisión personalizado:");
+                    if (customVal && customVal.trim()) {
+                      setState(customVal.trim());
+                    }
+                  } else {
+                    setState(val);
+                  }
+                }}
                 style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.82rem', color: 'var(--text-primary)', outline: 'none' }}
               >
                 <option value="No Iniciado">⚫ No Iniciado</option>
                 <option value="Transmitiendo">🟢 Transmitiendo</option>
                 <option value="En Pausa">🟡 En Pausa</option>
                 <option value="No aplica">🔴 No aplica</option>
-                <option value="No requerido">🔵 No requerido</option>
-                <option value="Desestimado">⚪ Desestimado</option>
-                <option value="Descartado">❌ Descartado</option>
+                {uniqueAnalyteStatuses.map(status => (
+                  <option key={status} value={status}>
+                    🔵 {status}
+                  </option>
+                ))}
+                <option value="__custom__" style={{ fontWeight: 'bold', color: '#004B87' }}>➕ Otro...</option>
               </select>
             </div>
           </div>
@@ -478,8 +544,21 @@ export default function EquipmentTrackerPage() {
   const [collapsedRecintoAnalytes, setCollapsedRecintoAnalytes] = useState<Record<string, boolean>>({});
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [expandedInstruments, setExpandedInstruments] = useState<Record<string, boolean>>({});
+  const [collapsedInstruments, setCollapsedInstruments] = useState<Record<string, boolean>>({});
   const [isAnalyteModalOpen, setIsAnalyteModalOpen] = useState(false);
   const [editingAnalyte, setEditingAnalyte] = useState<Analyte | null>(null);
+
+  // Buscar estados personalizados dinámicos para el dropdown y filtros
+  const uniqueAnalyteStatuses = useMemo(() => {
+    const defaults = ['No Iniciado', 'Transmitiendo', 'En Pausa', 'No aplica'];
+    const uniques = new Set<string>();
+    analytes.forEach(a => {
+      if (a.state && !defaults.includes(a.state)) {
+        uniques.add(a.state);
+      }
+    });
+    return Array.from(uniques);
+  }, [analytes]);
 
   // Estado para columnas dinámicas
   const [customColumns, setCustomColumns] = useState<string[]>([]);
@@ -2065,12 +2144,6 @@ export default function EquipmentTrackerPage() {
           
           {/* Analyte Tab Specific KPI Panel */}
           {(() => {
-            const isAnalyteExcluded = (a: any) => {
-              const state = (a.state || '').trim();
-              const desc = (a.description || '').trim().toLowerCase();
-              return ['No aplica', 'No requerido', 'Desestimado', 'Descartado'].includes(state) ||
-                     desc === 'n-a' || desc === 'n/a' || desc === 'no aplica' || desc === 'na' || desc.includes('no aplica');
-            };
             const applicableAllCount = analytes.filter(a => !isAnalyteExcluded(a)).length;
             const activeAllCount = analytes.filter(a => a.state === 'Transmitiendo' && !isAnalyteExcluded(a)).length;
             const pausedAllCount = analytes.filter(a => a.state === 'En Pausa' && !isAnalyteExcluded(a)).length;
@@ -2129,20 +2202,11 @@ export default function EquipmentTrackerPage() {
               
               {/* Píldoras de Estado */}
               {(() => {
-                const isAnalyteExcluded = (a: any) => {
-                  const state = (a.state || '').trim();
-                  const desc = (a.description || '').trim().toLowerCase();
-                  return ['No aplica', 'No requerido', 'Desestimado', 'Descartado'].includes(state) ||
-                         desc === 'n-a' || desc === 'n/a' || desc === 'no aplica' || desc === 'na' || desc.includes('no aplica');
-                };
                 const totalCount = analytes.filter(a => !isAnalyteExcluded(a)).length;
                 const activeCount = analytes.filter(a => a.state === 'Transmitiendo' && !isAnalyteExcluded(a)).length;
                 const pausedCount = analytes.filter(a => a.state === 'En Pausa' && !isAnalyteExcluded(a)).length;
                 const pendingCount = analytes.filter(a => (a.state === 'No Iniciado' || !a.state) && !isAnalyteExcluded(a)).length;
                 const noAplicaCount = analytes.filter(a => a.state === 'No aplica').length;
-                const noRequeridoCount = analytes.filter(a => a.state === 'No requerido').length;
-                const desestimadoCount = analytes.filter(a => a.state === 'Desestimado').length;
-                const descartadoCount = analytes.filter(a => a.state === 'Descartado').length;
 
                 return (
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -2236,60 +2300,34 @@ export default function EquipmentTrackerPage() {
                     >
                       🔴 No aplica ({noAplicaCount})
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setStatusFilter('No requerido')}
-                      style={{
-                        padding: '6px 12px',
-                        borderRadius: '20px',
-                        fontSize: '0.78rem',
-                        fontWeight: 'bold',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                        background: statusFilter === 'No requerido' ? '#3b82f6' : 'rgba(59, 130, 246, 0.05)',
-                        color: statusFilter === 'No requerido' ? 'white' : '#3b82f6',
-                        border: `1px solid ${statusFilter === 'No requerido' ? '#3b82f6' : 'rgba(59, 130, 246, 0.2)'}`,
-                        boxShadow: statusFilter === 'No requerido' ? '0 2px 8px rgba(59, 130, 246, 0.2)' : 'none'
-                      }}
-                    >
-                      🔵 No requerido ({noRequeridoCount})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setStatusFilter('Desestimado')}
-                      style={{
-                        padding: '6px 12px',
-                        borderRadius: '20px',
-                        fontSize: '0.78rem',
-                        fontWeight: 'bold',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                        background: statusFilter === 'Desestimado' ? '#6b7280' : 'rgba(107, 114, 128, 0.05)',
-                        color: statusFilter === 'Desestimado' ? 'white' : '#6b7280',
-                        border: `1px solid ${statusFilter === 'Desestimado' ? '#6b7280' : 'rgba(107, 114, 128, 0.2)'}`,
-                        boxShadow: statusFilter === 'Desestimado' ? '0 2px 8px rgba(107, 114, 128, 0.2)' : 'none'
-                      }}
-                    >
-                      ⚪ Desestimado ({desestimadoCount})
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setStatusFilter('Descartado')}
-                      style={{
-                        padding: '6px 12px',
-                        borderRadius: '20px',
-                        fontSize: '0.78rem',
-                        fontWeight: 'bold',
-                        cursor: 'pointer',
-                        transition: 'all 0.2s ease',
-                        background: statusFilter === 'Descartado' ? '#b91c1c' : 'rgba(239, 68, 68, 0.05)',
-                        color: statusFilter === 'Descartado' ? 'white' : '#b91c1c',
-                        border: `1px solid ${statusFilter === 'Descartado' ? '#b91c1c' : 'rgba(239, 68, 68, 0.2)'}`,
-                        boxShadow: statusFilter === 'Descartado' ? '0 2px 8px rgba(185, 28, 28, 0.2)' : 'none'
-                      }}
-                    >
-                      ❌ Descartado ({descartadoCount})
-                    </button>
+                    {uniqueAnalyteStatuses.map(status => {
+                      const count = analytes.filter(a => a.state === status).length;
+                      const style = getAnalyteStatusStyle(status);
+                      const isActive = statusFilter === status;
+                      const icon = isAnalyteExcluded({ state: status }) ? '🔴' : '🔵';
+                      
+                      return (
+                        <button
+                          key={status}
+                          type="button"
+                          onClick={() => setStatusFilter(status)}
+                          style={{
+                            padding: '6px 12px',
+                            borderRadius: '20px',
+                            fontSize: '0.78rem',
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s ease',
+                            background: isActive ? style.color : style.bg,
+                            color: isActive ? 'white' : style.color,
+                            border: `1px solid ${isActive ? style.color : style.border}`,
+                            boxShadow: isActive ? `0 2px 8px ${style.color}33` : 'none'
+                          }}
+                        >
+                          {icon} {status} ({count})
+                        </button>
+                      );
+                    })}
                   </div>
                 );
               })()}
@@ -2529,10 +2567,27 @@ export default function EquipmentTrackerPage() {
                       </div>
 
                       {Object.entries(groupedByEquip).map(([equipName, list]) => {
+                        const isEqCollapsed = collapsedInstruments['unassigned_' + equipName] || false;
                         return (
                           <div key={equipName} style={{ background: '#ffffff', border: '1px solid rgba(245,158,11,0.2)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px', boxShadow: '0 4px 10px rgba(0,0,0,0.01)' }}>
                             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              <div 
+                                style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', userSelect: 'none' }}
+                                onClick={() => {
+                                  setCollapsedInstruments(prev => ({
+                                    ...prev,
+                                    ['unassigned_' + equipName]: !isEqCollapsed
+                                  }));
+                                }}
+                              >
+                                <ChevronDown 
+                                  size={16} 
+                                  style={{ 
+                                    transform: isEqCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', 
+                                    transition: 'transform 0.2s ease',
+                                    color: '#b45309'
+                                  }} 
+                                />
                                 <span style={{ fontSize: '1rem', fontWeight: 800, color: '#b45309' }}>
                                   🔬 {equipName}
                                 </span>
@@ -2542,162 +2597,168 @@ export default function EquipmentTrackerPage() {
                               </div>
 
                               {/* Dropdown de asignación interactiva */}
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                  <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#b45309' }}>📍 Asignar Sede:</span>
-                                  <select
-                                    value=""
-                                    onChange={async (e) => {
-                                      const recId = e.target.value;
-                                      if (!recId) return;
-                                      const targetRecinto = recintos.find(r => r.id === recId);
-                                      if (!targetRecinto) return;
+                              {!isEqCollapsed && (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#b45309' }}>📍 Asignar Sede:</span>
+                                    <select
+                                      value=""
+                                      onChange={async (e) => {
+                                        const recId = e.target.value;
+                                        if (!recId) return;
+                                        const targetRecinto = recintos.find(r => r.id === recId);
+                                        if (!targetRecinto) return;
 
-                                      if (confirm(`⚠️ ¿Deseas asignar el instrumento "${equipName}" y trasladar sus ${list.length} analitos en cascada al recinto "${targetRecinto.name}"?`)) {
-                                        setSaveStatus('saving');
-                                        const res = await useEquipmentStore.getState().assignRecintoToInstrument(equipName, recId);
-                                        if (res.success) {
-                                          setSaveStatus('saved');
-                                          setTimeout(() => setSaveStatus('idle'), 1500);
-                                        } else {
-                                          alert(`Error: ${res.message}`);
-                                          setSaveStatus('idle');
+                                        if (confirm(`⚠️ ¿Deseas asignar el instrumento "${equipName}" y trasladar sus ${list.length} analitos en cascada al recinto "${targetRecinto.name}"?`)) {
+                                          setSaveStatus('saving');
+                                          const res = await useEquipmentStore.getState().assignRecintoToInstrument(equipName, recId);
+                                          if (res.success) {
+                                            setSaveStatus('saved');
+                                            setTimeout(() => setSaveStatus('idle'), 1500);
+                                          } else {
+                                            alert(`Error: ${res.message}`);
+                                            setSaveStatus('idle');
+                                          }
                                         }
-                                      }
-                                    }} 
-                                    style={{
-                                      padding: '6px 12px',
-                                      borderRadius: '6px',
-                                      border: '1px solid #f59e0b',
-                                      background: 'white',
-                                      color: '#b45309',
-                                      fontWeight: 'bold',
-                                      fontSize: '0.78rem',
-                                      outline: 'none',
-                                      cursor: 'pointer'
-                                    }}
-                                  >
-                                    <option value="">-- Seleccionar Sede --</option>
-                                    {recintos.map(r => (
-                                      <option key={r.id} value={r.id}>{r.name}</option>
-                                    ))}
-                                  </select>
-                                </div>
+                                      }} 
+                                      style={{
+                                        padding: '6px 12px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #f59e0b',
+                                        background: 'white',
+                                        color: '#b45309',
+                                        fontWeight: 'bold',
+                                        fontSize: '0.78rem',
+                                        outline: 'none',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      <option value="">-- Seleccionar Sede --</option>
+                                      {recintos.map(r => (
+                                        <option key={r.id} value={r.id}>{r.name}</option>
+                                      ))}
+                                    </select>
+                                  </div>
 
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                  <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#b45309' }}>⚡ Estado masivo:</span>
-                                  <select
-                                    value=""
-                                    onChange={async (e) => {
-                                      const targetState = e.target.value;
-                                      if (!targetState) return;
-                                      if (confirm(`¿Deseas cambiar el estado de los ${list.length} analitos de este instrumento a "${targetState}"?`)) {
-                                        setSaveStatus('saving');
-                                        try {
-                                          await Promise.all(list.map((a: any) => updateAnalyte(a.id, { state: targetState })));
-                                          setSaveStatus('saved');
-                                        } catch (error) {
-                                          console.error(error);
-                                          setSaveStatus('idle');
-                                        } finally {
-                                          setTimeout(() => setSaveStatus('idle'), 1500);
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                    <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: '#b45309' }}>⚡ Estado masivo:</span>
+                                    <select
+                                      value=""
+                                      onChange={async (e) => {
+                                        const targetState = e.target.value;
+                                        if (!targetState) return;
+                                        if (confirm(`¿Deseas cambiar el estado de los ${list.length} analitos de este instrumento a "${targetState}"?`)) {
+                                          setSaveStatus('saving');
+                                          try {
+                                            await Promise.all(list.map((a: any) => updateAnalyte(a.id, { state: targetState })));
+                                            setSaveStatus('saved');
+                                          } catch (error) {
+                                            console.error(error);
+                                            setSaveStatus('idle');
+                                          } finally {
+                                            setTimeout(() => setSaveStatus('idle'), 1500);
+                                          }
                                         }
-                                      }
-                                    }} 
-                                    style={{
-                                      padding: '6px 12px',
-                                      borderRadius: '6px',
-                                      border: '1px solid #f59e0b',
-                                      background: 'white',
-                                      color: '#b45309',
-                                      fontWeight: 'bold',
-                                      fontSize: '0.78rem',
-                                      outline: 'none',
-                                      cursor: 'pointer'
-                                    }}
-                                  >
-                                    <option value="">-- Cambiar todos a --</option>
-                                    <option value="No Iniciado">⚫ No Iniciado</option>
-                                    <option value="Transmitiendo">🟢 Transmitiendo</option>
-                                    <option value="En Pausa">🟡 En Pausa</option>
-                                    <option value="No aplica">🔴 No aplica</option>
-                                    <option value="No requerido">🔵 No requerido</option>
-                                    <option value="Desestimado">⚪ Desestimado</option>
-                                    <option value="Descartado">❌ Descartado</option>
-                                  </select>
+                                      }} 
+                                      style={{
+                                        padding: '6px 12px',
+                                        borderRadius: '6px',
+                                        border: '1px solid #f59e0b',
+                                        background: 'white',
+                                        color: '#b45309',
+                                        fontWeight: 'bold',
+                                        fontSize: '0.78rem',
+                                        outline: 'none',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      <option value="">-- Cambiar todos a --</option>
+                                      <option value="No Iniciado">⚫ No Iniciado</option>
+                                      <option value="Transmitiendo">🟢 Transmitiendo</option>
+                                      <option value="En Pausa">🟡 En Pausa</option>
+                                      <option value="No aplica">🔴 No aplica</option>
+                                      {uniqueAnalyteStatuses.map(status => (
+                                        <option key={status} value={status}>
+                                          🔵 {status}
+                                        </option>
+                                      ))}
+                                    </select>
+                                  </div>
                                 </div>
-                              </div>
+                              )}
                             </div>
 
                             {/* Subtabla de Analitos Pendientes */}
-                            <div style={{ overflowX: 'auto' }}>
-                              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'left' }}>
-                                <thead>
-                                  <tr style={{ background: 'rgba(0,0,0,0.01)', borderBottom: '1px solid var(--border-light)', color: 'var(--text-secondary)', fontWeight: 700 }}>
-                                    <th style={{ padding: '10px 16px' }}>#</th>
-                                    {!hiddenAnalyteCols.includes('transmissionCode') && <th style={{ padding: '10px 16px' }}>Cód. Transmisión</th>}
-                                    {!hiddenAnalyteCols.includes('testCode') && <th style={{ padding: '10px 12px' }}>Cód. Test / Código Analito</th>}
-                                    <th style={{ padding: '10px 12px' }}>Nombre del Analito</th>
-                                    {!hiddenAnalyteCols.includes('description') && <th style={{ padding: '10px 12px' }}>Descripción Extensa</th>}
-                                    {!hiddenAnalyteCols.includes('section') && <th style={{ padding: '10px 12px' }}>Sección / Lab</th>}
-                                    {customColumnsAnalytes.map(col => (
-                                      <th key={col} style={{ padding: '10px 12px', minWidth: '150px' }}>{col}</th>
-                                    ))}
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {list.map((analyte: any, idx: number) => {
-                                    const customFieldsData = analyte.customFields ? JSON.parse(analyte.customFields) : {};
-                                    return (
-                                      <tr key={analyte.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.02)', background: 'var(--bg-primary)' }}>
-                                        <td style={{ padding: '10px 16px', fontWeight: 'bold', color: 'var(--text-muted)' }}>{idx + 1}</td>
-                                        {!hiddenAnalyteCols.includes('transmissionCode') && (
-                                          <td style={{ padding: '10px 16px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--text-primary)' }}>
-                                            {analyte.transmissionCode}
-                                          </td>
-                                        )}
-                                        {!hiddenAnalyteCols.includes('testCode') && (
-                                          <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                                            {analyte.testCode}
-                                          </td>
-                                        )}
-                                        <td style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--accent-warning)' }}>
-                                          {analyte.name}
-                                        </td>
-                                        {!hiddenAnalyteCols.includes('description') && (
-                                          <td style={{ padding: '10px 12px', color: 'var(--text-muted)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={analyte.description}>
-                                            {analyte.description || <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Sin descripción</span>}
-                                          </td>
-                                        )}
-                                        {!hiddenAnalyteCols.includes('section') && (
-                                          <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
-                                            {analyte.section}
-                                          </td>
-                                        )}
-                                        {/* Celdas de Columnas Dinámicas para Analitos No Asignados */}
-                                        {customColumnsAnalytes.map(col => {
-                                          const cellValue = customFieldsData[col] || '';
-                                          return (
-                                            <td key={col} style={{ padding: '8px 12px' }}>
-                                              <InlineInput
-                                                value={cellValue}
-                                                onSave={(val) => {
-                                                  const updatedFields = { ...customFieldsData, [col]: val };
-                                                  updateAnalyte(analyte.id, { customFields: JSON.stringify(updatedFields) });
-                                                }}
-                                                placeholder={`Ingresar ${col.toLowerCase()}...`}
-                                                style={{ width: '100%', padding: '6px', background: 'transparent', border: '1px solid transparent', borderRadius: '4px', outline: 'none', color: 'var(--text-primary)', fontSize: '0.78rem' }}
-                                                className="cell-input"
-                                              />
+                            {!isEqCollapsed && (
+                              <div style={{ overflowX: 'auto' }}>
+                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'left' }}>
+                                  <thead>
+                                    <tr style={{ background: 'rgba(0,0,0,0.01)', borderBottom: '1px solid var(--border-light)', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                                      <th style={{ padding: '10px 16px' }}>#</th>
+                                      {!hiddenAnalyteCols.includes('transmissionCode') && <th style={{ padding: '10px 16px' }}>Cód. Transmisión</th>}
+                                      {!hiddenAnalyteCols.includes('testCode') && <th style={{ padding: '10px 12px' }}>Cód. Test / Código Analito</th>}
+                                      <th style={{ padding: '10px 12px' }}>Nombre del Analito</th>
+                                      {!hiddenAnalyteCols.includes('description') && <th style={{ padding: '10px 12px' }}>Descripción Extensa</th>}
+                                      {!hiddenAnalyteCols.includes('section') && <th style={{ padding: '10px 12px' }}>Sección / Lab</th>}
+                                      {customColumnsAnalytes.map(col => (
+                                        <th key={col} style={{ padding: '10px 12px', minWidth: '150px' }}>{col}</th>
+                                      ))}
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {list.map((analyte: any, idx: number) => {
+                                      const customFieldsData = analyte.customFields ? JSON.parse(analyte.customFields) : {};
+                                      return (
+                                        <tr key={analyte.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.02)', background: 'var(--bg-primary)' }}>
+                                          <td style={{ padding: '10px 16px', fontWeight: 'bold', color: 'var(--text-muted)' }}>{idx + 1}</td>
+                                          {!hiddenAnalyteCols.includes('transmissionCode') && (
+                                            <td style={{ padding: '10px 16px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+                                              {analyte.transmissionCode}
                                             </td>
-                                          );
-                                        })}
-                                      </tr>
-                                    );
-                                  })}
-                                </tbody>
-                              </table>
-                            </div>
+                                          )}
+                                          {!hiddenAnalyteCols.includes('testCode') && (
+                                            <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                                              {analyte.testCode}
+                                            </td>
+                                          )}
+                                          <td style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--accent-warning)' }}>
+                                            {analyte.name}
+                                          </td>
+                                          {!hiddenAnalyteCols.includes('description') && (
+                                            <td style={{ padding: '10px 12px', color: 'var(--text-muted)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={analyte.description}>
+                                              {analyte.description || <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Sin descripción</span>}
+                                            </td>
+                                          )}
+                                          {!hiddenAnalyteCols.includes('section') && (
+                                            <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
+                                              {analyte.section}
+                                            </td>
+                                          )}
+                                          {/* Celdas de Columnas Dinámicas para Analitos No Asignados */}
+                                          {customColumnsAnalytes.map(col => {
+                                            const cellValue = customFieldsData[col] || '';
+                                            return (
+                                              <td key={col} style={{ padding: '8px 12px' }}>
+                                                <InlineInput
+                                                  value={cellValue}
+                                                  onSave={(val) => {
+                                                    const updatedFields = { ...customFieldsData, [col]: val };
+                                                    updateAnalyte(analyte.id, { customFields: JSON.stringify(updatedFields) });
+                                                  }}
+                                                  placeholder={`Ingresar ${col.toLowerCase()}...`}
+                                                  style={{ width: '100%', padding: '6px', background: 'transparent', border: '1px solid transparent', borderRadius: '4px', outline: 'none', color: 'var(--text-primary)', fontSize: '0.78rem' }}
+                                                  className="cell-input"
+                                                />
+                                              </td>
+                                            );
+                                          })}
+                                        </tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
                           </div>
                         );
                       })}
@@ -2714,12 +2775,6 @@ export default function EquipmentTrackerPage() {
               const recEquips = equipments.filter(e => e.recintoId === rec.id);
 
               // Avance de sede en analitos transmitiendo (excluyendo N-A y estados excluidos)
-              const isAnalyteExcluded = (a: any) => {
-                const state = (a.state || '').trim();
-                const desc = (a.description || '').trim().toLowerCase();
-                return ['No aplica', 'No requerido', 'Desestimado', 'Descartado'].includes(state) ||
-                       desc === 'n-a' || desc === 'n/a' || desc === 'no aplica' || desc === 'na' || desc.includes('no aplica');
-              };
               const applicableRecAnalytes = recAnalytes.filter(a => !isAnalyteExcluded(a));
               const total = applicableRecAnalytes.length;
               const activeCount = applicableRecAnalytes.filter(a => a.state === 'Transmitiendo').length;
@@ -2819,312 +2874,338 @@ export default function EquipmentTrackerPage() {
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                         {Object.entries(groupedByEquip).map(([equipName, list]) => {
                           const eqTotal = list.length;
+                          const isEqCollapsed = collapsedInstruments[rec.id + '_' + equipName] || false;
                           return (
                             <div key={equipName} style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '10px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '14px', boxShadow: '0 2px 8px rgba(0,0,0,0.005)' }}>
                               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                                    <span style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>
-                                      🔬 {equipName}
-                                    </span>
-                                    <span style={{
-                                      fontSize: '0.72rem',
-                                      fontWeight: 800,
-                                      padding: '2px 8px',
-                                      borderRadius: '99px',
-                                      background: 'rgba(124, 58, 237, 0.08)',
-                                      color: '#7c3aed'
-                                    }}>
-                                      {eqTotal} {eqTotal === 1 ? 'Analito' : 'Analitos'}
-                                    </span>
-                                  </div>
-
-                                  {/* Cambiar Sede Selector (Rectificación en caliente) */}
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>SEDE:</span>
-                                    <select
-                                      value={rec.id}
-                                      onChange={async (e) => {
-                                        const newRecId = e.target.value;
-                                        if (!newRecId || newRecId === rec.id) return;
-                                        const targetRec = recintos.find(r => r.id === newRecId);
-                                        if (!targetRec) return;
-                                        
-                                        if (confirm(`⚠️ ¿Deseas rectificar la ubicación de "${equipName}" y trasladar sus ${eqTotal} analitos en cascada al recinto "${targetRec.name}"?`)) {
-                                          setSaveStatus('saving');
-                                          const res = await useEquipmentStore.getState().assignRecintoToInstrument(equipName, newRecId, rec.id);
-                                          if (res.success) {
-                                            setSaveStatus('saved');
-                                            setTimeout(() => setSaveStatus('idle'), 1500);
-                                          } else {
-                                            alert(`Error: ${res.message}`);
-                                            setSaveStatus('idle');
-                                          }
-                                        }
-                                      }} 
-                                      style={{
-                                        padding: '3px 8px',
-                                        background: 'var(--bg-primary)',
-                                        border: '1px solid rgba(124, 58, 237, 0.25)',
-                                        borderRadius: '6px',
-                                        color: '#7c3aed',
-                                        fontSize: '0.72rem',
-                                        fontWeight: 'bold',
-                                        outline: 'none',
-                                        cursor: 'pointer'
-                                      }}
-                                    >
-                                      {recintos.map(r => (
-                                        <option key={r.id} value={r.id}>
-                                          {r.name}
-                                        </option>
-                                      ))}
-                                    </select>
-                                  </div>
-
-                                  {/* Cambiar Estado Masivo Selector */}
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>ESTADO:</span>
-                                    <select
-                                      value=""
-                                      onChange={async (e) => {
-                                        const targetState = e.target.value;
-                                        if (!targetState) return;
-                                        if (confirm(`¿Deseas cambiar el estado de los ${list.length} analitos de este instrumento a "${targetState}"?`)) {
-                                          setSaveStatus('saving');
-                                          try {
-                                            await Promise.all(list.map((a: any) => updateAnalyte(a.id, { state: targetState })));
-                                            setSaveStatus('saved');
-                                          } catch (error) {
-                                            console.error(error);
-                                            setSaveStatus('idle');
-                                          } finally {
-                                            setTimeout(() => setSaveStatus('idle'), 1500);
-                                          }
-                                        }
-                                      }} 
-                                      style={{
-                                        padding: '3px 8px',
-                                        background: 'var(--bg-primary)',
-                                        border: '1px solid rgba(124, 58, 237, 0.25)',
-                                        borderRadius: '6px',
-                                        color: '#7c3aed',
-                                        fontSize: '0.72rem',
-                                        fontWeight: 'bold',
-                                        outline: 'none',
-                                        cursor: 'pointer'
-                                      }}
-                                    >
-                                      <option value="">-- Cambiar todos a --</option>
-                                      <option value="No Iniciado">⚫ No Iniciado</option>
-                                      <option value="Transmitiendo">🟢 Transmitiendo</option>
-                                      <option value="En Pausa">🟡 En Pausa</option>
-                                      <option value="No aplica">🔴 No aplica</option>
-                                      <option value="No requerido">🔵 No requerido</option>
-                                      <option value="Desestimado">⚪ Desestimado</option>
-                                      <option value="Descartado">❌ Descartado</option>
-                                    </select>
-                                  </div>
+                                <div 
+                                  style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', userSelect: 'none' }}
+                                  onClick={() => {
+                                    setCollapsedInstruments(prev => ({
+                                      ...prev,
+                                      [rec.id + '_' + equipName]: !isEqCollapsed
+                                    }));
+                                  }}
+                                >
+                                  <ChevronDown 
+                                    size={16} 
+                                    style={{ 
+                                      transform: isEqCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)', 
+                                      transition: 'transform 0.2s ease',
+                                      color: 'var(--text-secondary)'
+                                    }} 
+                                  />
+                                  <span style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+                                    🔬 {equipName}
+                                  </span>
+                                  <span style={{
+                                    fontSize: '0.72rem',
+                                    fontWeight: 800,
+                                    padding: '2px 8px',
+                                    borderRadius: '99px',
+                                    background: 'rgba(124, 58, 237, 0.08)',
+                                    color: '#7c3aed'
+                                  }}>
+                                    {eqTotal} {eqTotal === 1 ? 'Analito' : 'Analitos'}
+                                  </span>
                                 </div>
+
+                                {!isEqCollapsed && (
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+                                    {/* Cambiar Sede Selector (Rectificación en caliente) */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>SEDE:</span>
+                                      <select
+                                        value={rec.id}
+                                        onChange={async (e) => {
+                                          const newRecId = e.target.value;
+                                          if (!newRecId || newRecId === rec.id) return;
+                                          const targetRec = recintos.find(r => r.id === newRecId);
+                                          if (!targetRec) return;
+                                          
+                                          if (confirm(`⚠️ ¿Deseas rectificar la ubicación de "${equipName}" y trasladar sus ${eqTotal} analitos en cascada al recinto "${targetRec.name}"?`)) {
+                                            setSaveStatus('saving');
+                                            const res = await useEquipmentStore.getState().assignRecintoToInstrument(equipName, newRecId, rec.id);
+                                            if (res.success) {
+                                              setSaveStatus('saved');
+                                              setTimeout(() => setSaveStatus('idle'), 1500);
+                                            } else {
+                                              alert(`Error: ${res.message}`);
+                                              setSaveStatus('idle');
+                                            }
+                                          }
+                                        }} 
+                                        style={{
+                                          padding: '3px 8px',
+                                          background: 'var(--bg-primary)',
+                                          border: '1px solid rgba(124, 58, 237, 0.25)',
+                                          borderRadius: '6px',
+                                          color: '#7c3aed',
+                                          fontSize: '0.72rem',
+                                          fontWeight: 'bold',
+                                          outline: 'none',
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        {recintos.map(r => (
+                                          <option key={r.id} value={r.id}>
+                                            {r.name}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+
+                                    {/* Cambiar Estado Masivo Selector */}
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                      <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>ESTADO:</span>
+                                      <select
+                                        value=""
+                                        onChange={async (e) => {
+                                          const targetState = e.target.value;
+                                          if (!targetState) return;
+                                          if (confirm(`¿Deseas cambiar el estado de los ${list.length} analitos de este instrumento a "${targetState}"?`)) {
+                                            setSaveStatus('saving');
+                                            try {
+                                              await Promise.all(list.map((a: any) => updateAnalyte(a.id, { state: targetState })));
+                                              setSaveStatus('saved');
+                                            } catch (error) {
+                                              console.error(error);
+                                              setSaveStatus('idle');
+                                            } finally {
+                                              setTimeout(() => setSaveStatus('idle'), 1500);
+                                            }
+                                          }
+                                        }} 
+                                        style={{
+                                          padding: '3px 8px',
+                                          background: 'var(--bg-primary)',
+                                          border: '1px solid rgba(124, 58, 237, 0.25)',
+                                          borderRadius: '6px',
+                                          color: '#7c3aed',
+                                          fontSize: '0.72rem',
+                                          fontWeight: 'bold',
+                                          outline: 'none',
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        <option value="">-- Cambiar todos a --</option>
+                                        <option value="No Iniciado">⚫ No Iniciado</option>
+                                        <option value="Transmitiendo">🟢 Transmitiendo</option>
+                                        <option value="En Pausa">🟡 En Pausa</option>
+                                        <option value="No aplica">🔴 No aplica</option>
+                                        {uniqueAnalyteStatuses.map(status => (
+                                          <option key={status} value={status}>
+                                            🔵 {status}
+                                          </option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  </div>
+                                )}
                               </div>
 
                               {/* Subtabla de Analitos */}
-                              <div style={{ overflowX: 'auto' }}>
-                                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'left' }}>
-                                  <thead>
-                                    <tr style={{ background: 'rgba(0,0,0,0.01)', borderBottom: '1px solid var(--border-light)', color: 'var(--text-secondary)', fontWeight: 700 }}>
-                                      <th style={{ padding: '10px 16px' }}>#</th>
-                                      {!hiddenAnalyteCols.includes('transmissionCode') && <th style={{ padding: '10px 16px' }}>Cód. Transmisión</th>}
-                                      {!hiddenAnalyteCols.includes('testCode') && <th style={{ padding: '10px 12px' }}>Cód. Test / Código Analito</th>}
-                                      <th style={{ padding: '10px 12px' }}>Nombre del Analito</th>
-                                      {!hiddenAnalyteCols.includes('description') && <th style={{ padding: '10px 12px' }}>Descripción</th>}
-                                      {!hiddenAnalyteCols.includes('section') && <th style={{ padding: '10px 12px' }}>Sección / Lab</th>}
-                                      {!hiddenAnalyteCols.includes('state') && <th style={{ padding: '10px 16px', width: '150px', textAlign: 'center' }}>Estado Transmisión</th>}
-                                      
-                                      {/* Cabeceras de Columnas Dinámicas de Analitos */}
-                                      {customColumnsAnalytes.map((col, cIdx) => (
-                                        <th key={col} style={{ padding: '10px 12px', minWidth: '150px', position: 'relative' }}>
-                                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                                            <span 
-                                              style={{ cursor: 'pointer' }}
-                                              onClick={() => {
-                                                setIsAddingCol(true);
-                                                setEditingColIndexAnalyte(cIdx);
-                                                setEditingColNameAnalyte(col);
-                                              }}
-                                              title="Administrar columna"
-                                            >
-                                              {col}
-                                            </span>
-                                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                                              <button 
-                                                onClick={() => {
-                                                  setIsAddingCol(true);
-                                                  setEditingColIndexAnalyte(cIdx);
-                                                  setEditingColNameAnalyte(col);
-                                                }} 
-                                                style={{ border: 'none', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', padding: '2px' }}
-                                                title={`Renombrar columna "${col}"`}
-                                              >
-                                                <Edit2 size={12} />
-                                              </button>
-                                              <button 
-                                                onClick={() => handleDeleteColumnAnalyte(col)} 
-                                                style={{ border: 'none', background: 'transparent', color: 'red', cursor: 'pointer', padding: '2px' }}
-                                                title={`Eliminar columna "${col}"`}
-                                              >
-                                                <X size={12} />
-                                              </button>
-                                            </div>
-                                          </div>
-                                        </th>
-                                      ))}
-
-                                      <th style={{ padding: '10px 16px', width: '50px', textAlign: 'center' }}>Acción</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {(() => {
-                                      const equipKey = rec.id + '_' + equipName;
-                                      const isExpanded = expandedInstruments[equipKey] || false;
-                                      const visibleAnalytes = isExpanded ? list : list.slice(0, 12);
-                                      return visibleAnalytes.map((analyte: any, idx: number) => {
-                                        const customFieldsData = analyte.customFields ? JSON.parse(analyte.customFields) : {};
-                                        return (
-                                          <tr key={analyte.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.02)', background: 'var(--bg-primary)' }} className="table-row-hover">
-                                            <td style={{ padding: '10px 16px', fontWeight: 'bold', color: 'var(--text-muted)' }}>{idx + 1}</td>
-                                            
-                                            {!hiddenAnalyteCols.includes('transmissionCode') && (
-                                              <td style={{ padding: '10px 16px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--text-primary)' }}>
-                                                {analyte.transmissionCode}
-                                              </td>
-                                            )}
-                                            
-                                            {!hiddenAnalyteCols.includes('testCode') && (
-                                              <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                                                {analyte.testCode}
-                                              </td>
-                                            )}
-                                            
-                                            <td style={{ padding: '10px 12px', fontWeight: 700, color: '#7c3aed' }}>
-                                              {analyte.name}
-                                            </td>
-                                            
-                                            {!hiddenAnalyteCols.includes('description') && (
-                                              <td style={{ padding: '10px 12px', color: 'var(--text-muted)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={analyte.description}>
-                                                {analyte.description || <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Sin descripción</span>}
-                                              </td>
-                                            )}
-                                            
-                                            {!hiddenAnalyteCols.includes('section') && (
-                                              <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
-                                                {analyte.section}
-                                              </td>
-                                            )}
-                                            
-                                            {!hiddenAnalyteCols.includes('state') && (
-                                              <td style={{ padding: '6px 16px', textAlign: 'center' }}>
-                                                <CustomAnalyteSelect 
-                                                  value={analyte.state} 
-                                                  onChange={(val) => {
-                                                    updateAnalyte(analyte.id, { state: val });
-                                                  }} 
-                                                />
-                                              </td>
-                                            )}
-
-                                            {/* Celdas de Columnas Dinámicas para Analitos */}
-                                            {customColumnsAnalytes.map(col => {
-                                              const cellValue = customFieldsData[col] || '';
-                                              return (
-                                                <td key={col} style={{ padding: '8px 12px' }}>
-                                                  <InlineInput
-                                                    value={cellValue}
-                                                    onSave={(val) => {
-                                                      const updatedFields = { ...customFieldsData, [col]: val };
-                                                      updateAnalyte(analyte.id, { customFields: JSON.stringify(updatedFields) });
-                                                    }}
-                                                    placeholder={`Ingresar ${col.toLowerCase()}...`}
-                                                    style={{ width: '100%', padding: '6px', background: 'transparent', border: '1px solid transparent', borderRadius: '4px', outline: 'none', color: 'var(--text-primary)', fontSize: '0.78rem' }}
-                                                    className="cell-input"
-                                                  />
-                                                </td>
-                                              );
-                                            })}
-
-                                            <td style={{ padding: '6px 16px', textAlign: 'center' }}>
-                                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                                <button
-                                                  type="button"
+                              {!isEqCollapsed && (
+                                <>
+                                  <div style={{ overflowX: 'auto' }}>
+                                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'left' }}>
+                                      <thead>
+                                        <tr style={{ background: 'rgba(0,0,0,0.01)', borderBottom: '1px solid var(--border-light)', color: 'var(--text-secondary)', fontWeight: 700 }}>
+                                          <th style={{ padding: '10px 16px' }}>#</th>
+                                          {!hiddenAnalyteCols.includes('transmissionCode') && <th style={{ padding: '10px 16px' }}>Cód. Transmisión</th>}
+                                          {!hiddenAnalyteCols.includes('testCode') && <th style={{ padding: '10px 12px' }}>Cód. Test / Código Analito</th>}
+                                          <th style={{ padding: '10px 12px' }}>Nombre del Analito</th>
+                                          {!hiddenAnalyteCols.includes('description') && <th style={{ padding: '10px 12px' }}>Descripción</th>}
+                                          {!hiddenAnalyteCols.includes('section') && <th style={{ padding: '10px 12px' }}>Sección / Lab</th>}
+                                          {!hiddenAnalyteCols.includes('state') && <th style={{ padding: '10px 16px', width: '150px', textAlign: 'center' }}>Estado Transmisión</th>}
+                                          
+                                          {/* Cabeceras de Columnas Dinámicas de Analitos */}
+                                          {customColumnsAnalytes.map((col, cIdx) => (
+                                            <th key={col} style={{ padding: '10px 12px', minWidth: '150px', position: 'relative' }}>
+                                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                                                <span 
+                                                  style={{ cursor: 'pointer' }}
                                                   onClick={() => {
-                                                    setEditingAnalyte(analyte);
-                                                    setIsAnalyteModalOpen(true);
-                                                  }} 
-                                                  style={{ background: 'none', border: 'none', color: '#7c3aed', cursor: 'pointer', opacity: 0.8 }}
-                                                  title="Editar analito"
+                                                    setIsAddingCol(true);
+                                                    setEditingColIndexAnalyte(cIdx);
+                                                    setEditingColNameAnalyte(col);
+                                                  }}
+                                                  title="Administrar columna"
                                                 >
-                                                  <Edit2 size={13} />
-                                                </button>
-                                                <button
-                                                  type="button"
-                                                  onClick={async () => {
-                                                    if (confirm(`¿Estás seguro de eliminar el analito "${analyte.name}"?`)) {
-                                                      setSaveStatus('saving');
-                                                      await deleteAnalyte(analyte.id);
-                                                      setSaveStatus('saved');
-                                                      setTimeout(() => setSaveStatus('idle'), 1500);
-                                                    }
-                                                  }} 
-                                                  style={{ background: 'none', border: 'none', color: 'var(--accent-danger)', cursor: 'pointer', opacity: 0.8 }}
-                                                  title="Eliminar analito"
-                                                >
-                                                  <Trash2 size={13} />
-                                                </button>
+                                                  {col}
+                                                </span>
+                                                <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                                  <button 
+                                                    onClick={() => {
+                                                      setIsAddingCol(true);
+                                                      setEditingColIndexAnalyte(cIdx);
+                                                      setEditingColNameAnalyte(col);
+                                                    }} 
+                                                    style={{ border: 'none', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', padding: '2px' }}
+                                                    title={`Renombrar columna "${col}"`}
+                                                  >
+                                                    <Edit2 size={12} />
+                                                  </button>
+                                                  <button 
+                                                    onClick={() => handleDeleteColumnAnalyte(col)} 
+                                                    style={{ border: 'none', background: 'transparent', color: 'red', cursor: 'pointer', padding: '2px' }}
+                                                    title={`Eliminar columna "${col}"`}
+                                                  >
+                                                    <X size={12} />
+                                                  </button>
+                                                </div>
                                               </div>
-                                            </td>
-                                          </tr>
-                                        );
-                                      });
-                                    })()}
-                                  </tbody>
-                                </table>
-                              </div>
-                              {/* Mostrar más/menos de assigned */}
-                              {(() => {
-                                const equipKey = rec.id + '_' + equipName;
-                                const isExpanded = expandedInstruments[equipKey] || false;
-                                if (list.length <= 12) return null;
-                                return (
-                                  <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setExpandedInstruments(prev => ({
-                                          ...prev,
-                                          [equipKey]: !isExpanded
-                                        }));
-                                      }}
-                                      style={{
-                                        padding: '6px 16px',
-                                        background: 'rgba(124, 58, 237, 0.08)',
-                                        border: '1px solid rgba(124, 58, 237, 0.2)',
-                                        borderRadius: '20px',
-                                        color: '#7c3aed',
-                                        fontWeight: 'bold',
-                                        fontSize: '0.74rem',
-                                        cursor: 'pointer',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        gap: '6px',
-                                        transition: 'all 0.15s ease'
-                                      }}
-                                      className="btn-light-hover"
-                                    >
-                                      {isExpanded ? '⬆️ Mostrar menos' : `⬇️ Ver ${list.length - 12} analitos más...`}
-                                    </button>
+                                            </th>
+                                          ))}
+
+                                          <th style={{ padding: '10px 16px', width: '50px', textAlign: 'center' }}>Acción</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {(() => {
+                                          const equipKey = rec.id + '_' + equipName;
+                                          const isExpanded = expandedInstruments[equipKey] || false;
+                                          const visibleAnalytes = isExpanded ? list : list.slice(0, 12);
+                                          return visibleAnalytes.map((analyte: any, idx: number) => {
+                                            const customFieldsData = analyte.customFields ? JSON.parse(analyte.customFields) : {};
+                                            return (
+                                              <tr key={analyte.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.02)', background: 'var(--bg-primary)' }} className="table-row-hover">
+                                                <td style={{ padding: '10px 16px', fontWeight: 'bold', color: 'var(--text-muted)' }}>{idx + 1}</td>
+                                                
+                                                {!hiddenAnalyteCols.includes('transmissionCode') && (
+                                                  <td style={{ padding: '10px 16px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+                                                    {analyte.transmissionCode}
+                                                  </td>
+                                                )}
+                                                
+                                                {!hiddenAnalyteCols.includes('testCode') && (
+                                                  <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                                                    {analyte.testCode}
+                                                  </td>
+                                                )}
+                                                
+                                                <td style={{ padding: '10px 12px', fontWeight: 700, color: '#7c3aed' }}>
+                                                  {analyte.name}
+                                                </td>
+                                                
+                                                {!hiddenAnalyteCols.includes('description') && (
+                                                  <td style={{ padding: '10px 12px', color: 'var(--text-muted)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={analyte.description}>
+                                                    {analyte.description || <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Sin descripción</span>}
+                                                  </td>
+                                                )}
+                                                
+                                                {!hiddenAnalyteCols.includes('section') && (
+                                                  <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
+                                                    {analyte.section}
+                                                  </td>
+                                                )}
+                                                
+                                                {!hiddenAnalyteCols.includes('state') && (
+                                                  <td style={{ padding: '6px 16px', textAlign: 'center' }}>
+                                                    <CustomAnalyteSelect 
+                                                      value={analyte.state} 
+                                                      onChange={(val) => {
+                                                        updateAnalyte(analyte.id, { state: val });
+                                                      }} 
+                                                      customStatuses={uniqueAnalyteStatuses}
+                                                    />
+                                                  </td>
+                                                )}
+
+                                                {/* Celdas de Columnas Dinámicas para Analitos */}
+                                                {customColumnsAnalytes.map(col => {
+                                                  const cellValue = customFieldsData[col] || '';
+                                                  return (
+                                                    <td key={col} style={{ padding: '8px 12px' }}>
+                                                      <InlineInput
+                                                        value={cellValue}
+                                                        onSave={(val) => {
+                                                          const updatedFields = { ...customFieldsData, [col]: val };
+                                                          updateAnalyte(analyte.id, { customFields: JSON.stringify(updatedFields) });
+                                                        }}
+                                                        placeholder={`Ingresar ${col.toLowerCase()}...`}
+                                                        style={{ width: '100%', padding: '6px', background: 'transparent', border: '1px solid transparent', borderRadius: '4px', outline: 'none', color: 'var(--text-primary)', fontSize: '0.78rem' }}
+                                                        className="cell-input"
+                                                      />
+                                                    </td>
+                                                  );
+                                                })}
+
+                                                <td style={{ padding: '6px 16px', textAlign: 'center' }}>
+                                                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                                    <button
+                                                      type="button"
+                                                      onClick={() => {
+                                                        setEditingAnalyte(analyte);
+                                                        setIsAnalyteModalOpen(true);
+                                                      }} 
+                                                      style={{ background: 'none', border: 'none', color: '#7c3aed', cursor: 'pointer', opacity: 0.8 }}
+                                                      title="Editar analito"
+                                                    >
+                                                      <Edit2 size={13} />
+                                                    </button>
+                                                    <button
+                                                      type="button"
+                                                      onClick={async () => {
+                                                        if (confirm(`¿Estás seguro de eliminar el analito "${analyte.name}"?`)) {
+                                                          setSaveStatus('saving');
+                                                          await deleteAnalyte(analyte.id);
+                                                          setSaveStatus('saved');
+                                                          setTimeout(() => setSaveStatus('idle'), 1500);
+                                                        }
+                                                      }} 
+                                                      style={{ background: 'none', border: 'none', color: 'var(--accent-danger)', cursor: 'pointer', opacity: 0.8 }}
+                                                      title="Eliminar analito"
+                                                    >
+                                                      <Trash2 size={13} />
+                                                    </button>
+                                                  </div>
+                                                </td>
+                                              </tr>
+                                            );
+                                          });
+                                        })()}
+                                      </tbody>
+                                    </table>
                                   </div>
-                                );
-                              })()}
+                                  {/* Mostrar más/menos de assigned */}
+                                  {(() => {
+                                    const equipKey = rec.id + '_' + equipName;
+                                    const isExpanded = expandedInstruments[equipKey] || false;
+                                    if (list.length <= 12) return null;
+                                    return (
+                                      <div style={{ display: 'flex', justifyContent: 'center', marginTop: '10px' }}>
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            setExpandedInstruments(prev => ({
+                                              ...prev,
+                                              [equipKey]: !isExpanded
+                                            }));
+                                          }}
+                                          style={{
+                                            padding: '6px 16px',
+                                            background: 'rgba(124, 58, 237, 0.08)',
+                                            border: '1px solid rgba(124, 58, 237, 0.2)',
+                                            borderRadius: '20px',
+                                            color: '#7c3aed',
+                                            fontWeight: 'bold',
+                                            fontSize: '0.74rem',
+                                            cursor: 'pointer',
+                                            display: 'flex',
+                                            alignItems: 'center',
+                                            gap: '6px',
+                                            transition: 'all 0.15s ease'
+                                          }}
+                                          className="btn-light-hover"
+                                        >
+                                          {isExpanded ? '⬆️ Mostrar menos' : `⬇️ Ver ${list.length - 12} analitos más...`}
+                                        </button>
+                                      </div>
+                                    );
+                                  })()}
+                                </>
+                              )}
                             </div>
                           );
                         })}
