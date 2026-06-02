@@ -91,35 +91,51 @@ const CustomSelect = ({
 };
 
 const ANALYTE_STATUS_STYLE: Record<string, { bg: string; color: string; border: string }> = {
-  'Transmitiendo': { bg: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: 'rgba(16, 185, 129, 0.2)' },
-  'En Pausa': { bg: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', border: 'rgba(245, 158, 11, 0.2)' },
-  'No Iniciado': { bg: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: 'var(--border-light)' },
-  'No aplica': { bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'rgba(239, 68, 68, 0.2)' }
+  'transmitiendo': { bg: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: 'rgba(16, 185, 129, 0.2)' },
+  'en pausa': { bg: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', border: 'rgba(245, 158, 11, 0.2)' },
+  'No iniciado': { bg: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: 'var(--border-light)' },
+  'no aplica': { bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'rgba(239, 68, 68, 0.2)' }
+};
+
+const normalizeAnalyteState = (state: string | undefined | null): string => {
+  if (!state) return 'No iniciado';
+  const trimmed = state.trim();
+  const lower = trimmed.toLowerCase();
+  
+  if (lower.includes('aplica') || lower === 'na' || lower === 'n-a' || lower === 'n/a' || lower.includes('desestimado') || lower.includes('descartado') || lower.includes('excluido')) {
+    return 'no aplica';
+  }
+  if (lower.includes('no transmite') || lower.includes('no transmitiendo') || lower.includes('no iniciado')) {
+    return 'No iniciado';
+  }
+  if (lower.includes('transmitiendo') || lower.includes('transmite') || lower === 'si') {
+    return 'transmitiendo';
+  }
+  if (lower.includes('pausa') || lower.includes('pausado')) {
+    return 'en pausa';
+  }
+  
+  return trimmed;
 };
 
 const getAnalyteStatusStyle = (value: string) => {
-  if (ANALYTE_STATUS_STYLE[value]) return ANALYTE_STATUS_STYLE[value];
-  
-  const lowerVal = value.toLowerCase();
-  const isExcluded = ['no aplica', 'no requiere', 'no requerido', 'n-a', 'na', 'desestimado', 'descartado', 'excluido'].some(k => lowerVal.includes(k));
-  
-  if (isExcluded) {
-    return { bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'rgba(239, 68, 68, 0.2)' }; // Red for excluded custom status
+  const normalizedValue = normalizeAnalyteState(value);
+  if (ANALYTE_STATUS_STYLE[normalizedValue]) {
+    return ANALYTE_STATUS_STYLE[normalizedValue];
   }
-  return { bg: 'rgba(0, 121, 193, 0.08)', color: '#0079C1', border: 'rgba(0, 121, 193, 0.15)' }; // Blue for active custom status
+  
+  // Custom states dynamic style
+  const lower = normalizedValue.toLowerCase();
+  if (lower.includes('aplica') || lower === 'na' || lower === 'n-a' || lower === 'n/a' || lower.includes('desestimado') || lower.includes('descartado') || lower.includes('excluido')) {
+    return { bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'rgba(239, 68, 68, 0.2)' }; // Excluded custom state (red/pink)
+  }
+  return { bg: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', border: 'rgba(59, 130, 246, 0.2)' }; // Active custom state (light blue)
 };
 
 const isAnalyteExcluded = (a: any) => {
   if (!a) return false;
-  const state = (a.state || '').trim().toLowerCase();
-  const desc = (a.description || '').trim().toLowerCase();
-  
-  const keywords = ['no aplica', 'no requiere', 'no requerido', 'n-a', 'na', 'desestimado', 'descartado', 'excluido'];
-  
-  const stateExcluded = keywords.some(k => state.includes(k));
-  const descExcluded = keywords.some(k => desc === k || desc.includes('no aplica') || desc === 'n-a' || desc === 'n/a');
-  
-  return stateExcluded || descExcluded;
+  const state = normalizeAnalyteState(a.state);
+  return state === 'no aplica';
 };
 
 const CustomAnalyteSelect = ({ 
@@ -131,24 +147,16 @@ const CustomAnalyteSelect = ({
   onChange: (val: string) => void;
   customStatuses?: string[];
 }) => {
-  const style = getAnalyteStatusStyle(value);
+  const normalizedValue = normalizeAnalyteState(value);
+  const style = getAnalyteStatusStyle(normalizedValue);
 
-  const handleSelectChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const val = e.target.value;
-    if (val === '__custom__') {
-      const customVal = prompt("Ingrese el estado de transmisión personalizado:");
-      if (customVal && customVal.trim()) {
-        onChange(customVal.trim());
-      }
-    } else {
-      onChange(val);
-    }
-  };
+  const defaults = ['No iniciado', 'transmitiendo', 'en pausa', 'no aplica'];
+  const isCustom = !defaults.includes(normalizedValue);
 
   return (
     <select
-      value={value}
-      onChange={handleSelectChange}
+      value={normalizedValue}
+      onChange={(e) => onChange(e.target.value)}
       style={{
         background: style.bg,
         color: style.color,
@@ -165,18 +173,24 @@ const CustomAnalyteSelect = ({
         transition: 'all 0.15s ease'
       }}
     >
-      <option value="No Iniciado" style={{ background: '#ffffff', color: '#6b7280' }}>⚫ No Iniciado</option>
-      <option value="Transmitiendo" style={{ background: '#ffffff', color: '#10b981' }}>🟢 Transmitiendo</option>
-      <option value="En Pausa" style={{ background: '#ffffff', color: '#f59e0b' }}>🟡 En Pausa</option>
-      <option value="No aplica" style={{ background: '#ffffff', color: '#ef4444' }}>🔴 No aplica</option>
-      {customStatuses.map(status => (
-        <option key={status} value={status} style={{ background: '#ffffff', color: '#0079C1' }}>
-          🔵 {status}
+      <option value="No iniciado" style={{ background: '#ffffff', color: '#6b7280' }}>⚫ No iniciado</option>
+      <option value="transmitiendo" style={{ background: '#ffffff', color: '#10b981' }}>🟢 transmitiendo</option>
+      <option value="en pausa" style={{ background: '#ffffff', color: '#f59e0b' }}>🟡 en pausa</option>
+      <option value="no aplica" style={{ background: '#ffffff', color: '#ef4444' }}>🔴 no aplica</option>
+      {isCustom && (
+        <option value={normalizedValue} style={{ background: '#ffffff', color: '#3b82f6' }}>
+          🔷 {normalizedValue}
         </option>
-      ))}
-      <option value="__custom__" style={{ background: '#ffffff', color: '#004B87', fontWeight: 'bold' }}>
-        ➕ Otro...
-      </option>
+      )}
+      {customStatuses.map(status => {
+        const normStatus = normalizeAnalyteState(status);
+        if (defaults.includes(normStatus) || normStatus === normalizedValue) return null;
+        return (
+          <option key={status} value={status} style={{ background: '#ffffff', color: '#3b82f6' }}>
+            🔷 {status}
+          </option>
+        );
+      })}
     </select>
   );
 };
@@ -202,7 +216,7 @@ const AnalyteModal = ({
   const [testCode, setTestCode] = useState(editingAnalyte?.testCode || '');
   const [section, setSection] = useState(editingAnalyte?.section || '');
   const [description, setDescription] = useState(editingAnalyte?.description || '');
-  const [state, setState] = useState(editingAnalyte?.state || 'No Iniciado');
+  const [state, setState] = useState(normalizeAnalyteState(editingAnalyte?.state));
   const [recintoId, setRecintoId] = useState(editingAnalyte?.recintoId || '');
 
   // Buscar instrumentos únicos para autocompletar
@@ -216,11 +230,12 @@ const AnalyteModal = ({
 
   // Buscar estados personalizados dinámicos para el dropdown
   const uniqueAnalyteStatuses = useMemo(() => {
-    const defaults = ['No Iniciado', 'Transmitiendo', 'En Pausa', 'No aplica'];
+    const defaults = ['No iniciado', 'transmitiendo', 'en pausa', 'no aplica'];
     const uniques = new Set<string>();
     analytes.forEach(a => {
-      if (a.state && !defaults.includes(a.state)) {
-        uniques.add(a.state);
+      const norm = normalizeAnalyteState(a.state);
+      if (norm && !defaults.includes(norm)) {
+        uniques.add(norm);
       }
     });
     return Array.from(uniques);
@@ -276,7 +291,7 @@ const AnalyteModal = ({
             <div>
               <label style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Estado Transmisión</label>
               <select
-                value={state}
+                value={uniqueAnalyteStatuses.includes(state) ? state : normalizeAnalyteState(state)}
                 onChange={e => {
                   const val = e.target.value;
                   if (val === '__custom__') {
@@ -290,13 +305,13 @@ const AnalyteModal = ({
                 }}
                 style={{ width: '100%', padding: '8px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.82rem', color: 'var(--text-primary)', outline: 'none' }}
               >
-                <option value="No Iniciado">⚫ No Iniciado</option>
-                <option value="Transmitiendo">🟢 Transmitiendo</option>
-                <option value="En Pausa">🟡 En Pausa</option>
-                <option value="No aplica">🔴 No aplica</option>
+                <option value="No iniciado">⚫ No iniciado</option>
+                <option value="transmitiendo">🟢 transmitiendo</option>
+                <option value="en pausa">🟡 en pausa</option>
+                <option value="no aplica">🔴 no aplica</option>
                 {uniqueAnalyteStatuses.map(status => (
                   <option key={status} value={status}>
-                    🔵 {status}
+                    {isAnalyteExcluded({ state: status }) ? '🔴' : '🔵'} {status}
                   </option>
                 ))}
                 <option value="__custom__" style={{ fontWeight: 'bold', color: '#004B87' }}>➕ Otro...</option>
@@ -417,11 +432,18 @@ export default function EquipmentTrackerPage() {
   const deleteEquipment = useEquipmentStore(state => state.deleteEquipment);
   const restoreEquipment = useEquipmentStore(state => state.restoreEquipment);
   const fetchEquipmentData = useEquipmentStore(state => state.fetchEquipmentData);
-  const analytes = useEquipmentStore(state => state.analytes);
+  const rawAnalytes = useEquipmentStore(state => state.analytes);
   const fetchAnalytes = useEquipmentStore(state => state.fetchAnalytes);
   const addAnalyte = useEquipmentStore(state => state.addAnalyte);
   const updateAnalyte = useEquipmentStore(state => state.updateAnalyte);
   const deleteAnalyte = useEquipmentStore(state => state.deleteAnalyte);
+
+  const analytes = useMemo(() => {
+    return rawAnalytes.map(a => ({
+      ...a,
+      state: normalizeAnalyteState(a.state)
+    }));
+  }, [rawAnalytes]);
 
   const projects = useProjectStore(state => state.projects);
   const fetchProjects = useProjectStore(state => state.fetchProjects);
@@ -520,6 +542,13 @@ export default function EquipmentTrackerPage() {
     fetchUsers();
     fetchAnalytes();
 
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('tab') === 'analytes') {
+        setCurrentTab('analytes');
+      }
+    }
+
     // Sincronización proactiva multidispositivo (Sondeo activo cada 15 segundos si la pestaña está activa)
     const interval = setInterval(() => {
       if (document.visibilityState === 'visible') {
@@ -550,15 +579,18 @@ export default function EquipmentTrackerPage() {
 
   // Buscar estados personalizados dinámicos para el dropdown y filtros
   const uniqueAnalyteStatuses = useMemo(() => {
-    const defaults = ['No Iniciado', 'Transmitiendo', 'En Pausa', 'No aplica'];
+    const defaults = ['No iniciado', 'transmitiendo', 'en pausa', 'no aplica'];
     const uniques = new Set<string>();
     analytes.forEach(a => {
-      if (a.state && !defaults.includes(a.state)) {
-        uniques.add(a.state);
+      const norm = normalizeAnalyteState(a.state);
+      if (norm && !defaults.includes(norm)) {
+        uniques.add(norm);
       }
     });
     return Array.from(uniques);
   }, [analytes]);
+
+
 
   // Estado para columnas dinámicas
   const [customColumns, setCustomColumns] = useState<string[]>([]);
@@ -891,10 +923,10 @@ export default function EquipmentTrackerPage() {
         a.instrumentName.toLowerCase().includes(analyteSearch.toLowerCase()) ||
         recintoName.toLowerCase().includes(analyteSearch.toLowerCase());
       
+      const normState = normalizeAnalyteState(a.state);
       const matchStatus = 
         statusFilter === 'all' ||
-        (statusFilter === 'No Iniciado' && (!a.state || a.state === 'No Iniciado')) ||
-        a.state === statusFilter;
+        normState.toLowerCase() === statusFilter.toLowerCase();
       
       return matchSearch && matchStatus;
     });
@@ -2203,10 +2235,10 @@ export default function EquipmentTrackerPage() {
               {/* Píldoras de Estado */}
               {(() => {
                 const totalCount = analytes.filter(a => !isAnalyteExcluded(a)).length;
-                const activeCount = analytes.filter(a => a.state === 'Transmitiendo' && !isAnalyteExcluded(a)).length;
-                const pausedCount = analytes.filter(a => a.state === 'En Pausa' && !isAnalyteExcluded(a)).length;
-                const pendingCount = analytes.filter(a => (a.state === 'No Iniciado' || !a.state) && !isAnalyteExcluded(a)).length;
-                const noAplicaCount = analytes.filter(a => a.state === 'No aplica').length;
+                const activeCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo').length;
+                const pausedCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'en pausa').length;
+                const pendingCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'No iniciado').length;
+                const noAplicaCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'no aplica').length;
 
                 return (
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -2230,7 +2262,7 @@ export default function EquipmentTrackerPage() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => setStatusFilter('Transmitiendo')}
+                      onClick={() => setStatusFilter('transmitiendo')}
                       style={{
                         padding: '6px 12px',
                         borderRadius: '20px',
@@ -2238,17 +2270,17 @@ export default function EquipmentTrackerPage() {
                         fontWeight: 'bold',
                         cursor: 'pointer',
                         transition: 'all 0.2s ease',
-                        background: statusFilter === 'Transmitiendo' ? '#10b981' : 'rgba(16, 185, 129, 0.05)',
-                        color: statusFilter === 'Transmitiendo' ? 'white' : '#10b981',
-                        border: `1px solid ${statusFilter === 'Transmitiendo' ? '#10b981' : 'rgba(16, 185, 129, 0.2)'}`,
-                        boxShadow: statusFilter === 'Transmitiendo' ? '0 2px 8px rgba(16, 185, 129, 0.2)' : 'none'
+                        background: statusFilter === 'transmitiendo' ? '#10b981' : 'rgba(16, 185, 129, 0.05)',
+                        color: statusFilter === 'transmitiendo' ? 'white' : '#10b981',
+                        border: `1px solid ${statusFilter === 'transmitiendo' ? '#10b981' : 'rgba(16, 185, 129, 0.2)'}`,
+                        boxShadow: statusFilter === 'transmitiendo' ? '0 2px 8px rgba(16, 185, 129, 0.2)' : 'none'
                       }}
                     >
-                      🟢 Transmitiendo ({activeCount})
+                      🟢 transmitiendo ({activeCount})
                     </button>
                     <button
                       type="button"
-                      onClick={() => setStatusFilter('En Pausa')}
+                      onClick={() => setStatusFilter('en pausa')}
                       style={{
                         padding: '6px 12px',
                         borderRadius: '20px',
@@ -2256,17 +2288,17 @@ export default function EquipmentTrackerPage() {
                         fontWeight: 'bold',
                         cursor: 'pointer',
                         transition: 'all 0.2s ease',
-                        background: statusFilter === 'En Pausa' ? '#f59e0b' : 'rgba(245, 158, 11, 0.05)',
-                        color: statusFilter === 'En Pausa' ? 'white' : '#f59e0b',
-                        border: `1px solid ${statusFilter === 'En Pausa' ? '#f59e0b' : 'rgba(245, 158, 11, 0.2)'}`,
-                        boxShadow: statusFilter === 'En Pausa' ? '0 2px 8px rgba(245, 158, 11, 0.2)' : 'none'
+                        background: statusFilter === 'en pausa' ? '#f59e0b' : 'rgba(245, 158, 11, 0.05)',
+                        color: statusFilter === 'en pausa' ? 'white' : '#f59e0b',
+                        border: `1px solid ${statusFilter === 'en pausa' ? '#f59e0b' : 'rgba(245, 158, 11, 0.2)'}`,
+                        boxShadow: statusFilter === 'en pausa' ? '0 2px 8px rgba(245, 158, 11, 0.2)' : 'none'
                       }}
                     >
-                      🟡 En Pausa ({pausedCount})
+                      🟡 en pausa ({pausedCount})
                     </button>
                     <button
                       type="button"
-                      onClick={() => setStatusFilter('No Iniciado')}
+                      onClick={() => setStatusFilter('No iniciado')}
                       style={{
                         padding: '6px 12px',
                         borderRadius: '20px',
@@ -2274,17 +2306,17 @@ export default function EquipmentTrackerPage() {
                         fontWeight: 'bold',
                         cursor: 'pointer',
                         transition: 'all 0.2s ease',
-                        background: statusFilter === 'No Iniciado' ? '#6b7280' : 'var(--bg-primary)',
-                        color: statusFilter === 'No Iniciado' ? 'white' : 'var(--text-secondary)',
-                        border: `1px solid ${statusFilter === 'No Iniciado' ? '#6b7280' : 'var(--border-light)'}`,
-                        boxShadow: statusFilter === 'No Iniciado' ? '0 2px 8px rgba(107, 114, 128, 0.2)' : 'none'
+                        background: statusFilter === 'No iniciado' ? '#6b7280' : 'var(--bg-primary)',
+                        color: statusFilter === 'No iniciado' ? 'white' : 'var(--text-secondary)',
+                        border: `1px solid ${statusFilter === 'No iniciado' ? '#6b7280' : 'var(--border-light)'}`,
+                        boxShadow: statusFilter === 'No iniciado' ? '0 2px 8px rgba(107, 114, 128, 0.2)' : 'none'
                       }}
                     >
-                      ⚫ No Iniciado ({pendingCount})
+                      ⚫ No iniciado ({pendingCount})
                     </button>
                     <button
                       type="button"
-                      onClick={() => setStatusFilter('No aplica')}
+                      onClick={() => setStatusFilter('no aplica')}
                       style={{
                         padding: '6px 12px',
                         borderRadius: '20px',
@@ -2292,16 +2324,16 @@ export default function EquipmentTrackerPage() {
                         fontWeight: 'bold',
                         cursor: 'pointer',
                         transition: 'all 0.2s ease',
-                        background: statusFilter === 'No aplica' ? '#ef4444' : 'rgba(239, 68, 68, 0.05)',
-                        color: statusFilter === 'No aplica' ? 'white' : '#ef4444',
-                        border: `1px solid ${statusFilter === 'No aplica' ? '#ef4444' : 'rgba(239, 68, 68, 0.2)'}`,
-                        boxShadow: statusFilter === 'No aplica' ? '0 2px 8px rgba(239, 68, 68, 0.2)' : 'none'
+                        background: statusFilter === 'no aplica' ? '#ef4444' : 'rgba(239, 68, 68, 0.05)',
+                        color: statusFilter === 'no aplica' ? 'white' : '#ef4444',
+                        border: `1px solid ${statusFilter === 'no aplica' ? '#ef4444' : 'rgba(239, 68, 68, 0.2)'}`,
+                        boxShadow: statusFilter === 'no aplica' ? '0 2px 8px rgba(239, 68, 68, 0.2)' : 'none'
                       }}
                     >
-                      🔴 No aplica ({noAplicaCount})
+                      🔴 no aplica ({noAplicaCount})
                     </button>
                     {uniqueAnalyteStatuses.map(status => {
-                      const count = analytes.filter(a => a.state === status).length;
+                      const count = analytes.filter(a => normalizeAnalyteState(a.state) === status).length;
                       const style = getAnalyteStatusStyle(status);
                       const isActive = statusFilter === status;
                       const icon = isAnalyteExcluded({ state: status }) ? '🔴' : '🔵';
@@ -2673,15 +2705,10 @@ export default function EquipmentTrackerPage() {
                                       }}
                                     >
                                       <option value="">-- Cambiar todos a --</option>
-                                      <option value="No Iniciado">⚫ No Iniciado</option>
-                                      <option value="Transmitiendo">🟢 Transmitiendo</option>
-                                      <option value="En Pausa">🟡 En Pausa</option>
-                                      <option value="No aplica">🔴 No aplica</option>
-                                      {uniqueAnalyteStatuses.map(status => (
-                                        <option key={status} value={status}>
-                                          🔵 {status}
-                                        </option>
-                                      ))}
+                                      <option value="No iniciado">⚫ No iniciado</option>
+                                      <option value="transmitiendo">🟢 transmitiendo</option>
+                                      <option value="en pausa">🟡 en pausa</option>
+                                      <option value="no aplica">🔴 no aplica</option>
                                     </select>
                                   </div>
                                 </div>
@@ -2989,15 +3016,10 @@ export default function EquipmentTrackerPage() {
                                         }}
                                       >
                                         <option value="">-- Cambiar todos a --</option>
-                                        <option value="No Iniciado">⚫ No Iniciado</option>
-                                        <option value="Transmitiendo">🟢 Transmitiendo</option>
-                                        <option value="En Pausa">🟡 En Pausa</option>
-                                        <option value="No aplica">🔴 No aplica</option>
-                                        {uniqueAnalyteStatuses.map(status => (
-                                          <option key={status} value={status}>
-                                            🔵 {status}
-                                          </option>
-                                        ))}
+                                        <option value="No iniciado">⚫ No iniciado</option>
+                                        <option value="transmitiendo">🟢 transmitiendo</option>
+                                        <option value="en pausa">🟡 en pausa</option>
+                                        <option value="no aplica">🔴 no aplica</option>
                                       </select>
                                     </div>
                                   </div>
