@@ -34,6 +34,8 @@ model Phase {
   tasks     Task[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([projectId])
 }
 
 model Task {
@@ -64,6 +66,9 @@ model Task {
   attachments  Attachment[]
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
+
+  @@index([phaseId])
+  @@index([parentId])
 }
 
 model Attachment {
@@ -74,6 +79,8 @@ model Attachment {
   taskId    String
   task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+
+  @@index([taskId])
 }
 
 model Recinto {
@@ -109,6 +116,9 @@ model ClinicalEquipment {
   analytes        Analyte[] // Relación con analitos
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  @@index([recintoId])
+  @@index([projectId])
 }
 
 model MasterUser {
@@ -138,6 +148,8 @@ model Incident {
   customFields  String   @default("{}")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@index([projectId])
 }
 
 model Training {
@@ -173,6 +185,8 @@ model Stakeholder {
   customFields  String   @default("{}") // JSON string para columnas dinámicas
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  @@index([projectId])
 }
 
 model MasterEquipment {
@@ -199,7 +213,11 @@ model Analyte {
   equipment        ClinicalEquipment? @relation(fields: [equipmentId], references: [id], onDelete: Cascade)
   recintoId        String?            // Enlace opcional a Recinto
   recinto          Recinto?           @relation(fields: [recintoId], references: [id], onDelete: SetNull)
+  customFields     String             @default("{}")
 
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
+
+  @@index([recintoId])
+  @@index([equipmentId])
 }

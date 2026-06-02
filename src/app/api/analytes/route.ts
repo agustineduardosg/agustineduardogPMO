@@ -38,7 +38,8 @@ export async function POST(req: Request) {
         section: data.section,
         state: data.state || 'No Iniciado',
         equipmentId: data.equipmentId || null,
-        recintoId: data.recintoId || null
+        recintoId: data.recintoId || null,
+        customFields: data.customFields || '{}'
       },
       include: {
         recinto: true,

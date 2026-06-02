@@ -39,6 +39,7 @@ export interface Analyte {
   state: string;
   equipmentId?: string | null;
   recintoId?: string | null;
+  customFields?: string;
   createdAt?: string;
   updatedAt?: string;
 }

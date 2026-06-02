@@ -476,6 +476,12 @@ export default function EquipmentTrackerPage() {
   const [editingColIndex, setEditingColIndex] = useState<number | null>(null);
   const [editingColName, setEditingColName] = useState('');
 
+  // Estado para columnas dinámicas de Analitos
+  const [customColumnsAnalytes, setCustomColumnsAnalytes] = useState<string[]>([]);
+  const [newColNameAnalyte, setNewColNameAnalyte] = useState('');
+  const [editingColIndexAnalyte, setEditingColIndexAnalyte] = useState<number | null>(null);
+  const [editingColNameAnalyte, setEditingColNameAnalyte] = useState('');
+
   // Estado de acordeones colapsables para los recintos
   const [collapsedRecintos, setCollapsedRecintos] = useState<Record<string, boolean>>({});
   const [isReportOpen, setIsReportOpen] = useState(false);
@@ -541,7 +547,20 @@ export default function EquipmentTrackerPage() {
         console.error('Error loading hidden analyte columns', e);
       }
     }
+    const savedAnalytes = localStorage.getItem('custom_cols_analytes');
+    if (savedAnalytes) {
+      try {
+        setCustomColumnsAnalytes(JSON.parse(savedAnalytes));
+      } catch (e) {
+        console.error('Error loading custom analyte columns', e);
+      }
+    }
   }, []);
+
+  const saveCustomColumnsAnalytes = (cols: string[]) => {
+    setCustomColumnsAnalytes(cols);
+    localStorage.setItem('custom_cols_analytes', JSON.stringify(cols));
+  };
 
   const saveHiddenAnalyteCols = (cols: string[]) => {
     setHiddenAnalyteCols(cols);
@@ -557,6 +576,40 @@ export default function EquipmentTrackerPage() {
     setHiddenDefaultCols(cols);
     localStorage.setItem('hidden_cols_equipments', JSON.stringify(cols));
   };
+
+  // Auto-descubrimiento y sincronización de columnas desde la base de datos para analitos
+  React.useEffect(() => {
+    if (analytes && analytes.length > 0) {
+      const dbKeys = new Set<string>();
+      analytes.forEach(a => {
+        if (a.customFields) {
+          try {
+            const parsed = JSON.parse(a.customFields);
+            Object.keys(parsed).forEach(k => {
+              if (k.trim()) dbKeys.add(k.trim());
+            });
+          } catch (e) {
+            console.error('Error parsing customFields for analyte ' + a.id, e);
+          }
+        }
+      });
+
+      // Combinar las columnas descubiertas con las existentes
+      let updated = [...customColumnsAnalytes];
+      let changed = false;
+      dbKeys.forEach(key => {
+        if (!updated.includes(key)) {
+          updated.push(key);
+          changed = true;
+        }
+      });
+
+      if (changed) {
+        setCustomColumnsAnalytes(updated);
+        localStorage.setItem('custom_cols_analytes', JSON.stringify(updated));
+      }
+    }
+  }, [analytes]);
 
   // Auto-descubrimiento y sincronización de columnas desde la base de datos
   React.useEffect(() => {
@@ -596,6 +649,65 @@ export default function EquipmentTrackerPage() {
   const saveCustomColumns = (cols: string[]) => {
     setCustomColumns(cols);
     localStorage.setItem('custom_cols_equipments', JSON.stringify(cols));
+  };
+
+  const handleAddColumnAnalyte = (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanName = newColNameAnalyte.trim();
+    if (!cleanName) return;
+    if (customColumnsAnalytes.includes(cleanName)) {
+      alert('Ya existe una columna con ese nombre.');
+      return;
+    }
+    const updated = [...customColumnsAnalytes, cleanName];
+    saveCustomColumnsAnalytes(updated);
+    setNewColNameAnalyte('');
+  };
+
+  const handleDeleteColumnAnalyte = (colName: string) => {
+    if (confirm(`¿Está seguro de eliminar la columna "${colName}"? Se borrarán sus datos asociados.`)) {
+      const updated = customColumnsAnalytes.filter(c => c !== colName);
+      saveCustomColumnsAnalytes(updated);
+      
+      // Limpiar los datos de los analitos asociados a esa columna
+      analytes.forEach(a => {
+        const customFields = a.customFields ? JSON.parse(a.customFields) : {};
+        if (customFields[colName] !== undefined) {
+          delete customFields[colName];
+          useEquipmentStore.getState().updateAnalyte(a.id, { customFields: JSON.stringify(customFields) });
+        }
+      });
+      if (editingColIndexAnalyte !== null) setEditingColIndexAnalyte(null);
+    }
+  };
+
+  const handleRenameColumnDirectAnalyte = (oldName: string, newName: string) => {
+    if (!newName || !newName.trim() || newName.trim() === oldName) return;
+    const cleanName = newName.trim();
+    if (customColumnsAnalytes.includes(cleanName) && cleanName !== oldName) {
+      alert('Ya existe una columna con ese nombre.');
+      return;
+    }
+    
+    // 1. Renombrar en el array customColumnsAnalytes
+    const updated = customColumnsAnalytes.map(c => c === oldName ? cleanName : c);
+    saveCustomColumnsAnalytes(updated);
+    
+    // 2. Renombrar la llave en el JSON customFields de cada analito
+    analytes.forEach(a => {
+      if (a.customFields) {
+        try {
+          const fields = JSON.parse(a.customFields);
+          if (fields[oldName] !== undefined) {
+            fields[cleanName] = fields[oldName];
+            delete fields[oldName];
+            useEquipmentStore.getState().updateAnalyte(a.id, { customFields: JSON.stringify(fields) });
+          }
+        } catch (e) {
+          console.error(e);
+        }
+      }
+    });
   };
 
   // Agregar nueva columna dinámica
@@ -925,10 +1037,14 @@ export default function EquipmentTrackerPage() {
             className="btn btn-secondary shadow-sm"
             onClick={() => {
               setIsAddingCol(true);
-              setEditingColIndex(null);
+              if (currentTab === 'analytes') {
+                setEditingColIndexAnalyte(null);
+              } else {
+                setEditingColIndex(null);
+              }
             }}
             style={{ 
-              background: '#004B87', 
+              background: currentTab === 'analytes' ? '#7c3aed' : '#004B87', 
               color: '#FFFFFF', 
               border: 'none', 
               padding: '10px 18px', 
@@ -938,11 +1054,12 @@ export default function EquipmentTrackerPage() {
               alignItems: 'center', 
               gap: '8px',
               borderRadius: 'var(--radius-md)',
-              cursor: 'pointer'
+              cursor: 'pointer',
+              transition: 'background 0.2s ease'
             }}
           >
             <Sliders size={16} strokeWidth={2} />
-            Administrar Columnas
+            {currentTab === 'analytes' ? 'Administrar Columnas de Analitos' : 'Administrar Columnas'}
           </button>
         </div>
       </div>
@@ -1044,7 +1161,7 @@ export default function EquipmentTrackerPage() {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                   <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#7c3aed', textTransform: 'uppercase', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '6px', display: 'block' }}>
-                    Columnas de la Matriz de Analitos
+                    Columnas de la Matriz de Analitos (Predeterminadas)
                   </span>
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingRight: '4px' }}>
                     {[
@@ -1088,6 +1205,104 @@ export default function EquipmentTrackerPage() {
                         </div>
                       );
                     })}
+                  </div>
+                </div>
+
+                {/* COLUMNAS PERSONALIZADAS DE ANALITOS */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid var(--border-subtle)', paddingTop: '16px' }}>
+                  <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#7c3aed', textTransform: 'uppercase', paddingBottom: '6px', display: 'block' }}>
+                    Columnas Personalizadas de Analitos (Creadas por el Usuario)
+                  </span>
+
+                  {/* Formulario Agregar Columna */}
+                  <form onSubmit={handleAddColumnAnalyte} style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--bg-tertiary)', padding: '14px', borderRadius: '8px', marginBottom: '12px', border: '1px solid var(--border-subtle)' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>+ Crear Columna Nueva</span>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <input 
+                        type="text" 
+                        placeholder="Ej. Código de Barras, Reactivo..." 
+                        value={newColNameAnalyte} 
+                        onChange={e => setNewColNameAnalyte(e.target.value)}
+                        className="cell-input"
+                        style={{ flex: 1, padding: '8px', border: '1px solid var(--border-light)', borderRadius: '6px', outline: 'none', background: 'white', fontSize: '0.85rem' }}
+                      />
+                      <button type="submit" className="btn btn-primary" style={{ padding: '8px 16px', background: '#7c3aed', color: 'white', border: 'none', fontSize: '0.82rem' }}>Crear</button>
+                    </div>
+                  </form>
+
+                  {/* Listado de Columnas Existentes */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '6px' }}>Columnas Activas ({customColumnsAnalytes.length})</span>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '160px', overflowY: 'auto', paddingRight: '4px' }}>
+                      {customColumnsAnalytes.length === 0 ? (
+                        <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textAlign: 'center', padding: '12px' }}>No hay columnas personalizadas activas.</div>
+                      ) : (
+                        customColumnsAnalytes.map((col, idx) => (
+                          <div key={col} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-primary)', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}>
+                            {editingColIndexAnalyte === idx ? (
+                              <>
+                                <input 
+                                  type="text" 
+                                  value={editingColNameAnalyte}
+                                  onChange={e => setEditingColNameAnalyte(e.target.value)}
+                                  className="cell-input"
+                                  style={{ flex: 1, padding: '4px 8px', fontSize: '0.82rem', border: '1px solid var(--accent-primary)', borderRadius: '4px', background: 'white', outline: 'none' }}
+                                  autoFocus
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter') {
+                                      handleRenameColumnDirectAnalyte(col, editingColNameAnalyte);
+                                      setEditingColIndexAnalyte(null);
+                                    }
+                                  }}
+                                />
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    handleRenameColumnDirectAnalyte(col, editingColNameAnalyte);
+                                    setEditingColIndexAnalyte(null);
+                                  }}
+                                  style={{ border: 'none', background: 'transparent', color: '#10b981', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
+                                  title="Guardar nombre"
+                                >
+                                  <Check size={16} />
+                                </button>
+                                <button 
+                                  type="button"
+                                  onClick={() => setEditingColIndexAnalyte(null)}
+                                  style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
+                                  title="Cancelar"
+                                >
+                                  <X size={16} />
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <span style={{ flex: 1, fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>{col}</span>
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingColIndexAnalyte(idx);
+                                    setEditingColNameAnalyte(col);
+                                  }}
+                                  style={{ border: 'none', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
+                                  title="Renombrar columna"
+                                >
+                                  <Edit2 size={14} />
+                                </button>
+                                <button 
+                                  type="button"
+                                  onClick={() => handleDeleteColumnAnalyte(col)}
+                                  style={{ border: 'none', background: 'transparent', color: 'red', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
+                                  title="Eliminar columna"
+                                >
+                                  <Trash2 size={14} />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2309,37 +2524,61 @@ export default function EquipmentTrackerPage() {
                                     <th style={{ padding: '10px 12px' }}>Nombre del Analito</th>
                                     {!hiddenAnalyteCols.includes('description') && <th style={{ padding: '10px 12px' }}>Descripción Extensa</th>}
                                     {!hiddenAnalyteCols.includes('section') && <th style={{ padding: '10px 12px' }}>Sección / Lab</th>}
+                                    {customColumnsAnalytes.map(col => (
+                                      <th key={col} style={{ padding: '10px 12px', minWidth: '150px' }}>{col}</th>
+                                    ))}
                                   </tr>
                                 </thead>
                                 <tbody>
-                                  {list.map((analyte: any, idx: number) => (
-                                    <tr key={analyte.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.02)', background: 'var(--bg-primary)' }}>
-                                      <td style={{ padding: '10px 16px', fontWeight: 'bold', color: 'var(--text-muted)' }}>{idx + 1}</td>
-                                      {!hiddenAnalyteCols.includes('transmissionCode') && (
-                                        <td style={{ padding: '10px 16px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--text-primary)' }}>
-                                          {analyte.transmissionCode}
+                                  {list.map((analyte: any, idx: number) => {
+                                    const customFieldsData = analyte.customFields ? JSON.parse(analyte.customFields) : {};
+                                    return (
+                                      <tr key={analyte.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.02)', background: 'var(--bg-primary)' }}>
+                                        <td style={{ padding: '10px 16px', fontWeight: 'bold', color: 'var(--text-muted)' }}>{idx + 1}</td>
+                                        {!hiddenAnalyteCols.includes('transmissionCode') && (
+                                          <td style={{ padding: '10px 16px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+                                            {analyte.transmissionCode}
+                                          </td>
+                                        )}
+                                        {!hiddenAnalyteCols.includes('testCode') && (
+                                          <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                                            {analyte.testCode}
+                                          </td>
+                                        )}
+                                        <td style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--accent-warning)' }}>
+                                          {analyte.name}
                                         </td>
-                                      )}
-                                      {!hiddenAnalyteCols.includes('testCode') && (
-                                        <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                                          {analyte.testCode}
-                                        </td>
-                                      )}
-                                      <td style={{ padding: '10px 12px', fontWeight: 700, color: 'var(--accent-warning)' }}>
-                                        {analyte.name}
-                                      </td>
-                                      {!hiddenAnalyteCols.includes('description') && (
-                                        <td style={{ padding: '10px 12px', color: 'var(--text-muted)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={analyte.description}>
-                                          {analyte.description || <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Sin descripción</span>}
-                                        </td>
-                                      )}
-                                      {!hiddenAnalyteCols.includes('section') && (
-                                        <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
-                                          {analyte.section}
-                                        </td>
-                                      )}
-                                    </tr>
-                                  ))}
+                                        {!hiddenAnalyteCols.includes('description') && (
+                                          <td style={{ padding: '10px 12px', color: 'var(--text-muted)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={analyte.description}>
+                                            {analyte.description || <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Sin descripción</span>}
+                                          </td>
+                                        )}
+                                        {!hiddenAnalyteCols.includes('section') && (
+                                          <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
+                                            {analyte.section}
+                                          </td>
+                                        )}
+                                        {/* Celdas de Columnas Dinámicas para Analitos No Asignados */}
+                                        {customColumnsAnalytes.map(col => {
+                                          const cellValue = customFieldsData[col] || '';
+                                          return (
+                                            <td key={col} style={{ padding: '8px 12px' }}>
+                                              <InlineInput
+                                                value={cellValue}
+                                                onSave={(val) => {
+                                                  const updatedFields = { ...customFieldsData, [col]: val };
+                                                  updateAnalyte(analyte.id, { customFields: JSON.stringify(updatedFields) });
+                                                }}
+                                                placeholder={`Ingresar ${col.toLowerCase()}...`}
+                                                style={{ width: '100%', padding: '6px', background: 'transparent', border: '1px solid transparent', borderRadius: '4px', outline: 'none', color: 'var(--text-primary)', fontSize: '0.78rem' }}
+                                                className="cell-input"
+                                              />
+                                            </td>
+                                          );
+                                        })}
+                                      </tr>
+                                    );
+                                  })}
                                 </tbody>
                               </table>
                             </div>
@@ -2574,6 +2813,46 @@ export default function EquipmentTrackerPage() {
                                       {!hiddenAnalyteCols.includes('description') && <th style={{ padding: '10px 12px' }}>Descripción</th>}
                                       {!hiddenAnalyteCols.includes('section') && <th style={{ padding: '10px 12px' }}>Sección / Lab</th>}
                                       {!hiddenAnalyteCols.includes('state') && <th style={{ padding: '10px 16px', width: '150px', textAlign: 'center' }}>Estado Transmisión</th>}
+                                      
+                                      {/* Cabeceras de Columnas Dinámicas de Analitos */}
+                                      {customColumnsAnalytes.map((col, cIdx) => (
+                                        <th key={col} style={{ padding: '10px 12px', minWidth: '150px', position: 'relative' }}>
+                                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                                            <span 
+                                              style={{ cursor: 'pointer' }}
+                                              onClick={() => {
+                                                setIsAddingCol(true);
+                                                setEditingColIndexAnalyte(cIdx);
+                                                setEditingColNameAnalyte(col);
+                                              }}
+                                              title="Administrar columna"
+                                            >
+                                              {col}
+                                            </span>
+                                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                                              <button 
+                                                onClick={() => {
+                                                  setIsAddingCol(true);
+                                                  setEditingColIndexAnalyte(cIdx);
+                                                  setEditingColNameAnalyte(col);
+                                                }} 
+                                                style={{ border: 'none', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', padding: '2px' }}
+                                                title={`Renombrar columna "${col}"`}
+                                              >
+                                                <Edit2 size={12} />
+                                              </button>
+                                              <button 
+                                                onClick={() => handleDeleteColumnAnalyte(col)} 
+                                                style={{ border: 'none', background: 'transparent', color: 'red', cursor: 'pointer', padding: '2px' }}
+                                                title={`Eliminar columna "${col}"`}
+                                              >
+                                                <X size={12} />
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </th>
+                                      ))}
+
                                       <th style={{ padding: '10px 16px', width: '50px', textAlign: 'center' }}>Acción</th>
                                     </tr>
                                   </thead>
@@ -2582,81 +2861,103 @@ export default function EquipmentTrackerPage() {
                                       const equipKey = rec.id + '_' + equipName;
                                       const isExpanded = expandedInstruments[equipKey] || false;
                                       const visibleAnalytes = isExpanded ? list : list.slice(0, 12);
-                                      return visibleAnalytes.map((analyte: any, idx: number) => (
-                                        <tr key={analyte.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.02)', background: 'var(--bg-primary)' }} className="table-row-hover">
-                                          <td style={{ padding: '10px 16px', fontWeight: 'bold', color: 'var(--text-muted)' }}>{idx + 1}</td>
-                                          
-                                          {!hiddenAnalyteCols.includes('transmissionCode') && (
-                                            <td style={{ padding: '10px 16px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--text-primary)' }}>
-                                              {analyte.transmissionCode}
+                                      return visibleAnalytes.map((analyte: any, idx: number) => {
+                                        const customFieldsData = analyte.customFields ? JSON.parse(analyte.customFields) : {};
+                                        return (
+                                          <tr key={analyte.id} style={{ borderBottom: '1px solid rgba(0,0,0,0.02)', background: 'var(--bg-primary)' }} className="table-row-hover">
+                                            <td style={{ padding: '10px 16px', fontWeight: 'bold', color: 'var(--text-muted)' }}>{idx + 1}</td>
+                                            
+                                            {!hiddenAnalyteCols.includes('transmissionCode') && (
+                                              <td style={{ padding: '10px 16px', fontWeight: 700, fontFamily: 'monospace', color: 'var(--text-primary)' }}>
+                                                {analyte.transmissionCode}
+                                              </td>
+                                            )}
+                                            
+                                            {!hiddenAnalyteCols.includes('testCode') && (
+                                              <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
+                                                {analyte.testCode}
+                                              </td>
+                                            )}
+                                            
+                                            <td style={{ padding: '10px 12px', fontWeight: 700, color: '#7c3aed' }}>
+                                              {analyte.name}
                                             </td>
-                                          )}
-                                          
-                                          {!hiddenAnalyteCols.includes('testCode') && (
-                                            <td style={{ padding: '10px 12px', fontWeight: 600, color: 'var(--text-secondary)' }}>
-                                              {analyte.testCode}
-                                            </td>
-                                          )}
-                                          
-                                          <td style={{ padding: '10px 12px', fontWeight: 700, color: '#7c3aed' }}>
-                                            {analyte.name}
-                                          </td>
-                                          
-                                          {!hiddenAnalyteCols.includes('description') && (
-                                            <td style={{ padding: '10px 12px', color: 'var(--text-muted)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={analyte.description}>
-                                              {analyte.description || <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Sin descripción</span>}
-                                            </td>
-                                          )}
-                                          
-                                          {!hiddenAnalyteCols.includes('section') && (
-                                            <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
-                                              {analyte.section}
-                                            </td>
-                                          )}
-                                          
-                                          {!hiddenAnalyteCols.includes('state') && (
-                                            <td style={{ padding: '6px 16px', textAlign: 'center' }}>
-                                              <CustomAnalyteSelect 
-                                                value={analyte.state} 
-                                                onChange={(val) => {
-                                                  updateAnalyte(analyte.id, { state: val });
-                                                }} 
-                                              />
-                                            </td>
-                                          )}
+                                            
+                                            {!hiddenAnalyteCols.includes('description') && (
+                                              <td style={{ padding: '10px 12px', color: 'var(--text-muted)', maxWidth: '280px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={analyte.description}>
+                                                {analyte.description || <span style={{ fontStyle: 'italic', opacity: 0.6 }}>Sin descripción</span>}
+                                              </td>
+                                            )}
+                                            
+                                            {!hiddenAnalyteCols.includes('section') && (
+                                              <td style={{ padding: '10px 12px', color: 'var(--text-secondary)' }}>
+                                                {analyte.section}
+                                              </td>
+                                            )}
+                                            
+                                            {!hiddenAnalyteCols.includes('state') && (
+                                              <td style={{ padding: '6px 16px', textAlign: 'center' }}>
+                                                <CustomAnalyteSelect 
+                                                  value={analyte.state} 
+                                                  onChange={(val) => {
+                                                    updateAnalyte(analyte.id, { state: val });
+                                                  }} 
+                                                />
+                                              </td>
+                                            )}
 
-                                          <td style={{ padding: '6px 16px', textAlign: 'center' }}>
-                                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  setEditingAnalyte(analyte);
-                                                  setIsAnalyteModalOpen(true);
-                                                }} 
-                                                style={{ background: 'none', border: 'none', color: '#7c3aed', cursor: 'pointer', opacity: 0.8 }}
-                                                title="Editar analito"
-                                              >
-                                                <Edit2 size={13} />
-                                              </button>
-                                              <button
-                                                type="button"
-                                                onClick={async () => {
-                                                  if (confirm(`¿Estás seguro de eliminar el analito "${analyte.name}"?`)) {
-                                                    setSaveStatus('saving');
-                                                    await deleteAnalyte(analyte.id);
-                                                    setSaveStatus('saved');
-                                                    setTimeout(() => setSaveStatus('idle'), 1500);
-                                                  }
-                                                }} 
-                                                style={{ background: 'none', border: 'none', color: 'var(--accent-danger)', cursor: 'pointer', opacity: 0.8 }}
-                                                title="Eliminar analito"
-                                              >
-                                                <Trash2 size={13} />
-                                              </button>
-                                            </div>
-                                          </td>
-                                        </tr>
-                                      ));
+                                            {/* Celdas de Columnas Dinámicas para Analitos */}
+                                            {customColumnsAnalytes.map(col => {
+                                              const cellValue = customFieldsData[col] || '';
+                                              return (
+                                                <td key={col} style={{ padding: '8px 12px' }}>
+                                                  <InlineInput
+                                                    value={cellValue}
+                                                    onSave={(val) => {
+                                                      const updatedFields = { ...customFieldsData, [col]: val };
+                                                      updateAnalyte(analyte.id, { customFields: JSON.stringify(updatedFields) });
+                                                    }}
+                                                    placeholder={`Ingresar ${col.toLowerCase()}...`}
+                                                    style={{ width: '100%', padding: '6px', background: 'transparent', border: '1px solid transparent', borderRadius: '4px', outline: 'none', color: 'var(--text-primary)', fontSize: '0.78rem' }}
+                                                    className="cell-input"
+                                                  />
+                                                </td>
+                                              );
+                                            })}
+
+                                            <td style={{ padding: '6px 16px', textAlign: 'center' }}>
+                                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => {
+                                                    setEditingAnalyte(analyte);
+                                                    setIsAnalyteModalOpen(true);
+                                                  }} 
+                                                  style={{ background: 'none', border: 'none', color: '#7c3aed', cursor: 'pointer', opacity: 0.8 }}
+                                                  title="Editar analito"
+                                                >
+                                                  <Edit2 size={13} />
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={async () => {
+                                                    if (confirm(`¿Estás seguro de eliminar el analito "${analyte.name}"?`)) {
+                                                      setSaveStatus('saving');
+                                                      await deleteAnalyte(analyte.id);
+                                                      setSaveStatus('saved');
+                                                      setTimeout(() => setSaveStatus('idle'), 1500);
+                                                    }
+                                                  }} 
+                                                  style={{ background: 'none', border: 'none', color: 'var(--accent-danger)', cursor: 'pointer', opacity: 0.8 }}
+                                                  title="Eliminar analito"
+                                                >
+                                                  <Trash2 size={13} />
+                                                </button>
+                                              </div>
+                                            </td>
+                                          </tr>
+                                        );
+                                      });
                                     })()}
                                   </tbody>
                                 </table>

@@ -20,7 +20,8 @@ export async function PUT(
         section: data.section,
         state: data.state,
         equipmentId: data.equipmentId,
-        recintoId: data.recintoId
+        recintoId: data.recintoId,
+        customFields: data.customFields
       },
       include: {
         recinto: true,

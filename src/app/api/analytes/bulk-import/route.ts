@@ -10,6 +10,7 @@ interface RawAnalyteRow {
   section: string;
   state: string;
   recintoId: string; // Resolvido en la interfaz interactiva de importación
+  customFields?: string;
 }
 
 export async function POST(req: Request) {
@@ -84,7 +85,8 @@ export async function POST(req: Request) {
           section: row.section.trim() || 'General',
           state: row.state.trim() || 'No Iniciado',
           equipmentId: null,
-          recintoId: hasRecinto ? row.recintoId.trim() : null
+          recintoId: hasRecinto ? row.recintoId.trim() : null,
+          customFields: row.customFields || '{}'
         };
       });
 
