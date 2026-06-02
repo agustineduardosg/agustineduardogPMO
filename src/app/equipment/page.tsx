@@ -2177,9 +2177,9 @@ export default function EquipmentTrackerPage() {
           {/* Analyte Tab Specific KPI Panel */}
           {(() => {
             const applicableAllCount = analytes.filter(a => !isAnalyteExcluded(a)).length;
-            const activeAllCount = analytes.filter(a => a.state === 'Transmitiendo' && !isAnalyteExcluded(a)).length;
-            const pausedAllCount = analytes.filter(a => a.state === 'En Pausa' && !isAnalyteExcluded(a)).length;
-            const pendingAllCount = analytes.filter(a => (a.state === 'No Iniciado' || !a.state) && !isAnalyteExcluded(a)).length;
+            const activeAllCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo' && !isAnalyteExcluded(a)).length;
+            const pausedAllCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'en pausa' && !isAnalyteExcluded(a)).length;
+            const pendingAllCount = analytes.filter(a => (normalizeAnalyteState(a.state) === 'No iniciado' || !a.state) && !isAnalyteExcluded(a)).length;
 
             return (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
@@ -2804,7 +2804,7 @@ export default function EquipmentTrackerPage() {
               // Avance de sede en analitos transmitiendo (excluyendo N-A y estados excluidos)
               const applicableRecAnalytes = recAnalytes.filter(a => !isAnalyteExcluded(a));
               const total = applicableRecAnalytes.length;
-              const activeCount = applicableRecAnalytes.filter(a => a.state === 'Transmitiendo').length;
+              const activeCount = applicableRecAnalytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo').length;
               const pct = total === 0 ? 0 : Math.round((activeCount / total) * 100);
 
               // Agrupar por instrumento
