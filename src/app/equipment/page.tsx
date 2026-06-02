@@ -2180,6 +2180,7 @@ export default function EquipmentTrackerPage() {
             const activeAllCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo' && !isAnalyteExcluded(a)).length;
             const pausedAllCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'en pausa' && !isAnalyteExcluded(a)).length;
             const pendingAllCount = analytes.filter(a => (normalizeAnalyteState(a.state) === 'No iniciado' || !a.state) && !isAnalyteExcluded(a)).length;
+            const globalPct = applicableAllCount === 0 ? 0 : Math.round((activeAllCount / applicableAllCount) * 100);
 
             return (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
@@ -2198,8 +2199,11 @@ export default function EquipmentTrackerPage() {
                     <CheckCircle2 size={22} />
                   </div>
                   <div>
-                    <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{activeAllCount}</div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>En Transmisión Activa</div>
+                    <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1, display: 'flex', alignItems: 'baseline', gap: '6px' }}>
+                      {globalPct}%
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 'normal' }}>({activeAllCount})</span>
+                    </div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Avance Consolidado</div>
                   </div>
                 </div>
 
