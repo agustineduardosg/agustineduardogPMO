@@ -810,7 +810,14 @@ export default function IncidentsPage() {
                   const customFieldsData = inc.customFields ? JSON.parse(inc.customFields) : {};
 
                   return (
-                    <tr key={inc.id} className="incident-row">
+                    <tr 
+                      key={inc.id} 
+                      className="incident-row"
+                      onClick={() => {
+                        setSelectedIncidentId(inc.id);
+                        setIsDrawerOpen(true);
+                      }}
+                    >
                       
                       {/* ID visual correlativo */}
                       <td style={{ textAlign: 'center', fontWeight: 800, color: '#004B87', backgroundColor: '#F8FAFC' }}>
@@ -818,79 +825,68 @@ export default function IncidentsPage() {
                       </td>
 
                       {/* Fecha del incidente */}
-                      <td>
-                        <input 
-                          type="date" 
-                          value={inc.fecha} 
-                          onChange={(e) => handleUpdateIncident(inc.id, { fecha: e.target.value })}
-                          className="table-cell-input"
-                          style={{ fontSize: '0.78rem', cursor: 'pointer' }}
-                        />
+                      <td style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                        {inc.fecha ? (
+                          (() => {
+                            try {
+                              const [year, month, day] = inc.fecha.split('-');
+                              if (year && month && day) {
+                                return `${day}/${month}/${year}`;
+                              }
+                              return inc.fecha;
+                            } catch (e) {
+                              return inc.fecha;
+                            }
+                          })()
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Sin fecha</span>
+                        )}
                       </td>
 
                       {/* Sede / Clínica */}
-                      <td>
-                        <select
-                          value={inc.recintoName}
-                          onChange={(e) => handleUpdateIncident(inc.id, { recintoName: e.target.value })}
-                          className="table-cell-select"
-                          style={{ fontWeight: 600, color: 'var(--text-primary)' }}
-                        >
-                          {recintos.map(r => (
-                            <option key={r.id} value={r.name}>{r.name}</option>
-                          ))}
-                          {uniqueRecintosInIncidents.map(name => {
-                            if (recintos.some(r => r.name === name)) return null;
-                            return <option key={name} value={name}>{name}</option>;
-                          })}
-                        </select>
+                      <td style={{ fontWeight: 700, color: '#004B87' }}>
+                        {inc.recintoName}
                       </td>
 
                       {/* Proyecto Asociado */}
                       <td>
-                        <select
-                          value={inc.projectId || ''}
-                          onChange={(e) => handleUpdateIncident(inc.id, { projectId: e.target.value || null })}
-                          className="table-cell-select"
-                          style={{ color: inc.projectId ? '#0079C1' : 'var(--text-muted)', fontWeight: inc.projectId ? 700 : 500 }}
-                        >
-                          <option value="">-- Sin Proyecto --</option>
-                          {projects.map(p => (
-                            <option key={p.id} value={p.id}>{p.name}</option>
-                          ))}
-                        </select>
+                        {(() => {
+                          const proj = projects.find(p => p.id === inc.projectId);
+                          return proj ? (
+                            <span style={{ color: '#0079C1', fontWeight: 700 }}>
+                              📁 {proj.name}
+                            </span>
+                          ) : (
+                            <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.78rem' }}>
+                              -- Sin Proyecto --
+                            </span>
+                          );
+                        })()}
                       </td>
 
                       {/* Equipo Afectado */}
-                      <td>
-                        <InlineInput
-                          value={inc.equipmentName}
-                          onSave={(val) => handleUpdateIncident(inc.id, { equipmentName: val })}
-                          placeholder="Ej: CA 600 / Versacell"
-                          className="table-cell-input"
-                          style={{ fontWeight: 500 }}
-                        />
+                      <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
+                        {inc.equipmentName || (
+                          <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>General</span>
+                        )}
                       </td>
 
                       {/* Fase Afectada */}
-                      <td>
-                        <select
-                          value={inc.faseAfectada}
-                          onChange={(e) => handleUpdateIncident(inc.id, { faseAfectada: e.target.value })}
-                          className="table-cell-select"
-                        >
-                          {FASES_CLINICAS.map(fase => (
-                            <option key={fase} value={fase}>{fase}</option>
-                          ))}
-                        </select>
+                      <td style={{ color: 'var(--text-secondary)' }}>
+                        <span style={{ 
+                          background: 'var(--bg-tertiary)', 
+                          padding: '4px 8px', 
+                          borderRadius: '4px', 
+                          border: '1px solid var(--border-light)',
+                          fontSize: '0.75rem',
+                          fontWeight: 'bold'
+                        }}>
+                          {inc.faseAfectada}
+                        </span>
                       </td>
 
                       {/* Descripción */}
-                      <td 
-                        onClick={() => { setSelectedIncidentId(inc.id); setIsDrawerOpen(true); }}
-                        className="clickable-preview-cell"
-                        title="Haga clic para ver/editar el detalle"
-                      >
+                      <td className="clickable-preview-cell">
                         <div className="preview-text">
                           {inc.descripcion ? (
                             inc.descripcion.length > 70 ? `${inc.descripcion.substring(0, 70)}...` : inc.descripcion
@@ -900,123 +896,71 @@ export default function IncidentsPage() {
                         </div>
                       </td>
 
-                      {/* Impacto (Píldora interactiva) */}
+                      {/* Impacto */}
                       <td style={{ textAlign: 'center' }}>
-                        <select
-                          value={inc.impacto}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (val === '__custom__') {
-                              const customVal = prompt("Ingrese el impacto de incidente personalizado:");
-                              if (customVal && customVal.trim()) {
-                                handleUpdateIncident(inc.id, { impacto: customVal.trim() });
-                              }
-                            } else {
-                              handleUpdateIncident(inc.id, { impacto: val });
-                            }
-                          }}
-                          style={{
-                            background: impactColor.bg,
-                            color: impactColor.color,
-                            border: `1px solid ${impactColor.border}`,
-                            borderRadius: '20px',
-                            padding: '4px 10px',
-                            fontSize: '0.75rem',
-                            fontWeight: 'bold',
-                            outline: 'none',
-                            cursor: 'pointer',
-                            textAlign: 'center',
-                            width: '95px',
-                            textAlignLast: 'center'
-                          }}
-                          className="table-cell-select-badge"
-                        >
-                          <option value="Crítico">Crítico</option>
-                          <option value="Medio">Medio</option>
-                          <option value="Bajo">Bajo</option>
-                          {uniqueIncidentImpact.map(opt => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                          <option value="__custom__">➕ Otro...</option>
-                        </select>
+                        <span style={{
+                          background: impactColor.bg,
+                          color: impactColor.color,
+                          border: `1px solid ${impactColor.border}`,
+                          borderRadius: '20px',
+                          padding: '4px 12px',
+                          fontSize: '0.75rem',
+                          fontWeight: 'bold',
+                          display: 'inline-block',
+                          textAlign: 'center',
+                          minWidth: '85px'
+                        }}>
+                          {inc.impacto}
+                        </span>
                       </td>
 
                       {/* Responsable */}
                       <td>
-                        <select
-                          value={inc.responsable}
-                          onChange={(e) => handleUpdateIncident(inc.id, { responsable: e.target.value })}
-                          className="table-cell-select"
-                        >
-                          <optgroup label="Equipo de Proyecto">
-                            {users.map(u => (
-                              <option key={u.id} value={u.name}>{u.name} ({u.role})</option>
-                            ))}
-                          </optgroup>
-                          <optgroup label="Equipos de Apoyo">
-                            <option value="Equipo técnico">Equipo técnico</option>
-                            <option value="Laboratorio">Laboratorio</option>
-                            <option value="Usuario / Clínica">Usuario / Clínica</option>
-                            <option value="Proveedor Siemens">Proveedor Siemens</option>
-                            <option value="Sistemas TI Bupa">Sistemas TI Bupa</option>
-                          </optgroup>
-                        </select>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ 
+                            width: '24px', 
+                            height: '24px', 
+                            borderRadius: '50%', 
+                            background: 'linear-gradient(135deg, #004B87 0%, #0079C1 100%)', 
+                            color: 'white', 
+                            display: 'flex', 
+                            alignItems: 'center', 
+                            justifyContent: 'center', 
+                            fontSize: '0.68rem', 
+                            fontWeight: 'bold',
+                            flexShrink: 0
+                          }}>
+                            {(() => {
+                              const nameParts = inc.responsable.split(' ');
+                              const initial1 = nameParts[0]?.[0] || '';
+                              const initial2 = nameParts[1]?.[0] || '';
+                              return (initial1 + initial2).toUpperCase();
+                            })()}
+                          </div>
+                          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{inc.responsable}</span>
+                        </div>
                       </td>
 
-                      {/* Estado (Píldora interactiva) */}
+                      {/* Estado */}
                       <td style={{ textAlign: 'center' }}>
-                        <select
-                          value={inc.estado}
-                          onChange={(e) => {
-                            const val = e.target.value;
-                            if (val === '__custom__') {
-                              const customVal = prompt("Ingrese el estado de incidente personalizado:");
-                              if (customVal && customVal.trim()) {
-                                handleUpdateIncident(inc.id, { 
-                                  estado: customVal.trim(),
-                                  fechaCierre: customVal.trim() === 'Cerrado' ? new Date().toISOString().split('T')[0] : ''
-                                });
-                              }
-                            } else {
-                              const closureDate = val === 'Cerrado' ? new Date().toISOString().split('T')[0] : '';
-                              handleUpdateIncident(inc.id, { 
-                                estado: val,
-                                fechaCierre: closureDate
-                              });
-                            }
-                          }}
-                          style={{
-                            background: statusColor.bg,
-                            color: statusColor.color,
-                            border: `1px solid ${statusColor.border}`,
-                            borderRadius: '20px',
-                            padding: '4px 10px',
-                            fontSize: '0.75rem',
-                            fontWeight: 'bold',
-                            outline: 'none',
-                            cursor: 'pointer',
-                            textAlign: 'center',
-                            width: '100px',
-                            textAlignLast: 'center'
-                          }}
-                          className="table-cell-select-badge"
-                        >
-                          <option value="Abierto">Abierto</option>
-                          <option value="En proceso">En proceso</option>
-                          <option value="Cerrado">Cerrado</option>
-                          {uniqueIncidentStatus.map(opt => (
-                            <option key={opt} value={opt}>{opt}</option>
-                          ))}
-                          <option value="__custom__">➕ Otro...</option>
-                        </select>
+                        <span style={{
+                          background: statusColor.bg,
+                          color: statusColor.color,
+                          border: `1px solid ${statusColor.border}`,
+                          borderRadius: '20px',
+                          padding: '4px 12px',
+                          fontSize: '0.75rem',
+                          fontWeight: 'bold',
+                          display: 'inline-block',
+                          textAlign: 'center',
+                          minWidth: '85px'
+                        }}>
+                          {inc.estado}
+                        </span>
                       </td>
 
                       {/* Plan de Acción */}
-                      <td 
-                        onClick={() => { setSelectedIncidentId(inc.id); setIsDrawerOpen(true); }}
-                        className="clickable-preview-cell"
-                        title="Haga clic para ver/editar el detalle"
-                      >
+                      <td className="clickable-preview-cell">
                         <div className="preview-text">
                           {inc.planDeAccion ? (
                             inc.planDeAccion.length > 70 ? `${inc.planDeAccion.substring(0, 70)}...` : inc.planDeAccion
@@ -1027,30 +971,30 @@ export default function IncidentsPage() {
                       </td>
 
                       {/* Fecha de Cierre */}
-                      <td>
-                        <input 
-                          type="date" 
-                          value={inc.fechaCierre || ''} 
-                          onChange={(e) => handleUpdateIncident(inc.id, { fechaCierre: e.target.value })}
-                          className="table-cell-input"
-                          style={{ fontSize: '0.78rem', cursor: 'pointer' }}
-                        />
+                      <td style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                        {inc.fechaCierre ? (
+                          (() => {
+                            try {
+                              const [year, month, day] = inc.fechaCierre.split('-');
+                              if (year && month && day) {
+                                return `${day}/${month}/${year}`;
+                              }
+                              return inc.fechaCierre;
+                            } catch (e) {
+                              return inc.fechaCierre;
+                            }
+                          })()
+                        ) : (
+                          <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.78rem' }}>--</span>
+                        )}
                       </td>
 
                       {/* Celdas de Columnas Dinámicas */}
                       {customColumns.map(col => {
                         const cellValue = customFieldsData[col] || '';
                         return (
-                          <td key={col}>
-                            <InlineInput
-                              value={cellValue}
-                              onSave={(val) => {
-                                const updatedFields = { ...customFieldsData, [col]: val };
-                                handleUpdateIncident(inc.id, { customFields: JSON.stringify(updatedFields) });
-                              }}
-                              placeholder={`Ingresar ${col.toLowerCase()}...`}
-                              className="table-cell-input"
-                            />
+                          <td key={col} style={{ color: 'var(--text-primary)' }}>
+                            {cellValue || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.75rem' }}>--</span>}
                           </td>
                         );
                       })}
@@ -1059,7 +1003,8 @@ export default function IncidentsPage() {
                       <td style={{ textAlign: 'center' }}>
                         <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
                           <button
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               setSelectedIncidentId(inc.id);
                               setIsDrawerOpen(true);
                             }}
@@ -1069,7 +1014,8 @@ export default function IncidentsPage() {
                             <Edit2 size={14} />
                           </button>
                           <button 
-                            onClick={() => {
+                            onClick={(e) => {
+                              e.stopPropagation();
                               if (confirm(`¿Está seguro de eliminar el incidente #${inc.indexId}?`)) {
                                 deleteIncident(inc.id);
                               }
@@ -1623,6 +1569,7 @@ export default function IncidentsPage() {
         .incident-row {
           border-bottom: 1px solid var(--border-subtle);
           transition: background-color var(--transition-fast);
+          cursor: pointer;
         }
 
         .incident-row:hover {
@@ -1809,6 +1756,7 @@ export default function IncidentsPage() {
         .drawer-textarea {
           resize: vertical;
           line-height: 1.4;
+          min-height: 120px;
         }
 
         .no-data-cell {

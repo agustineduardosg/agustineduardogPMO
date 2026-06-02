@@ -58,7 +58,7 @@ export const Drawer: React.FC<DrawerProps> = ({ isOpen, onClose, title, children
               top: 0,
               right: 0,
               width: "100%",
-              maxWidth: "500px",
+              maxWidth: "680px",
               height: "100vh",
               background: "var(--bg-secondary)",
               boxShadow: "-10px 0 30px rgba(0, 0, 0, 0.08)",
