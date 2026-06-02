@@ -1,8 +1,8 @@
 "use client";
 
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { X } from "lucide-react";
+import { X, Maximize2, Minimize2 } from "lucide-react";
 
 interface DrawerProps {
   isOpen: boolean;
@@ -12,6 +12,8 @@ interface DrawerProps {
 }
 
 export const Drawer: React.FC<DrawerProps> = ({ isOpen, onClose, title, children }) => {
+  const [isMaximized, setIsMaximized] = useState(false);
+
   // Deshabilitar scroll en el body cuando el drawer esté abierto
   useEffect(() => {
     if (isOpen) {
@@ -22,6 +24,13 @@ export const Drawer: React.FC<DrawerProps> = ({ isOpen, onClose, title, children
     return () => {
       document.body.style.overflow = "unset";
     };
+  }, [isOpen]);
+
+  // Resetear la maximización al cerrar el Drawer
+  useEffect(() => {
+    if (!isOpen) {
+      setIsMaximized(false);
+    }
   }, [isOpen]);
 
   return (
@@ -58,7 +67,7 @@ export const Drawer: React.FC<DrawerProps> = ({ isOpen, onClose, title, children
               top: 0,
               right: 0,
               width: "100%",
-              maxWidth: "680px",
+              maxWidth: isMaximized ? "100%" : "680px",
               height: "100vh",
               background: "var(--bg-secondary)",
               boxShadow: "-10px 0 30px rgba(0, 0, 0, 0.08)",
@@ -66,7 +75,8 @@ export const Drawer: React.FC<DrawerProps> = ({ isOpen, onClose, title, children
               display: "flex",
               flexDirection: "column",
               zIndex: 101,
-              overflow: "hidden"
+              overflow: "hidden",
+              transition: "max-width 0.25s cubic-bezier(0.4, 0, 0.2, 1)" // Suave transición al maximizar
             }}
           >
             {/* Cabecera del Drawer */}
@@ -83,31 +93,61 @@ export const Drawer: React.FC<DrawerProps> = ({ isOpen, onClose, title, children
               <h3 style={{ fontSize: "1.1rem", fontWeight: 700, color: "var(--text-primary)" }}>
                 {title}
               </h3>
-              <button
-                onClick={onClose}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  color: "var(--text-secondary)",
-                  padding: "6px",
-                  borderRadius: "50%",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  transition: "all var(--transition-fast) ease-in-out"
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.background = "var(--border-subtle)";
-                  e.currentTarget.style.color = "var(--accent-danger)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.background = "transparent";
-                  e.currentTarget.style.color = "var(--text-secondary)";
-                }}
-              >
-                <X size={20} />
-              </button>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+                {/* Botón Maximizar / Restaurar */}
+                <button
+                  onClick={() => setIsMaximized(!isMaximized)}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "var(--text-secondary)",
+                    padding: "6px",
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transition: "all var(--transition-fast) ease-in-out"
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--border-subtle)";
+                    e.currentTarget.style.color = "var(--accent-primary)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "transparent";
+                    e.currentTarget.style.color = "var(--text-secondary)";
+                  }}
+                  title={isMaximized ? "Restaurar tamaño (680px)" : "Maximizar a pantalla completa"}
+                >
+                  {isMaximized ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+                </button>
+                {/* Botón Cerrar */}
+                <button
+                  onClick={onClose}
+                  style={{
+                    background: "transparent",
+                    border: "none",
+                    cursor: "pointer",
+                    color: "var(--text-secondary)",
+                    padding: "6px",
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transition: "all var(--transition-fast) ease-in-out"
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = "var(--border-subtle)";
+                    e.currentTarget.style.color = "var(--accent-danger)";
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = "transparent";
+                    e.currentTarget.style.color = "var(--text-secondary)";
+                  }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
             </div>
 
             {/* Contenido Scrolleable */}

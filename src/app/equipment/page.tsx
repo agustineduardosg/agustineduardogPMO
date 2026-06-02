@@ -93,7 +93,11 @@ const CustomSelect = ({
 const ANALYTE_STATUS_STYLE: Record<string, { bg: string; color: string; border: string }> = {
   'Transmitiendo': { bg: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: 'rgba(16, 185, 129, 0.2)' },
   'En Pausa': { bg: 'rgba(245, 158, 11, 0.1)', color: '#f59e0b', border: 'rgba(245, 158, 11, 0.2)' },
-  'No Iniciado': { bg: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: 'var(--border-light)' }
+  'No Iniciado': { bg: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: 'var(--border-light)' },
+  'No aplica': { bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'rgba(239, 68, 68, 0.2)' },
+  'No requerido': { bg: 'rgba(59, 130, 246, 0.1)', color: '#3b82f6', border: 'rgba(59, 130, 246, 0.2)' },
+  'Desestimado': { bg: 'rgba(107, 114, 128, 0.1)', color: '#6b7280', border: 'rgba(107, 114, 128, 0.2)' },
+  'Descartado': { bg: 'rgba(239, 68, 68, 0.15)', color: '#b91c1c', border: 'rgba(239, 68, 68, 0.25)' }
 };
 
 const CustomAnalyteSelect = ({ 
@@ -128,6 +132,10 @@ const CustomAnalyteSelect = ({
       <option value="No Iniciado" style={{ background: '#ffffff', color: '#6b7280' }}>⚫ No Iniciado</option>
       <option value="Transmitiendo" style={{ background: '#ffffff', color: '#10b981' }}>🟢 Transmitiendo</option>
       <option value="En Pausa" style={{ background: '#ffffff', color: '#f59e0b' }}>🟡 En Pausa</option>
+      <option value="No aplica" style={{ background: '#ffffff', color: '#ef4444' }}>🔴 No aplica</option>
+      <option value="No requerido" style={{ background: '#ffffff', color: '#3b82f6' }}>🔵 No requerido</option>
+      <option value="Desestimado" style={{ background: '#ffffff', color: '#6b7280' }}>⚪ Desestimado</option>
+      <option value="Descartado" style={{ background: '#ffffff', color: '#b91c1c' }}>❌ Descartado</option>
     </select>
   );
 };
@@ -222,6 +230,10 @@ const AnalyteModal = ({
                 <option value="No Iniciado">⚫ No Iniciado</option>
                 <option value="Transmitiendo">🟢 Transmitiendo</option>
                 <option value="En Pausa">🟡 En Pausa</option>
+                <option value="No aplica">🔴 No aplica</option>
+                <option value="No requerido">🔵 No requerido</option>
+                <option value="Desestimado">⚪ Desestimado</option>
+                <option value="Descartado">❌ Descartado</option>
               </select>
             </div>
           </div>
@@ -464,7 +476,7 @@ export default function EquipmentTrackerPage() {
   const [hiddenAnalyteCols, setHiddenAnalyteCols] = useState<string[]>([]);
   const [analyteSearch, setAnalyteSearch] = useState('');
   const [collapsedRecintoAnalytes, setCollapsedRecintoAnalytes] = useState<Record<string, boolean>>({});
-  const [statusFilter, setStatusFilter] = useState<'all' | 'Transmitiendo' | 'En Pausa' | 'No Iniciado'>('all');
+  const [statusFilter, setStatusFilter] = useState<string>('all');
   const [expandedInstruments, setExpandedInstruments] = useState<Record<string, boolean>>({});
   const [isAnalyteModalOpen, setIsAnalyteModalOpen] = useState(false);
   const [editingAnalyte, setEditingAnalyte] = useState<Analyte | null>(null);
@@ -2053,14 +2065,16 @@ export default function EquipmentTrackerPage() {
           
           {/* Analyte Tab Specific KPI Panel */}
           {(() => {
-            const isNoAplica = (a: any) => {
+            const isAnalyteExcluded = (a: any) => {
+              const state = (a.state || '').trim();
               const desc = (a.description || '').trim().toLowerCase();
-              return desc === 'n-a' || desc === 'n/a' || desc === 'no aplica' || desc === 'na';
+              return ['No aplica', 'No requerido', 'Desestimado', 'Descartado'].includes(state) ||
+                     desc === 'n-a' || desc === 'n/a' || desc === 'no aplica' || desc === 'na' || desc.includes('no aplica');
             };
-            const applicableAllCount = analytes.filter(a => !isNoAplica(a)).length;
-            const activeAllCount = analytes.filter(a => a.state === 'Transmitiendo' && !isNoAplica(a)).length;
-            const pausedAllCount = analytes.filter(a => a.state === 'En Pausa' && !isNoAplica(a)).length;
-            const pendingAllCount = analytes.filter(a => (a.state === 'No Iniciado' || !a.state) && !isNoAplica(a)).length;
+            const applicableAllCount = analytes.filter(a => !isAnalyteExcluded(a)).length;
+            const activeAllCount = analytes.filter(a => a.state === 'Transmitiendo' && !isAnalyteExcluded(a)).length;
+            const pausedAllCount = analytes.filter(a => a.state === 'En Pausa' && !isAnalyteExcluded(a)).length;
+            const pendingAllCount = analytes.filter(a => (a.state === 'No Iniciado' || !a.state) && !isAnalyteExcluded(a)).length;
 
             return (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
@@ -2115,14 +2129,20 @@ export default function EquipmentTrackerPage() {
               
               {/* Píldoras de Estado */}
               {(() => {
-                const isNoAplica = (a: any) => {
+                const isAnalyteExcluded = (a: any) => {
+                  const state = (a.state || '').trim();
                   const desc = (a.description || '').trim().toLowerCase();
-                  return desc === 'n-a' || desc === 'n/a' || desc === 'no aplica' || desc === 'na';
+                  return ['No aplica', 'No requerido', 'Desestimado', 'Descartado'].includes(state) ||
+                         desc === 'n-a' || desc === 'n/a' || desc === 'no aplica' || desc === 'na' || desc.includes('no aplica');
                 };
-                const totalCount = analytes.filter(a => !isNoAplica(a)).length;
-                const activeCount = analytes.filter(a => a.state === 'Transmitiendo' && !isNoAplica(a)).length;
-                const pausedCount = analytes.filter(a => a.state === 'En Pausa' && !isNoAplica(a)).length;
-                const pendingCount = analytes.filter(a => (a.state === 'No Iniciado' || !a.state) && !isNoAplica(a)).length;
+                const totalCount = analytes.filter(a => !isAnalyteExcluded(a)).length;
+                const activeCount = analytes.filter(a => a.state === 'Transmitiendo' && !isAnalyteExcluded(a)).length;
+                const pausedCount = analytes.filter(a => a.state === 'En Pausa' && !isAnalyteExcluded(a)).length;
+                const pendingCount = analytes.filter(a => (a.state === 'No Iniciado' || !a.state) && !isAnalyteExcluded(a)).length;
+                const noAplicaCount = analytes.filter(a => a.state === 'No aplica').length;
+                const noRequeridoCount = analytes.filter(a => a.state === 'No requerido').length;
+                const desestimadoCount = analytes.filter(a => a.state === 'Desestimado').length;
+                const descartadoCount = analytes.filter(a => a.state === 'Descartado').length;
 
                 return (
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -2197,6 +2217,78 @@ export default function EquipmentTrackerPage() {
                       }}
                     >
                       ⚫ No Iniciado ({pendingCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStatusFilter('No aplica')}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        fontSize: '0.78rem',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        background: statusFilter === 'No aplica' ? '#ef4444' : 'rgba(239, 68, 68, 0.05)',
+                        color: statusFilter === 'No aplica' ? 'white' : '#ef4444',
+                        border: `1px solid ${statusFilter === 'No aplica' ? '#ef4444' : 'rgba(239, 68, 68, 0.2)'}`,
+                        boxShadow: statusFilter === 'No aplica' ? '0 2px 8px rgba(239, 68, 68, 0.2)' : 'none'
+                      }}
+                    >
+                      🔴 No aplica ({noAplicaCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStatusFilter('No requerido')}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        fontSize: '0.78rem',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        background: statusFilter === 'No requerido' ? '#3b82f6' : 'rgba(59, 130, 246, 0.05)',
+                        color: statusFilter === 'No requerido' ? 'white' : '#3b82f6',
+                        border: `1px solid ${statusFilter === 'No requerido' ? '#3b82f6' : 'rgba(59, 130, 246, 0.2)'}`,
+                        boxShadow: statusFilter === 'No requerido' ? '0 2px 8px rgba(59, 130, 246, 0.2)' : 'none'
+                      }}
+                    >
+                      🔵 No requerido ({noRequeridoCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStatusFilter('Desestimado')}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        fontSize: '0.78rem',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        background: statusFilter === 'Desestimado' ? '#6b7280' : 'rgba(107, 114, 128, 0.05)',
+                        color: statusFilter === 'Desestimado' ? 'white' : '#6b7280',
+                        border: `1px solid ${statusFilter === 'Desestimado' ? '#6b7280' : 'rgba(107, 114, 128, 0.2)'}`,
+                        boxShadow: statusFilter === 'Desestimado' ? '0 2px 8px rgba(107, 114, 128, 0.2)' : 'none'
+                      }}
+                    >
+                      ⚪ Desestimado ({desestimadoCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStatusFilter('Descartado')}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        fontSize: '0.78rem',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        background: statusFilter === 'Descartado' ? '#b91c1c' : 'rgba(239, 68, 68, 0.05)',
+                        color: statusFilter === 'Descartado' ? 'white' : '#b91c1c',
+                        border: `1px solid ${statusFilter === 'Descartado' ? '#b91c1c' : 'rgba(239, 68, 68, 0.2)'}`,
+                        boxShadow: statusFilter === 'Descartado' ? '0 2px 8px rgba(185, 28, 28, 0.2)' : 'none'
+                      }}
+                    >
+                      ❌ Descartado ({descartadoCount})
                     </button>
                   </div>
                 );
@@ -2528,6 +2620,10 @@ export default function EquipmentTrackerPage() {
                                     <option value="No Iniciado">⚫ No Iniciado</option>
                                     <option value="Transmitiendo">🟢 Transmitiendo</option>
                                     <option value="En Pausa">🟡 En Pausa</option>
+                                    <option value="No aplica">🔴 No aplica</option>
+                                    <option value="No requerido">🔵 No requerido</option>
+                                    <option value="Desestimado">⚪ Desestimado</option>
+                                    <option value="Descartado">❌ Descartado</option>
                                   </select>
                                 </div>
                               </div>
@@ -2617,11 +2713,14 @@ export default function EquipmentTrackerPage() {
               const isCollapsed = collapsedRecintoAnalytes[rec.id] || false;
               const recEquips = equipments.filter(e => e.recintoId === rec.id);
 
-              // Avance de sede en analitos transmitiendo (excluyendo N-A)
-              const applicableRecAnalytes = recAnalytes.filter(a => {
+              // Avance de sede en analitos transmitiendo (excluyendo N-A y estados excluidos)
+              const isAnalyteExcluded = (a: any) => {
+                const state = (a.state || '').trim();
                 const desc = (a.description || '').trim().toLowerCase();
-                return !(desc === 'n-a' || desc === 'n/a' || desc === 'no aplica' || desc === 'na');
-              });
+                return ['No aplica', 'No requerido', 'Desestimado', 'Descartado'].includes(state) ||
+                       desc === 'n-a' || desc === 'n/a' || desc === 'no aplica' || desc === 'na' || desc.includes('no aplica');
+              };
+              const applicableRecAnalytes = recAnalytes.filter(a => !isAnalyteExcluded(a));
               const total = applicableRecAnalytes.length;
               const activeCount = applicableRecAnalytes.filter(a => a.state === 'Transmitiendo').length;
               const pct = total === 0 ? 0 : Math.round((activeCount / total) * 100);
@@ -2820,6 +2919,10 @@ export default function EquipmentTrackerPage() {
                                       <option value="No Iniciado">⚫ No Iniciado</option>
                                       <option value="Transmitiendo">🟢 Transmitiendo</option>
                                       <option value="En Pausa">🟡 En Pausa</option>
+                                      <option value="No aplica">🔴 No aplica</option>
+                                      <option value="No requerido">🔵 No requerido</option>
+                                      <option value="Desestimado">⚪ Desestimado</option>
+                                      <option value="Descartado">❌ Descartado</option>
                                     </select>
                                   </div>
                                 </div>

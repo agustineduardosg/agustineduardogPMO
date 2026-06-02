@@ -73,7 +73,7 @@ export default function IncidentsPage() {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   // Estado para colapsar banner y KPIs para ganar espacio vertical
-  const [isDashboardCollapsed, setIsDashboardCollapsed] = useState(false);
+  const [isDashboardCollapsed, setIsDashboardCollapsed] = useState(true);
 
   // Incidente seleccionado actualmente de forma reactiva
   const selectedIncident = useMemo(() => {
@@ -135,6 +135,11 @@ export default function IncidentsPage() {
     fetchEquipmentData();
     fetchUsers();
     fetchProjects();
+
+    const saved = localStorage.getItem('incidents_dashboard_collapsed');
+    if (saved !== null) {
+      setIsDashboardCollapsed(saved === 'true');
+    }
   }, []);
 
   // Estados de filtrado y búsqueda
@@ -391,7 +396,11 @@ export default function IncidentsPage() {
         <div style={{ display: 'flex', gap: '12px' }}>
           <button 
             className="btn btn-secondary shadow-sm"
-            onClick={() => setIsDashboardCollapsed(!isDashboardCollapsed)}
+            onClick={() => {
+              const nextVal = !isDashboardCollapsed;
+              setIsDashboardCollapsed(nextVal);
+              localStorage.setItem('incidents_dashboard_collapsed', String(nextVal));
+            }}
             style={{ 
               background: 'rgba(255, 255, 255, 0.15)', 
               color: '#FFFFFF', 
