@@ -2805,8 +2805,9 @@ export default function EquipmentTrackerPage() {
               const isCollapsed = collapsedRecintoAnalytes[rec.id] || false;
               const recEquips = equipments.filter(e => e.recintoId === rec.id);
 
-              // Avance de sede en analitos transmitiendo (excluyendo N-A y estados excluidos)
-              const applicableRecAnalytes = recAnalytes.filter(a => !isAnalyteExcluded(a));
+              // Avance de sede en analitos transmitiendo (excluyendo N-A y estados excluidos) - calculado sobre el total real de la sede para evitar distorsiones por filtros
+              const allRecAnalytes = analytes.filter(a => a.recintoId === rec.id);
+              const applicableRecAnalytes = allRecAnalytes.filter(a => !isAnalyteExcluded(a));
               const total = applicableRecAnalytes.length;
               const activeCount = applicableRecAnalytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo').length;
               const pct = total === 0 ? 0 : Math.round((activeCount / total) * 100);
