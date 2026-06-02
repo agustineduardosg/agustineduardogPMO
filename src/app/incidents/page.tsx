@@ -72,6 +72,9 @@ export default function IncidentsPage() {
   const [selectedIncidentId, setSelectedIncidentId] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
+  // Estado para colapsar banner y KPIs para ganar espacio vertical
+  const [isDashboardCollapsed, setIsDashboardCollapsed] = useState(false);
+
   // Incidente seleccionado actualmente de forma reactiva
   const selectedIncident = useMemo(() => {
     if (!selectedIncidentId) return null;
@@ -363,20 +366,49 @@ export default function IncidentsPage() {
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '24px' }}>
       
       {/* 1. Header Banner - Bupa Corporate style */}
-      <div className="incident-header-banner">
+      <div 
+        className="incident-header-banner"
+        style={{
+          padding: isDashboardCollapsed ? '12px 24px' : '24px 32px',
+          gap: isDashboardCollapsed ? '16px' : '24px',
+          transition: 'all 0.25s ease-in-out'
+        }}
+      >
         <div className="incident-header-text">
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <AlertOctagon size={32} color="#FFFFFF" className="pulse-icon" />
-            <h1 style={{ fontSize: '2rem', color: '#FFFFFF', fontWeight: 800, margin: 0, letterSpacing: '-0.02em' }}>
+            <AlertOctagon size={isDashboardCollapsed ? 22 : 32} color="#FFFFFF" className="pulse-icon" style={{ transition: 'all 0.25s' }} />
+            <h1 style={{ fontSize: isDashboardCollapsed ? '1.25rem' : '2rem', color: '#FFFFFF', fontWeight: 800, margin: 0, letterSpacing: '-0.02em', transition: 'all 0.25s' }}>
               Registro de Incidentes y Puntos de Alerta
             </h1>
           </div>
-          <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '0.98rem', margin: '8px 0 0', fontWeight: 400, maxWidth: '800px' }}>
-            Registre todo evento que pueda representar un riesgo, bloqueo o desviación del plan de implementación corporativo. 
-            Permite la corrección preventiva y la trazabilidad de planes de acción inmediatos.
-          </p>
+          {!isDashboardCollapsed && (
+            <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '0.98rem', margin: '8px 0 0', fontWeight: 400, maxWidth: '800px' }}>
+              Registre todo evento que pueda representar un riesgo, bloqueo o desviación del plan de implementación corporativo. 
+              Permite la corrección preventiva y la trazabilidad de planes de acción inmediatos.
+            </p>
+          )}
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
+          <button 
+            className="btn btn-secondary shadow-sm"
+            onClick={() => setIsDashboardCollapsed(!isDashboardCollapsed)}
+            style={{ 
+              background: 'rgba(255, 255, 255, 0.15)', 
+              color: '#FFFFFF', 
+              border: '1px solid rgba(255, 255, 255, 0.3)', 
+              padding: isDashboardCollapsed ? '6px 14px' : '10px 18px', 
+              fontSize: '0.88rem', 
+              fontWeight: 700, 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px',
+              borderRadius: 'var(--radius-md)',
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+          >
+            {isDashboardCollapsed ? 'Ver Panel Completo' : 'Minimizar Resumen'}
+          </button>
           <button 
             className="btn btn-secondary shadow-sm"
             onClick={() => {
@@ -387,18 +419,19 @@ export default function IncidentsPage() {
               background: 'rgba(255, 255, 255, 0.15)', 
               color: '#FFFFFF', 
               border: '1px solid rgba(255, 255, 255, 0.3)', 
-              padding: '10px 18px', 
+              padding: isDashboardCollapsed ? '6px 14px' : '10px 18px', 
               fontSize: '0.88rem', 
               fontWeight: 700, 
               display: 'flex', 
               alignItems: 'center', 
               gap: '8px',
               borderRadius: 'var(--radius-md)',
-              cursor: 'pointer'
+              cursor: 'pointer',
+              transition: 'all 0.2s'
             }}
           >
             <Sliders size={16} strokeWidth={2} />
-            Administrar Columnas
+            Columnas
           </button>
           <button 
             className="btn btn-secondary shadow-sm"
@@ -407,14 +440,14 @@ export default function IncidentsPage() {
               background: '#FFFFFF', 
               color: '#004B87', 
               border: 'none', 
-              padding: '10px 18px', 
+              padding: isDashboardCollapsed ? '6px 14px' : '10px 18px', 
               fontSize: '0.88rem', 
               fontWeight: 700, 
               display: 'flex', 
               alignItems: 'center', 
               gap: '8px',
               borderRadius: 'var(--radius-md)',
-              transition: 'transform var(--transition-fast)'
+              transition: 'all 0.2s'
             }}
           >
             <Plus size={16} strokeWidth={3} />
@@ -536,59 +569,61 @@ export default function IncidentsPage() {
       )}
 
       {/* 2. Faja de KPIs en grid de 4 columnas */}
-      <div className="kpi-grid">
-        {/* KPI Total */}
-        <div className="kpi-card total-incidents">
-          <div className="kpi-card-inner">
-            <div>
-              <div className="kpi-label">TOTAL INCIDENTES</div>
-              <div className="kpi-value">{stats.total}</div>
-            </div>
-            <div className="kpi-icon-container" style={{ backgroundColor: 'rgba(3, 105, 161, 0.12)', color: '#0369a1' }}>
-              <FileSpreadsheet size={20} />
+      {!isDashboardCollapsed && (
+        <div className="kpi-grid">
+          {/* KPI Total */}
+          <div className="kpi-card total-incidents">
+            <div className="kpi-card-inner">
+              <div>
+                <div className="kpi-label">TOTAL INCIDENTES</div>
+                <div className="kpi-value">{stats.total}</div>
+              </div>
+              <div className="kpi-icon-container" style={{ backgroundColor: 'rgba(3, 105, 161, 0.12)', color: '#0369a1' }}>
+                <FileSpreadsheet size={20} />
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* KPI Críticos */}
-        <div className="kpi-card critical-incidents">
-          <div className="kpi-card-inner">
-            <div>
-              <div className="kpi-label">CRÍTICOS</div>
-              <div className="kpi-value">{stats.criticos}</div>
-            </div>
-            <div className="kpi-icon-container" style={{ backgroundColor: 'rgba(185, 28, 28, 0.12)', color: '#b91c1c' }}>
-              <AlertTriangle size={20} className="shake-icon" />
+          {/* KPI Críticos */}
+          <div className="kpi-card critical-incidents">
+            <div className="kpi-card-inner">
+              <div>
+                <div className="kpi-label">CRÍTICOS</div>
+                <div className="kpi-value">{stats.criticos}</div>
+              </div>
+              <div className="kpi-icon-container" style={{ backgroundColor: 'rgba(185, 28, 28, 0.12)', color: '#b91c1c' }}>
+                <AlertTriangle size={20} className="shake-icon" />
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* KPI En Proceso */}
-        <div className="kpi-card process-incidents">
-          <div className="kpi-card-inner">
-            <div>
-              <div className="kpi-label">EN PROCESO</div>
-              <div className="kpi-value">{stats.enProceso}</div>
-            </div>
-            <div className="kpi-icon-container" style={{ backgroundColor: 'rgba(180, 83, 9, 0.12)', color: '#b45309' }}>
-              <Hourglass size={20} className="spin-slow" />
+          {/* KPI En Proceso */}
+          <div className="kpi-card process-incidents">
+            <div className="kpi-card-inner">
+              <div>
+                <div className="kpi-label">EN PROCESO</div>
+                <div className="kpi-value">{stats.enProceso}</div>
+              </div>
+              <div className="kpi-icon-container" style={{ backgroundColor: 'rgba(180, 83, 9, 0.12)', color: '#b45309' }}>
+                <Hourglass size={20} className="spin-slow" />
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* KPI Cerrados */}
-        <div className="kpi-card closed-incidents">
-          <div className="kpi-card-inner">
-            <div>
-              <div className="kpi-label">CERRADOS</div>
-              <div className="kpi-value">{stats.cerrados}</div>
-            </div>
-            <div className="kpi-icon-container" style={{ backgroundColor: 'rgba(15, 118, 110, 0.12)', color: '#0f766e' }}>
-              <CheckCircle size={20} />
+          {/* KPI Cerrados */}
+          <div className="kpi-card closed-incidents">
+            <div className="kpi-card-inner">
+              <div>
+                <div className="kpi-label">CERRADOS</div>
+                <div className="kpi-value">{stats.cerrados}</div>
+              </div>
+              <div className="kpi-icon-container" style={{ backgroundColor: 'rgba(15, 118, 110, 0.12)', color: '#0f766e' }}>
+                <CheckCircle size={20} />
+              </div>
             </div>
           </div>
         </div>
-      </div>
+      )}
 
       {/* 3. Barra de Controles y Filtros */}
       <div className="controls-panel">

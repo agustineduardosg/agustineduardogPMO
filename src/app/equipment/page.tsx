@@ -2052,53 +2052,60 @@ export default function EquipmentTrackerPage() {
       }}>
           
           {/* Analyte Tab Specific KPI Panel */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
-            <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(124, 58, 237, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7c3aed', flexShrink: 0 }}>
-                <Database size={22} />
-              </div>
-              <div>
-                <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{analytes.length}</div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Analitos Totales Registrados</div>
-              </div>
-            </div>
+          {(() => {
+            const isNoAplica = (a: any) => {
+              const desc = (a.description || '').trim().toLowerCase();
+              return desc === 'n-a' || desc === 'n/a' || desc === 'no aplica' || desc === 'na';
+            };
+            const applicableAllCount = analytes.filter(a => !isNoAplica(a)).length;
+            const activeAllCount = analytes.filter(a => a.state === 'Transmitiendo' && !isNoAplica(a)).length;
+            const pausedAllCount = analytes.filter(a => a.state === 'En Pausa' && !isNoAplica(a)).length;
+            const pendingAllCount = analytes.filter(a => (a.state === 'No Iniciado' || !a.state) && !isNoAplica(a)).length;
 
-            <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981', flexShrink: 0 }}>
-                <CheckCircle2 size={22} />
-              </div>
-              <div>
-                <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>
-                  {analytes.filter(a => a.state === 'Transmitiendo').length}
+            return (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+                <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(124, 58, 237, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#7c3aed', flexShrink: 0 }}>
+                    <Database size={22} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{applicableAllCount}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Analitos Totales Aplicables</div>
+                  </div>
                 </div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>En Transmisión Activa</div>
-              </div>
-            </div>
 
-            <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(245, 158, 11, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b', flexShrink: 0 }}>
-                <RefreshCw size={22} />
-              </div>
-              <div>
-                <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>
-                  {analytes.filter(a => a.state === 'En Pausa').length}
+                <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(16, 185, 129, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#10b981', flexShrink: 0 }}>
+                    <CheckCircle2 size={22} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{activeAllCount}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>En Transmisión Activa</div>
+                  </div>
                 </div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Transmisión en Pausa</div>
-              </div>
-            </div>
 
-            <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-              <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(107, 114, 128, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280', flexShrink: 0 }}>
-                <Layers size={22} />
-              </div>
-              <div>
-                <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>
-                  {analytes.filter(a => a.state === 'No Iniciado' || !a.state).length}
+                <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(245, 158, 11, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#f59e0b', flexShrink: 0 }}>
+                    <RefreshCw size={22} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{pausedAllCount}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Transmisión en Pausa</div>
+                  </div>
                 </div>
-                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Pendientes de Iniciar</div>
+
+                <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+                  <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(107, 114, 128, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#6b7280', flexShrink: 0 }}>
+                    <Layers size={22} />
+                  </div>
+                  <div>
+                    <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{pendingAllCount}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Pendientes de Iniciar</div>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
+            );
+          })()}
 
           {/* Controles y Filtros de la Matriz de Analitos */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', background: 'var(--bg-secondary)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
@@ -2107,80 +2114,93 @@ export default function EquipmentTrackerPage() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
               
               {/* Píldoras de Estado */}
-              <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-                <button
-                  type="button"
-                  onClick={() => setStatusFilter('all')}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: '20px',
-                    fontSize: '0.78rem',
-                    fontWeight: 'bold',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    background: statusFilter === 'all' ? '#7c3aed' : 'var(--bg-primary)',
-                    color: statusFilter === 'all' ? 'white' : 'var(--text-secondary)',
-                    border: `1px solid ${statusFilter === 'all' ? '#7c3aed' : 'var(--border-light)'}`,
-                    boxShadow: statusFilter === 'all' ? '0 2px 8px rgba(124, 58, 237, 0.2)' : 'none'
-                  }}
-                >
-                  🌐 Todos ({analytes.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStatusFilter('Transmitiendo')}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: '20px',
-                    fontSize: '0.78rem',
-                    fontWeight: 'bold',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    background: statusFilter === 'Transmitiendo' ? '#10b981' : 'rgba(16, 185, 129, 0.05)',
-                    color: statusFilter === 'Transmitiendo' ? 'white' : '#10b981',
-                    border: `1px solid ${statusFilter === 'Transmitiendo' ? '#10b981' : 'rgba(16, 185, 129, 0.2)'}`,
-                    boxShadow: statusFilter === 'Transmitiendo' ? '0 2px 8px rgba(16, 185, 129, 0.2)' : 'none'
-                  }}
-                >
-                  🟢 Transmitiendo ({analytes.filter(a => a.state === 'Transmitiendo').length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStatusFilter('En Pausa')}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: '20px',
-                    fontSize: '0.78rem',
-                    fontWeight: 'bold',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    background: statusFilter === 'En Pausa' ? '#f59e0b' : 'rgba(245, 158, 11, 0.05)',
-                    color: statusFilter === 'En Pausa' ? 'white' : '#f59e0b',
-                    border: `1px solid ${statusFilter === 'En Pausa' ? '#f59e0b' : 'rgba(245, 158, 11, 0.2)'}`,
-                    boxShadow: statusFilter === 'En Pausa' ? '0 2px 8px rgba(245, 158, 11, 0.2)' : 'none'
-                  }}
-                >
-                  🟡 En Pausa ({analytes.filter(a => a.state === 'En Pausa').length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStatusFilter('No Iniciado')}
-                  style={{
-                    padding: '6px 12px',
-                    borderRadius: '20px',
-                    fontSize: '0.78rem',
-                    fontWeight: 'bold',
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    background: statusFilter === 'No Iniciado' ? '#6b7280' : 'var(--bg-primary)',
-                    color: statusFilter === 'No Iniciado' ? 'white' : 'var(--text-secondary)',
-                    border: `1px solid ${statusFilter === 'No Iniciado' ? '#6b7280' : 'var(--border-light)'}`,
-                    boxShadow: statusFilter === 'No Iniciado' ? '0 2px 8px rgba(107, 114, 128, 0.2)' : 'none'
-                  }}
-                >
-                  ⚫ No Iniciado ({analytes.filter(a => a.state === 'No Iniciado' || !a.state).length})
-                </button>
-              </div>
+              {(() => {
+                const isNoAplica = (a: any) => {
+                  const desc = (a.description || '').trim().toLowerCase();
+                  return desc === 'n-a' || desc === 'n/a' || desc === 'no aplica' || desc === 'na';
+                };
+                const totalCount = analytes.filter(a => !isNoAplica(a)).length;
+                const activeCount = analytes.filter(a => a.state === 'Transmitiendo' && !isNoAplica(a)).length;
+                const pausedCount = analytes.filter(a => a.state === 'En Pausa' && !isNoAplica(a)).length;
+                const pendingCount = analytes.filter(a => (a.state === 'No Iniciado' || !a.state) && !isNoAplica(a)).length;
+
+                return (
+                  <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                    <button
+                      type="button"
+                      onClick={() => setStatusFilter('all')}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        fontSize: '0.78rem',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        background: statusFilter === 'all' ? '#7c3aed' : 'var(--bg-primary)',
+                        color: statusFilter === 'all' ? 'white' : 'var(--text-secondary)',
+                        border: `1px solid ${statusFilter === 'all' ? '#7c3aed' : 'var(--border-light)'}`,
+                        boxShadow: statusFilter === 'all' ? '0 2px 8px rgba(124, 58, 237, 0.2)' : 'none'
+                      }}
+                    >
+                      🌐 Todos ({totalCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStatusFilter('Transmitiendo')}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        fontSize: '0.78rem',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        background: statusFilter === 'Transmitiendo' ? '#10b981' : 'rgba(16, 185, 129, 0.05)',
+                        color: statusFilter === 'Transmitiendo' ? 'white' : '#10b981',
+                        border: `1px solid ${statusFilter === 'Transmitiendo' ? '#10b981' : 'rgba(16, 185, 129, 0.2)'}`,
+                        boxShadow: statusFilter === 'Transmitiendo' ? '0 2px 8px rgba(16, 185, 129, 0.2)' : 'none'
+                      }}
+                    >
+                      🟢 Transmitiendo ({activeCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStatusFilter('En Pausa')}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        fontSize: '0.78rem',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        background: statusFilter === 'En Pausa' ? '#f59e0b' : 'rgba(245, 158, 11, 0.05)',
+                        color: statusFilter === 'En Pausa' ? 'white' : '#f59e0b',
+                        border: `1px solid ${statusFilter === 'En Pausa' ? '#f59e0b' : 'rgba(245, 158, 11, 0.2)'}`,
+                        boxShadow: statusFilter === 'En Pausa' ? '0 2px 8px rgba(245, 158, 11, 0.2)' : 'none'
+                      }}
+                    >
+                      🟡 En Pausa ({pausedCount})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStatusFilter('No Iniciado')}
+                      style={{
+                        padding: '6px 12px',
+                        borderRadius: '20px',
+                        fontSize: '0.78rem',
+                        fontWeight: 'bold',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s ease',
+                        background: statusFilter === 'No Iniciado' ? '#6b7280' : 'var(--bg-primary)',
+                        color: statusFilter === 'No Iniciado' ? 'white' : 'var(--text-secondary)',
+                        border: `1px solid ${statusFilter === 'No Iniciado' ? '#6b7280' : 'var(--border-light)'}`,
+                        boxShadow: statusFilter === 'No Iniciado' ? '0 2px 8px rgba(107, 114, 128, 0.2)' : 'none'
+                      }}
+                    >
+                      ⚫ No Iniciado ({pendingCount})
+                    </button>
+                  </div>
+                );
+              })()}
 
               {/* Botones de Acordeón Colectivo */}
               <div style={{ display: 'flex', gap: '8px' }}>
@@ -2597,9 +2617,13 @@ export default function EquipmentTrackerPage() {
               const isCollapsed = collapsedRecintoAnalytes[rec.id] || false;
               const recEquips = equipments.filter(e => e.recintoId === rec.id);
 
-              // Avance de sede en analitos transmitiendo
-              const total = recAnalytes.length;
-              const activeCount = recAnalytes.filter(a => a.state === 'Transmitiendo').length;
+              // Avance de sede en analitos transmitiendo (excluyendo N-A)
+              const applicableRecAnalytes = recAnalytes.filter(a => {
+                const desc = (a.description || '').trim().toLowerCase();
+                return !(desc === 'n-a' || desc === 'n/a' || desc === 'no aplica' || desc === 'na');
+              });
+              const total = applicableRecAnalytes.length;
+              const activeCount = applicableRecAnalytes.filter(a => a.state === 'Transmitiendo').length;
               const pct = total === 0 ? 0 : Math.round((activeCount / total) * 100);
 
               // Agrupar por instrumento
