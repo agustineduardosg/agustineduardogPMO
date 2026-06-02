@@ -940,7 +940,7 @@ export default function EquipmentTrackerPage() {
 
     const wb = XLSX.utils.book_new();
 
-    // Headers
+    // Headers base
     const headers = [
       "Sede Clínica",
       "Código Sede",
@@ -953,11 +953,28 @@ export default function EquipmentTrackerPage() {
       "Descripción / Observaciones"
     ];
 
+    // Añadir columnas dinámicas registradas en la matriz de analitos
+    customColumnsAnalytes.forEach(col => {
+      headers.push(col);
+    });
+
     const rows = [headers];
 
     filteredAnalytes.forEach(a => {
       const recinto = recintos.find(r => r.id === a.recintoId);
-      rows.push([
+      
+      // Parsear campos personalizados dinámicos
+      let customFieldsData: Record<string, string> = {};
+      if (a.customFields) {
+        try {
+          customFieldsData = JSON.parse(a.customFields);
+        } catch (e) {
+          console.error('Error parsing custom fields for analyte:', e);
+        }
+      }
+
+      // Fila base
+      const rowData = [
         recinto?.name || "Sin Sede (Pendiente)",
         recinto?.code || "N/A",
         a.instrumentName || "Sin Instrumento",
@@ -967,10 +984,22 @@ export default function EquipmentTrackerPage() {
         a.section || "General",
         a.state || "No Iniciado",
         a.description || ""
-      ]);
+      ];
+
+      // Rellenar valores de columnas dinámicas
+      customColumnsAnalytes.forEach(col => {
+        rowData.push(customFieldsData[col] || "");
+      });
+
+      rows.push(rowData);
     });
 
     const ws = XLSX.utils.aoa_to_sheet(rows);
+
+    // Ajustar el ancho de las columnas de forma automática y prolija
+    const wscols = headers.map(h => ({ wch: Math.max(h.length + 4, 15) }));
+    ws['!cols'] = wscols;
+
     XLSX.utils.book_append_sheet(wb, ws, "Matriz de Analitos");
 
     // Guardar archivo
