@@ -2180,7 +2180,8 @@ export default function EquipmentTrackerPage() {
             const activeAllCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo' && !isAnalyteExcluded(a)).length;
             const pausedAllCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'en pausa' && !isAnalyteExcluded(a)).length;
             const pendingAllCount = analytes.filter(a => (normalizeAnalyteState(a.state) === 'No iniciado' || !a.state) && !isAnalyteExcluded(a)).length;
-            const globalPct = applicableAllCount === 0 ? 0 : Math.round((activeAllCount / applicableAllCount) * 100);
+            const globalPct = applicableAllCount === 0 ? 0 : (activeAllCount / applicableAllCount) * 100;
+            const globalPctFormatted = globalPct.toFixed(1);
 
             return (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
@@ -2200,7 +2201,7 @@ export default function EquipmentTrackerPage() {
                   </div>
                   <div>
                     <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1, display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-                      {globalPct}%
+                      {globalPctFormatted}%
                       <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 'normal' }}>({activeAllCount})</span>
                     </div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Avance Consolidado</div>
@@ -2810,7 +2811,8 @@ export default function EquipmentTrackerPage() {
               const applicableRecAnalytes = allRecAnalytes.filter(a => !isAnalyteExcluded(a));
               const total = applicableRecAnalytes.length;
               const activeCount = applicableRecAnalytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo').length;
-              const pct = total === 0 ? 0 : Math.round((activeCount / total) * 100);
+              const pct = total === 0 ? 0 : (activeCount / total) * 100;
+              const pctFormatted = pct.toFixed(1);
 
               // Agrupar por instrumento
               const groupedByEquip: Record<string, any> = {};
@@ -2877,7 +2879,7 @@ export default function EquipmentTrackerPage() {
                           }} 
                           title="Porcentaje de Analitos Transmitiendo en este Recinto"
                         >
-                          <span style={{ fontWeight: 800 }}>Transmisión: {pct}%</span>
+                          <span style={{ fontWeight: 800 }}>Transmisión: {pctFormatted}%</span>
                           <div style={{ width: '80px', height: '6px', background: 'rgba(255,255,255,0.2)', borderRadius: '3px', overflow: 'hidden' }}>
                             <div style={{ width: `${pct}%`, height: '100%', background: '#10b981', borderRadius: '3px' }} />
                           </div>
