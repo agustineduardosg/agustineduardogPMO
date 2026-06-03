@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "prisma db push && next start",
     "lint": "eslint",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate",
+    "db:dump": "node scripts/db-dump-sqlite.js",
+    "db:load": "node scripts/db-load-pg.js"
   },
   "dependencies": {
     "@prisma/client": "^6.2.1",
