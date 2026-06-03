@@ -5,7 +5,7 @@ import { useEquipmentStore, ClinicalEquipment, Recinto, EquipmentPhaseStatus, An
 import { useProjectStore } from '@/store/projectStore';
 import { useUserStore } from '@/store/userStore';
 import { useRouter } from 'next/navigation';
-import { Plus, Search, Trash2, Calendar, FileSpreadsheet, Building2, ShieldAlert, CheckCircle2, RefreshCw, Layers, X, UploadCloud, Loader2, Check, Edit2, Sliders, ChevronDown, MessageSquare, Database, Info } from 'lucide-react';
+import { Plus, Search, Trash2, Calendar, FileSpreadsheet, Building2, ShieldAlert, CheckCircle2, RefreshCw, Layers, X, UploadCloud, Loader2, Check, Edit2, Sliders, ChevronDown, MessageSquare, Database, Info, Save } from 'lucide-react';
 import { format } from 'date-fns';
 import { InlineInput, InlineTextarea } from '@/components/InlineInput';
 import ReportViewer from '@/components/ReportViewer';
@@ -576,6 +576,84 @@ export default function EquipmentTrackerPage() {
   const [collapsedInstruments, setCollapsedInstruments] = useState<Record<string, boolean>>({});
   const [isAnalyteModalOpen, setIsAnalyteModalOpen] = useState(false);
   const [editingAnalyte, setEditingAnalyte] = useState<Analyte | null>(null);
+
+  // Backup & Integrity Management States
+  const [isBackupModalOpen, setIsBackupModalOpen] = useState(false);
+  const [databaseStatus, setDatabaseStatus] = useState<{
+    current: { recintos: number; equipments: number; analytes: number };
+    backups: { filename: string; name: string; sizeBytes: number; createdAt: string }[];
+  } | null>(null);
+  const [isBackingUp, setIsBackingUp] = useState(false);
+
+  const fetchDatabaseStatus = async () => {
+    try {
+      const response = await fetch('/api/admin/database');
+      if (response.ok) {
+        const data = await response.json();
+        setDatabaseStatus(data);
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleCreateBackup = async () => {
+    setIsBackingUp(true);
+    try {
+      const response = await fetch('/api/admin/database', { method: 'POST' });
+      if (response.ok) {
+        alert("¡Copia de seguridad creada correctamente!");
+        fetchDatabaseStatus();
+      } else {
+        alert("Error al crear la copia de seguridad.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Error de conexión.");
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
+  const handleRestoreBackup = async (filename: string) => {
+    if (!confirm("⚠️ ¡ADVERTENCIA CRÍTICA! Restaurar una copia de seguridad reemplazará por completo la base de datos actual con la del archivo seleccionado. Todos los cambios realizados desde entonces se perderán.\n\n¿Estás seguro de que deseas proceder?")) {
+      return;
+    }
+    if (!confirm("Confirmación final: ¿Realmente deseas restaurar? Se recargarán todos los datos del sistema.")) {
+      return;
+    }
+
+    try {
+      const response = await fetch('/api/admin/database', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ filename })
+      });
+      if (response.ok) {
+        alert("¡Base de datos restaurada correctamente! Recargando aplicación...");
+        window.location.reload();
+      } else {
+        alert("Error al restaurar la copia de seguridad.");
+      }
+    } catch (e) {
+      console.error(e);
+      alert("Error de conexión.");
+    }
+  };
+
+  const handleDeleteBackup = async (filename: string) => {
+    if (!confirm("¿Seguro que deseas eliminar esta copia de seguridad? Esta acción no se puede deshacer.")) return;
+    try {
+      const response = await fetch(`/api/admin/database?filename=${encodeURIComponent(filename)}`, {
+        method: 'DELETE'
+      });
+      if (response.ok) {
+        fetchDatabaseStatus();
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   // Buscar estados personalizados dinámicos para el dropdown y filtros
   const uniqueAnalyteStatuses = useMemo(() => {
@@ -2205,10 +2283,16 @@ export default function EquipmentTrackerPage() {
           
           {/* Analyte Tab Specific KPI Panel */}
           {(() => {
-            const applicableAllCount = analytes.filter(a => !isAnalyteExcluded(a)).length;
-            const activeAllCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo' && !isAnalyteExcluded(a)).length;
-            const pausedAllCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'en pausa' && !isAnalyteExcluded(a)).length;
-            const pendingAllCount = analytes.filter(a => (normalizeAnalyteState(a.state) === 'No iniciado' || !a.state) && !isAnalyteExcluded(a)).length;
+            const applicableAllCount = analytes.length;
+            const activeAllCount = analytes.filter(a => {
+              const state = normalizeAnalyteState(a.state);
+              return state === 'transmitiendo' || state === 'no aplica';
+            }).length;
+            const pausedAllCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'en pausa').length;
+            const pendingAllCount = analytes.filter(a => {
+              const state = normalizeAnalyteState(a.state);
+              return state === 'No iniciado' || !state;
+            }).length;
             const globalPct = applicableAllCount === 0 ? 0 : (activeAllCount / applicableAllCount) * 100;
             const globalPctFormatted = globalPct.toFixed(1);
 
@@ -2268,7 +2352,7 @@ export default function EquipmentTrackerPage() {
               
               {/* Píldoras de Estado */}
               {(() => {
-                const totalCount = analytes.filter(a => !isAnalyteExcluded(a)).length;
+                const totalCount = analytes.length;
                 const activeCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo').length;
                 const pausedCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'en pausa').length;
                 const pendingCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'No iniciado').length;
@@ -2517,6 +2601,34 @@ export default function EquipmentTrackerPage() {
               >
                 <FileSpreadsheet size={16} />
                 <span>Exportar Matriz LIS</span>
+              </button>
+
+              {/* Botón de Respaldos e Integridad */}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsBackupModalOpen(true);
+                  fetchDatabaseStatus();
+                }}
+                style={{
+                  padding: '10px 16px',
+                  background: 'transparent',
+                  color: '#10b981',
+                  border: '1px solid #10b981',
+                  borderRadius: 'var(--radius-sm)',
+                  fontWeight: 'bold',
+                  fontSize: '0.82rem',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  transition: 'all 0.2s ease',
+                  height: '40px'
+                }}
+                className="btn-light-hover"
+              >
+                <Save size={16} />
+                <span>Respaldos & Integridad</span>
               </button>
               
               {/* Auto-save indicator */}
@@ -2835,11 +2947,13 @@ export default function EquipmentTrackerPage() {
               const isCollapsed = collapsedRecintoAnalytes[rec.id] || false;
               const recEquips = equipments.filter(e => e.recintoId === rec.id);
 
-              // Avance de sede en analitos transmitiendo (excluyendo N-A y estados excluidos) - calculado sobre el total real de la sede para evitar distorsiones por filtros
+              // Avance de sede en analitos transmitiendo y no aplica (ambos cuentan como avance) - calculado sobre el total real de la sede para evitar distorsiones por filtros
               const allRecAnalytes = analytes.filter(a => a.recintoId === rec.id);
-              const applicableRecAnalytes = allRecAnalytes.filter(a => !isAnalyteExcluded(a));
-              const total = applicableRecAnalytes.length;
-              const activeCount = applicableRecAnalytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo').length;
+              const total = allRecAnalytes.length;
+              const activeCount = allRecAnalytes.filter(a => {
+                const state = normalizeAnalyteState(a.state);
+                return state === 'transmitiendo' || state === 'no aplica';
+              }).length;
               const pct = total === 0 ? 0 : (activeCount / total) * 100;
               const pctFormatted = pct.toFixed(1);
 
@@ -3332,6 +3446,181 @@ export default function EquipmentTrackerPage() {
             }
           }}
         />
+      )}
+      {/* MODAL DE GESTIÓN DE COPIAS DE SEGURIDAD E INTEGRIDAD */}
+      {isBackupModalOpen && (
+        <div className="custom-modal-backdrop">
+          <div className="custom-modal-card" style={{ width: '600px', maxWidth: '95vw', animation: 'scaleUp 0.25s cubic-bezier(0.4, 0, 0.2, 1)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', borderBottom: '1px solid var(--border-light)', paddingBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: '#10b981', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Save size={20} />
+                <span>💾 Copias de Seguridad y Auditoría de Datos</span>
+              </h3>
+              <button 
+                onClick={() => setIsBackupModalOpen(false)} 
+                style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px', borderRadius: '50%', transition: 'background 0.15s' }} 
+                className="btn-light-hover"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              {/* Resumen actual */}
+              <div style={{ background: 'var(--bg-secondary)', padding: '14px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)' }}>📊 Estado de Base de Datos Activa (Producción)</h4>
+                {databaseStatus ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px', textAlign: 'center' }}>
+                    <div style={{ background: 'var(--bg-primary)', padding: '8px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#7c3aed' }}>{databaseStatus.current.recintos}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Sedes / Recintos</div>
+                    </div>
+                    <div style={{ background: 'var(--bg-primary)', padding: '8px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#0079C1' }}>{databaseStatus.current.equipments}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Equipos Físicos</div>
+                    </div>
+                    <div style={{ background: 'var(--bg-primary)', padding: '8px', borderRadius: '6px', border: '1px solid var(--border-light)' }}>
+                      <div style={{ fontSize: '1.2rem', fontWeight: 800, color: '#10b981' }}>{databaseStatus.current.analytes}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '2px' }}>Analitos de Lab</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '10px', color: 'var(--text-muted)', fontSize: '0.8rem' }}>
+                    <Loader2 size={16} className="animate-spin" style={{ marginRight: '6px' }} />
+                    Cargando estado...
+                  </div>
+                )}
+              </div>
+
+              {/* Botón de backup */}
+              <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                <button
+                  type="button"
+                  onClick={handleCreateBackup}
+                  disabled={isBackingUp}
+                  style={{
+                    padding: '10px 18px',
+                    background: '#10b981',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '6px',
+                    fontWeight: 'bold',
+                    fontSize: '0.82rem',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    boxShadow: '0 4px 12px rgba(16, 185, 129, 0.15)',
+                    transition: 'all 0.2s ease',
+                    opacity: isBackingUp ? 0.7 : 1
+                  }}
+                  className="btn-primary-hover"
+                >
+                  {isBackingUp ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      <span>Creando Copia...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Plus size={14} />
+                      <span>Crear Punto de Restauración / Copia</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {/* Listado de backups */}
+              <div>
+                <h4 style={{ margin: '0 0 10px 0', fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-primary)' }}>📂 Puntos de Restauración Disponibles</h4>
+                <div style={{ maxHeight: '200px', overflowY: 'auto', border: '1px solid var(--border-light)', borderRadius: '8px', background: 'var(--bg-secondary)' }}>
+                  {!databaseStatus || databaseStatus.backups.length === 0 ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '0.82rem' }}>
+                      No hay copias de seguridad guardadas todavía.
+                    </div>
+                  ) : (
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                      <thead>
+                        <tr style={{ background: 'var(--bg-tertiary)', borderBottom: '1px solid var(--border-light)', textAlign: 'left' }}>
+                          <th style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--text-secondary)' }}>Fecha / Identificador</th>
+                          <th style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--text-secondary)' }}>Tamaño</th>
+                          <th style={{ padding: '8px 12px', fontWeight: 700, color: 'var(--text-secondary)', textAlign: 'center' }}>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {databaseStatus.backups.map(bk => (
+                          <tr key={bk.filename} style={{ borderBottom: '1px solid var(--border-light)' }}>
+                            <td style={{ padding: '8px 12px', color: 'var(--text-primary)', fontWeight: 600 }}>{bk.name}</td>
+                            <td style={{ padding: '8px 12px', color: 'var(--text-muted)' }}>{(bk.sizeBytes / 1024 / 1024).toFixed(2)} MB</td>
+                            <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                              <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRestoreBackup(bk.filename)}
+                                  style={{
+                                    padding: '4px 8px',
+                                    borderRadius: '4px',
+                                    background: 'rgba(16, 185, 129, 0.08)',
+                                    border: '1px solid rgba(16, 185, 129, 0.2)',
+                                    color: '#10b981',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 'bold',
+                                    cursor: 'pointer'
+                                  }}
+                                  className="btn-light-hover"
+                                  title="Restaurar base de datos a este punto"
+                                >
+                                  ♻️ Restaurar
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteBackup(bk.filename)}
+                                  style={{
+                                    padding: '4px 8px',
+                                    borderRadius: '4px',
+                                    background: 'rgba(239, 68, 68, 0.08)',
+                                    border: '1px solid rgba(239, 68, 68, 0.2)',
+                                    color: '#ef4444',
+                                    fontSize: '0.72rem',
+                                    fontWeight: 'bold',
+                                    cursor: 'pointer'
+                                  }}
+                                  className="btn-light-hover"
+                                  title="Eliminar este archivo de copia"
+                                >
+                                  🗑️ Eliminar
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'flex-end', borderTop: '1px solid var(--border-light)', paddingTop: '14px' }}>
+              <button
+                type="button"
+                onClick={() => setIsBackupModalOpen(false)}
+                style={{
+                  padding: '8px 16px',
+                  background: 'var(--bg-tertiary)',
+                  border: '1px solid var(--border-light)',
+                  borderRadius: '6px',
+                  color: 'var(--text-secondary)',
+                  fontSize: '0.82rem',
+                  fontWeight: 'bold',
+                  cursor: 'pointer'
+                }}
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <style dangerouslySetInnerHTML={{__html: `
