@@ -2588,6 +2588,106 @@ export default function EquipmentTrackerPage() {
             );
           })()}
 
+          {/* Dashboard de Fases LIS */}
+          <div className="glass-panel" style={{ padding: '20px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: '12px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              📊 Desglose de Avance Real por Fase de Lanzamiento
+            </h3>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
+              {releasePhases.map(phase => {
+                const phaseAnalytes = analytes.filter(a => {
+                  const parentEq = equipments.find(eq => eq.id === a.equipmentId);
+                  const effectiveStatus = a.scopeStatus === 'INHERITED'
+                    ? (parentEq ? parentEq.scopeStatus : 'ACTIVE')
+                    : a.scopeStatus;
+                  if (effectiveStatus === 'OUT_OF_SCOPE') return false;
+                  
+                  const effectivePhaseId = a.scopeStatus === 'INHERITED'
+                    ? (parentEq ? parentEq.releasePhaseId : null)
+                    : a.releasePhaseId;
+                  
+                  return effectivePhaseId === phase.id;
+                });
+
+                const total = phaseAnalytes.length;
+                const noAplica = phaseAnalytes.filter(a => normalizeAnalyteState(a.state) === 'no aplica').length;
+                const applicable = total - noAplica;
+                const active = phaseAnalytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo').length;
+                
+                const hasApplicable = applicable > 0;
+                const pct = hasApplicable ? (active / applicable) * 100 : 0;
+                
+                return (
+                  <div key={phase.id} style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', borderRadius: '8px', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 800, fontSize: '0.82rem', color: 'var(--text-primary)' }}>
+                        📅 {phase.name}
+                      </span>
+                      <span style={{ fontWeight: 800, fontSize: '0.85rem', color: hasApplicable ? '#10b981' : 'var(--text-muted)' }}>
+                        {hasApplicable ? `${pct.toFixed(1)}%` : 'N/A'}
+                      </span>
+                    </div>
+                    
+                    <div style={{ height: '6px', background: 'var(--border-subtle)', borderRadius: '3px', overflow: 'hidden' }}>
+                      <div style={{ width: `${hasApplicable ? pct : 0}%`, height: '100%', background: hasApplicable ? '#10b981' : '#6b7280', borderRadius: '3px' }} />
+                    </div>
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                      <span>Transmitiendo: <strong>{active}</strong></span>
+                      <span>Aplicables: <strong>{applicable}</strong> <span style={{ opacity: 0.6 }}>(Total: {total})</span></span>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Sin Asignar */}
+              {(() => {
+                const unassignedAnalytes = analytes.filter(a => {
+                  const parentEq = equipments.find(eq => eq.id === a.equipmentId);
+                  const effectiveStatus = a.scopeStatus === 'INHERITED'
+                    ? (parentEq ? parentEq.scopeStatus : 'ACTIVE')
+                    : a.scopeStatus;
+                  if (effectiveStatus === 'OUT_OF_SCOPE') return false;
+                  
+                  const effectivePhaseId = a.scopeStatus === 'INHERITED'
+                    ? (parentEq ? parentEq.releasePhaseId : null)
+                    : a.releasePhaseId;
+                  
+                  return !effectivePhaseId;
+                });
+
+                const total = unassignedAnalytes.length;
+                const noAplica = unassignedAnalytes.filter(a => normalizeAnalyteState(a.state) === 'no aplica').length;
+                const applicable = total - noAplica;
+                const active = unassignedAnalytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo').length;
+                const hasApplicable = applicable > 0;
+                const pct = hasApplicable ? (active / applicable) * 100 : 0;
+
+                return (
+                  <div style={{ background: 'var(--bg-primary)', border: '1px solid var(--border-subtle)', borderRadius: '8px', padding: '12px 16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontWeight: 800, fontSize: '0.82rem', color: 'var(--text-muted)' }}>
+                        ❓ Sin Asignar a Fase
+                      </span>
+                      <span style={{ fontWeight: 800, fontSize: '0.85rem', color: hasApplicable ? '#10b981' : 'var(--text-muted)' }}>
+                        {hasApplicable ? `${pct.toFixed(1)}%` : 'N/A'}
+                      </span>
+                    </div>
+                    
+                    <div style={{ height: '6px', background: 'var(--border-subtle)', borderRadius: '3px', overflow: 'hidden' }}>
+                      <div style={{ width: `${hasApplicable ? pct : 0}%`, height: '100%', background: hasApplicable ? '#3b82f6' : '#6b7280', borderRadius: '3px' }} />
+                    </div>
+                    
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                      <span>Transmitiendo: <strong>{active}</strong></span>
+                      <span>Aplicables: <strong>{applicable}</strong> <span style={{ opacity: 0.6 }}>(Total: {total})</span></span>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          </div>
+
           {/* Controles y Filtros de la Matriz de Analitos */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', background: 'var(--bg-secondary)', padding: '16px', borderRadius: '12px', border: '1px solid var(--border-light)' }}>
             
