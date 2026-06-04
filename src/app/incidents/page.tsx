@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useMemo, useEffect } from 'react';
+import * as XLSX from 'xlsx';
 import { useIncidentStore, Incident, IncidentImpact, IncidentStatus } from '@/store/incidentStore';
 import { useEquipmentStore } from '@/store/equipmentStore';
 import { useUserStore } from '@/store/userStore';
@@ -481,6 +482,79 @@ export default function IncidentsPage() {
     setFilterProject('all');
   };
 
+  // Exportar incidentes filtrados a Excel
+  const handleExportToExcel = () => {
+    try {
+      // Cabeceras de columnas usando labels legibles
+      const headers = columnOrder.map(colKey => {
+        const isStandard = DEFAULT_COLUMN_ORDER.includes(colKey);
+        return isStandard ? COLUMN_CONFIG[colKey].label : colKey;
+      });
+
+      const rows = [headers];
+
+      filteredIncidents.forEach(inc => {
+        let customFieldsData: Record<string, string> = {};
+        if (inc.customFields) {
+          try {
+            customFieldsData = JSON.parse(inc.customFields);
+          } catch (e) {
+            customFieldsData = {};
+          }
+        }
+
+        const rowData = columnOrder.map(colKey => {
+          switch (colKey) {
+            case 'id':
+              return `#${inc.indexId}`;
+            case 'fecha':
+              return inc.fecha || '';
+            case 'recintoName':
+              return inc.recintoName || '';
+            case 'equipmentName':
+              return inc.equipmentName || '';
+            case 'faseAfectada':
+              return inc.faseAfectada || '';
+            case 'descripcion':
+              return inc.descripcion || '';
+            case 'impacto':
+              return inc.impacto || '';
+            case 'responsable':
+              return inc.responsable || '';
+            case 'estado':
+              return inc.estado || '';
+            case 'planDeAccion':
+              return inc.planDeAccion || '';
+            case 'fechaCierre':
+              return inc.fechaCierre || '';
+            case 'projectId': {
+              const proj = projects.find(p => p.id === inc.projectId);
+              return proj ? proj.name : (inc.projectId === 'none' ? 'Sin Proyecto' : 'No Asignado');
+            }
+            default:
+              return customFieldsData[colKey] || '';
+          }
+        });
+        rows.push(rowData);
+      });
+
+      const wb = XLSX.utils.book_new();
+      const ws = XLSX.utils.aoa_to_sheet(rows);
+
+      // Autoajustar ancho de columnas para mejor visualización
+      const maxColWidths = rows[0].map((_, colIdx) => {
+        return Math.max(...rows.map(row => String(row[colIdx] || '').length)) + 3;
+      });
+      ws['!cols'] = maxColWidths.map(w => ({ wch: w > 50 ? 50 : (w < 10 ? 10 : w) }));
+
+      XLSX.utils.book_append_sheet(wb, ws, "Incidentes");
+      XLSX.writeFile(wb, `Registro_Incidentes_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (error) {
+      console.error("Error exporting to Excel:", error);
+      alert("Error al exportar a Excel. Por favor intente nuevamente.");
+    }
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '24px', overflow: 'hidden' }}>
       
@@ -555,6 +629,27 @@ export default function IncidentsPage() {
           >
             <Sliders size={16} strokeWidth={2} />
             Columnas
+          </button>
+          <button 
+            className="btn btn-secondary shadow-sm"
+            onClick={handleExportToExcel}
+            style={{ 
+              background: 'rgba(255, 255, 255, 0.15)', 
+              color: '#FFFFFF', 
+              border: '1px solid rgba(255, 255, 255, 0.3)', 
+              padding: isDashboardCollapsed ? '6px 14px' : '10px 18px', 
+              fontSize: '0.88rem', 
+              fontWeight: 700, 
+              display: 'flex', 
+              alignItems: 'center', 
+              gap: '8px',
+              borderRadius: 'var(--radius-md)',
+              cursor: 'pointer',
+              transition: 'all 0.2s'
+            }}
+          >
+            <FileSpreadsheet size={16} strokeWidth={2} />
+            Exportar a Excel
           </button>
           <button 
             className="btn btn-secondary shadow-sm"
