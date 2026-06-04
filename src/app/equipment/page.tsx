@@ -1071,30 +1071,32 @@ export default function EquipmentTrackerPage() {
       // Resolve parent equipment scope status and phase
       const { effectiveStatus, effectivePhaseId } = getEffectiveScope(a, equipments);
 
-      let matchScope = true;
+            let matchScope = true;
       if (scopeFilter === 'OUT_OF_SCOPE') {
         matchScope = effectiveStatus === 'OUT_OF_SCOPE';
       } else if (scopeFilter !== 'all') {
         matchScope = effectivePhaseId === scopeFilter && effectiveStatus !== 'OUT_OF_SCOPE';
+      } else {
+        matchScope = effectiveStatus !== 'OUT_OF_SCOPE';
       }
       
       return matchSearch && matchStatus && matchScope;
     });
   }, [analytes, analyteSearch, recintos, statusFilter, scopeFilter, equipments]);
 
-  const scopeFilteredEquipments = useMemo(() => {
+    const scopeFilteredEquipments = useMemo(() => {
     return equipments.filter(eq => {
-      if (scopeFilter === 'all') return true;
+      if (scopeFilter === 'all') return eq.scopeStatus !== 'OUT_OF_SCOPE';
       if (scopeFilter === 'OUT_OF_SCOPE') return eq.scopeStatus === 'OUT_OF_SCOPE';
       return eq.releasePhaseId === scopeFilter && eq.scopeStatus !== 'OUT_OF_SCOPE';
     });
   }, [equipments, scopeFilter]);
 
-  const scopeFilteredAnalytes = useMemo(() => {
+    const scopeFilteredAnalytes = useMemo(() => {
     return analytes.filter(a => {
       const { effectiveStatus, effectivePhaseId } = getEffectiveScope(a, equipments);
 
-      if (scopeFilter === 'all') return true;
+      if (scopeFilter === 'all') return effectiveStatus !== 'OUT_OF_SCOPE';
       if (scopeFilter === 'OUT_OF_SCOPE') return effectiveStatus === 'OUT_OF_SCOPE';
       return effectivePhaseId === scopeFilter && effectiveStatus !== 'OUT_OF_SCOPE';
     });
