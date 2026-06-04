@@ -190,57 +190,82 @@ export default function IncidentsPage() {
   const [isAddingCol, setIsAddingCol] = useState(false);
   const [editingColIndex, setEditingColIndex] = useState<number | null>(null);
   const [editingColName, setEditingColName] = useState('');
+  const [isMounted, setIsMounted] = useState(false);
 
-  // Cargar columnas dinámicas y su orden desde localStorage
+  // Cargar columnas dinámicas y su orden desde base de datos / localStorage
   React.useEffect(() => {
-    const savedCols = localStorage.getItem('custom_cols_incidents');
-    let loadedCustoms: string[] = [];
-    if (savedCols) {
+    setIsMounted(true);
+
+    const loadConfig = async () => {
+      let loadedCustoms: string[] = [];
+      let parsedOrder: string[] = [];
+
       try {
-        loadedCustoms = JSON.parse(savedCols);
-        setCustomColumns(loadedCustoms);
-      } catch (e) {
-        console.error('Error loading custom columns', e);
+        const response = await fetch('/api/config');
+        if (response.ok) {
+          const configMap = await response.json();
+          if (configMap.incidents_custom_columns) {
+            loadedCustoms = configMap.incidents_custom_columns;
+          }
+          if (configMap.incidents_column_order) {
+            parsedOrder = configMap.incidents_column_order;
+          }
+        }
+      } catch (err) {
+        console.error('Error loading config from API:', err);
       }
+
+      // Fallback a localStorage si no está en la base de datos
+      if (loadedCustoms.length === 0) {
+        const savedCols = localStorage.getItem('custom_cols_incidents');
+        if (savedCols) {
+          try { loadedCustoms = JSON.parse(savedCols); } catch (e) {}
+        }
+      }
+      if (parsedOrder.length === 0) {
+        const savedOrder = localStorage.getItem('incidents_column_order');
+        if (savedOrder) {
+          try { parsedOrder = JSON.parse(savedOrder); } catch (e) {}
+        }
+      }
+
+      setCustomColumns(loadedCustoms);
+
+      let baseOrder = parsedOrder.length > 0 ? parsedOrder : [...DEFAULT_COLUMN_ORDER];
+
+      DEFAULT_COLUMN_ORDER.forEach(col => {
+        if (!baseOrder.includes(col)) {
+          baseOrder.push(col);
+        }
+      });
+
+      loadedCustoms.forEach(c => {
+        if (!baseOrder.includes(c)) {
+          baseOrder.push(c);
+        }
+      });
+
+      baseOrder = baseOrder.filter(c => DEFAULT_COLUMN_ORDER.includes(c) || loadedCustoms.includes(c));
+      setColumnOrder(baseOrder);
+    };
+
+    loadConfig();
+
+    fetchIncidents();
+    fetchEquipmentData();
+    fetchUsers();
+    fetchProjects();
+    fetchParentProjects();
+
+    const saved = localStorage.getItem('incidents_dashboard_collapsed');
+    if (saved !== null) {
+      setIsDashboardCollapsed(saved === 'true');
     }
-
-    const savedOrder = localStorage.getItem('incidents_column_order');
-    let parsedOrder: string[] = [];
-    if (savedOrder) {
-      try {
-        parsedOrder = JSON.parse(savedOrder);
-      } catch (e) {
-        console.error('Error loading column order', e);
-      }
-    }
-
-    // El orden base debe ser el guardado o el default
-    let baseOrder = parsedOrder.length > 0 ? parsedOrder : [...DEFAULT_COLUMN_ORDER];
-
-    // Asegurar que todas las columnas estándar estén presentes en baseOrder (por si acaso se eliminó alguna)
-    DEFAULT_COLUMN_ORDER.forEach(col => {
-      if (!baseOrder.includes(col)) {
-        // Insertar en su lugar correspondiente si es posible, o al inicio
-        baseOrder.push(col);
-      }
-    });
-
-    // Asegurar que todas las customColumns cargadas estén en baseOrder si no lo están
-    loadedCustoms.forEach(c => {
-      if (!baseOrder.includes(c)) {
-        baseOrder.push(c);
-      }
-    });
-
-    // Filtrar cualquier columna personalizada que ya no esté activa
-    baseOrder = baseOrder.filter(c => DEFAULT_COLUMN_ORDER.includes(c) || loadedCustoms.includes(c));
-
-    setColumnOrder(baseOrder);
   }, []);
 
   // Auto-descubrimiento y sincronización de columnas desde la base de datos
   useEffect(() => {
-    if (incidents && incidents.length > 0) {
+    if (incidents && incidents.length > 0 && isMounted) {
       const dbKeys = new Set<string>();
       incidents.forEach(inc => {
         if (inc.customFields) {
@@ -269,6 +294,13 @@ export default function IncidentsPage() {
         setCustomColumns(updated);
         localStorage.setItem('custom_cols_incidents', JSON.stringify(updated));
 
+        // Sincronizar en PostgreSQL
+        fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'incidents_custom_columns', value: updated })
+        }).catch(err => console.error(err));
+
         // Sincronizar el columnOrder para agregar las nuevas columnas descubiertas
         setColumnOrder(prevOrder => {
           const newOrder = [...prevOrder];
@@ -278,20 +310,36 @@ export default function IncidentsPage() {
             }
           });
           localStorage.setItem('incidents_column_order', JSON.stringify(newOrder));
+
+          fetch('/api/config', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ key: 'incidents_column_order', value: newOrder })
+          }).catch(err => console.error(err));
+
           return newOrder;
         });
       }
     }
-  }, [incidents, customColumns]);
+  }, [incidents, customColumns, isMounted]);
 
-  // Guardar columnas dinámicas en localStorage
-  const saveCustomColumns = (cols: string[]) => {
+  // Guardar columnas dinámicas
+  const saveCustomColumns = async (cols: string[]) => {
     setCustomColumns(cols);
     localStorage.setItem('custom_cols_incidents', JSON.stringify(cols));
+    try {
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'incidents_custom_columns', value: cols })
+      });
+    } catch (e) {
+      console.error('Error saving columns to DB:', e);
+    }
   };
 
   // Mover columna (arriba/abajo o izquierda/derecha)
-  const handleMoveColumn = (idx: number, direction: 'up' | 'down') => {
+  const handleMoveColumn = async (idx: number, direction: 'up' | 'down') => {
     const nextIdx = direction === 'up' ? idx - 1 : idx + 1;
     if (nextIdx < 0 || nextIdx >= columnOrder.length) return;
 
@@ -302,10 +350,20 @@ export default function IncidentsPage() {
 
     setColumnOrder(updated);
     localStorage.setItem('incidents_column_order', JSON.stringify(updated));
+
+    try {
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'incidents_column_order', value: updated })
+      });
+    } catch (e) {
+      console.error('Error saving column order to DB:', e);
+    }
   };
 
   // Agregar nueva columna dinámica
-  const handleAddColumn = (e: React.FormEvent) => {
+  const handleAddColumn = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName = newColName.trim();
     if (!cleanName) return;
@@ -315,24 +373,44 @@ export default function IncidentsPage() {
     }
 
     const updatedCols = [...customColumns, cleanName];
-    saveCustomColumns(updatedCols);
+    await saveCustomColumns(updatedCols);
 
     const updatedOrder = [...columnOrder, cleanName];
     setColumnOrder(updatedOrder);
     localStorage.setItem('incidents_column_order', JSON.stringify(updatedOrder));
 
+    try {
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'incidents_column_order', value: updatedOrder })
+      });
+    } catch (e) {
+      console.error('Error saving column order to DB:', e);
+    }
+
     setNewColName('');
   };
 
   // Eliminar columna dinámica
-  const handleDeleteColumn = (colName: string) => {
+  const handleDeleteColumn = async (colName: string) => {
     if (confirm(`¿Está seguro de eliminar la columna "${colName}"? Se borrarán sus datos asociados.`)) {
       const updatedCols = customColumns.filter(c => c !== colName);
-      saveCustomColumns(updatedCols);
+      await saveCustomColumns(updatedCols);
 
       const updatedOrder = columnOrder.filter(c => c !== colName);
       setColumnOrder(updatedOrder);
       localStorage.setItem('incidents_column_order', JSON.stringify(updatedOrder));
+
+      try {
+        await fetch('/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ key: 'incidents_column_order', value: updatedOrder })
+        });
+      } catch (e) {
+        console.error('Error saving column order to DB:', e);
+      }
       
       // Limpiar los datos de los incidentes asociados a esa columna
       incidents.forEach(inc => {
@@ -351,7 +429,7 @@ export default function IncidentsPage() {
   };
 
   // Renombrar columna dinámica (CRUD)
-  const handleRenameColumnDirect = (oldName: string, newName: string) => {
+  const handleRenameColumnDirect = async (oldName: string, newName: string) => {
     if (!newName || !newName.trim() || newName.trim() === oldName) return;
     const cleanName = newName.trim();
     if ((customColumns.includes(cleanName) || DEFAULT_COLUMN_ORDER.includes(cleanName)) && cleanName !== oldName) {
@@ -361,12 +439,22 @@ export default function IncidentsPage() {
     
     // 1. Renombrar en el array customColumns
     const updatedCols = customColumns.map(c => c === oldName ? cleanName : c);
-    saveCustomColumns(updatedCols);
+    await saveCustomColumns(updatedCols);
 
     // 2. Renombrar en el columnOrder
     const updatedOrder = columnOrder.map(c => c === oldName ? cleanName : c);
     setColumnOrder(updatedOrder);
     localStorage.setItem('incidents_column_order', JSON.stringify(updatedOrder));
+
+    try {
+      await fetch('/api/config', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: 'incidents_column_order', value: updatedOrder })
+      });
+    } catch (e) {
+      console.error('Error saving column order to DB:', e);
+    }
     
     // 3. Renombrar la llave en el JSON customFields de cada incidente
     incidents.forEach(inc => {
@@ -554,6 +642,17 @@ export default function IncidentsPage() {
       alert("Error al exportar a Excel. Por favor intente nuevamente.");
     }
   };
+
+  if (!isMounted) {
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: 'var(--bg-primary)' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+          <Loader2 className="animate-spin" size={36} color="#004B87" />
+          <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', fontWeight: 600 }}>Cargando Registro de Incidentes...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '24px', overflow: 'hidden' }}>
@@ -1076,7 +1175,7 @@ export default function IncidentsPage() {
                     );
                   } else {
                     return (
-                      <th key={colKey} style={{ minWidth: '150px', position: 'relative' }} className="custom-th">
+                      <th key={colKey} style={{ minWidth: '150px', position: 'sticky', top: 0, zIndex: 10 }} className="custom-th">
                         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
                           <span 
                             style={{ cursor: 'pointer' }} 
@@ -1143,7 +1242,7 @@ export default function IncidentsPage() {
                   return (
                     <tr 
                       key={inc.id} 
-                      className="incident-row"
+                      className={`incident-row ${selectedIncidentId === inc.id && isDrawerOpen ? 'active' : ''}`}
                       onDoubleClick={() => {
                         setSelectedIncidentId(inc.id);
                         setIsDrawerOpen(true);
@@ -1988,12 +2087,17 @@ export default function IncidentsPage() {
 
         .incident-row {
           border-bottom: 1px solid var(--border-subtle);
-          transition: background-color var(--transition-fast);
+          transition: all var(--transition-fast);
           cursor: pointer;
         }
 
         .incident-row:hover {
           background-color: #F8FAFC !important;
+        }
+
+        .incident-row.active {
+          background-color: rgba(0, 75, 135, 0.05) !important;
+          border-left: 4px solid var(--accent-primary);
         }
 
         .incident-row td {
@@ -2014,6 +2118,11 @@ export default function IncidentsPage() {
           font-family: inherit;
           font-weight: inherit;
           transition: all 0.15s ease;
+        }
+
+        .table-cell-input:hover {
+          border: 1px dashed rgba(0, 75, 135, 0.3);
+          background: rgba(0, 75, 135, 0.02);
         }
 
         .table-cell-input:focus {
@@ -2038,10 +2147,20 @@ export default function IncidentsPage() {
           -webkit-appearance: none;
         }
 
+        .table-cell-select:hover {
+          border: 1px dashed rgba(0, 75, 135, 0.3);
+          background: rgba(0, 75, 135, 0.02);
+        }
+
         .table-cell-select:focus {
           border: 1px solid var(--accent-primary);
           background: var(--bg-secondary);
           box-shadow: 0 0 0 2px rgba(0, 121, 193, 0.1);
+        }
+
+        .table-cell-select-badge {
+          text-align: center;
+          text-align-last: center;
         }
 
         .table-cell-textarea {
@@ -2057,6 +2176,11 @@ export default function IncidentsPage() {
           resize: vertical;
           line-height: 1.4;
           transition: all 0.15s ease;
+        }
+
+        .table-cell-textarea:hover {
+          border: 1px dashed rgba(0, 75, 135, 0.3);
+          background: rgba(0, 75, 135, 0.02);
         }
 
         .table-cell-textarea:focus {
