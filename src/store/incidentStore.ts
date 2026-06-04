@@ -38,7 +38,7 @@ export const useIncidentStore = create<IncidentState>()((set) => ({
   fetchIncidents: async () => {
     set({ isLoading: true, error: null });
     try {
-      const response = await fetch('/api/incidents');
+      const response = await fetch('/api/incidents', { cache: 'no-store' });
       if (!response.ok) throw new Error('Failed to fetch incidents');
       const data = await response.json();
       set({ incidents: data, isLoading: false });
@@ -62,7 +62,7 @@ export const useIncidentStore = create<IncidentState>()((set) => ({
       console.error(err);
       set({ error: err.message });
       // Revertir recargando del servidor
-      const response = await fetch('/api/incidents');
+      const response = await fetch('/api/incidents', { cache: 'no-store' });
       if (response.ok) {
         const data = await response.json();
         set({ incidents: data });
@@ -86,7 +86,7 @@ export const useIncidentStore = create<IncidentState>()((set) => ({
       console.error(err);
       set({ error: err.message });
       // Revertir recargando del servidor
-      const response = await fetch('/api/incidents');
+      const response = await fetch('/api/incidents', { cache: 'no-store' });
       if (response.ok) {
         const data = await response.json();
         set({ incidents: data });
@@ -108,7 +108,7 @@ export const useIncidentStore = create<IncidentState>()((set) => ({
       console.error(err);
       set({ error: err.message });
       // Revertir recargando del servidor
-      const response = await fetch('/api/incidents');
+      const response = await fetch('/api/incidents', { cache: 'no-store' });
       if (response.ok) {
         const data = await response.json();
         set({ incidents: data });

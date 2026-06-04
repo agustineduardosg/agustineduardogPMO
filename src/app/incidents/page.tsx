@@ -201,7 +201,7 @@ export default function IncidentsPage() {
       let parsedOrder: string[] = [];
 
       try {
-        const response = await fetch('/api/config');
+        const response = await fetch('/api/config', { cache: 'no-store' });
         if (response.ok) {
           const configMap = await response.json();
           if (configMap.incidents_custom_columns) {
