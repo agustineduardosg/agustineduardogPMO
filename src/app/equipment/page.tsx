@@ -2153,6 +2153,43 @@ export default function EquipmentTrackerPage() {
                     </div>
                   )}
 
+                  {/* Avance de analitos de esta sede (Transmisión LIS) */}
+                  {(() => {
+                    const allRecAnalytes = scopeFilteredAnalytes.filter(a => a.recintoId === recinto.id);
+                    const total = allRecAnalytes.length;
+                    if (total === 0) return null;
+                    
+                    const recNoAplica = allRecAnalytes.filter(a => normalizeAnalyteState(a.state) === 'no aplica').length;
+                    const recApplicable = total - recNoAplica;
+                    const activeCount = allRecAnalytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo').length;
+                    
+                    const hasApplicable = recApplicable > 0;
+                    const pct = hasApplicable ? (activeCount / recApplicable) * 100 : 0;
+                    const pctFormatted = hasApplicable ? `${pct.toFixed(1)}%` : 'N/A';
+                    
+                    return (
+                      <div 
+                        style={{ 
+                          display: 'flex', 
+                          alignItems: 'center', 
+                          gap: '10px', 
+                          background: 'rgba(255,255,255,0.12)', 
+                          padding: '6px 14px', 
+                          borderRadius: '20px', 
+                          fontSize: '0.78rem',
+                          border: '1px solid rgba(255,255,255,0.15)'
+                        }}
+                        title="Transmisión de Analitos LIS de este Recinto (excluye 'no aplica')"
+                      >
+                        <span style={{ fontWeight: 800 }}>Transmisión LIS: {pctFormatted}</span>
+                        <div style={{ width: '80px', height: '6px', background: 'rgba(255,255,255,0.2)', borderRadius: '3px', overflow: 'hidden' }}>
+                          <div style={{ width: `${hasApplicable ? pct : 0}%`, height: '100%', background: hasApplicable ? '#10b981' : '#6b7280', borderRadius: '3px' }} />
+                        </div>
+                        <span style={{ opacity: 0.85, fontSize: '0.72rem' }}>({activeCount} de {recApplicable})</span>
+                      </div>
+                    );
+                  })()}
+
                   <button 
                     className="btn btn-secondary" 
                     onClick={() => handleAddEquipment(recinto.id)}
