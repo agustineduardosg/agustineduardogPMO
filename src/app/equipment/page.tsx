@@ -1039,11 +1039,13 @@ export default function EquipmentTrackerPage() {
         (filterProject === 'none' && !eq.projectId) || 
         eq.projectId === filterProject;
 
-      let matchScope = true;
+            let matchScope = true;
       if (scopeFilter === 'OUT_OF_SCOPE') {
         matchScope = eq.scopeStatus === 'OUT_OF_SCOPE';
       } else if (scopeFilter !== 'all') {
         matchScope = eq.releasePhaseId === scopeFilter && eq.scopeStatus !== 'OUT_OF_SCOPE';
+      } else {
+        matchScope = eq.scopeStatus !== 'OUT_OF_SCOPE';
       }
 
       return matchSearch && matchProject && matchScope;
