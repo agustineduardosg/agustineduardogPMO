@@ -1,12 +1,33 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import bcrypt from 'bcryptjs';
 
-// Datos iniciales de colaboradores
-const initialUsers = [
-  { id: 'usr-1', name: 'Agustín Eduardo', email: 'agustin@bupa.cl', role: 'Project Manager', maxTasksLimit: 5 },
-  { id: 'usr-2', name: 'Carolina Siemens', email: 'carolina.s@bupa.cl', role: 'Ingeniero Biomédico', maxTasksLimit: 5 },
-  { id: 'usr-3', name: 'Felipe Valenzuela', email: 'felipe.v@bupa.cl', role: 'Técnico de TI', maxTasksLimit: 8 },
-  { id: 'usr-4', name: 'Dra. Elena Rostova', email: 'elena.r@bupa.cl', role: 'Físico Médico', maxTasksLimit: 4 }
+// Datos iniciales de colaboradores con contraseñas encriptadas
+const getInitialUsers = () => [
+  {
+    id: 'usr-admin',
+    name: 'Agustín Eduardo',
+    email: 'agustin@bupa.cl',
+    passwordHash: bcrypt.hashSync('admin123', 10),
+    role: 'ADMIN',
+    maxTasksLimit: 5
+  },
+  {
+    id: 'usr-pm',
+    name: 'PM Bupa',
+    email: 'pm@bupa.cl',
+    passwordHash: bcrypt.hashSync('pm123', 10),
+    role: 'Project Manager',
+    maxTasksLimit: 5
+  },
+  {
+    id: 'usr-viewer',
+    name: 'Visualizador Bupa',
+    email: 'viewer@bupa.cl',
+    passwordHash: bcrypt.hashSync('viewer123', 10),
+    role: 'VIEWER',
+    maxTasksLimit: 5
+  }
 ];
 
 export async function GET() {
@@ -15,14 +36,17 @@ export async function GET() {
     if (count === 0) {
       // Auto-sembrado inicial
       await prisma.masterUser.createMany({
-        data: initialUsers
+        data: getInitialUsers()
       });
     }
 
     const users = await prisma.masterUser.findMany({
       orderBy: { createdAt: 'asc' }
     });
-    return NextResponse.json(users);
+    
+    // Omitir passwordHash por seguridad
+    const safeUsers = users.map(({ passwordHash, ...user }) => user);
+    return NextResponse.json(safeUsers);
   } catch (error: any) {
     console.error('Error fetching users:', error);
     return NextResponse.json({ error: error.message || 'Error fetching users' }, { status: 500 });
@@ -32,16 +56,29 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const data = await req.json();
+    
+    // Evitar emails duplicados
+    const existing = await prisma.masterUser.findUnique({
+      where: { email: data.email.toLowerCase().trim() }
+    });
+    if (existing) {
+      return NextResponse.json({ error: 'El email ingresado ya está registrado por otro colaborador.' }, { status: 400 });
+    }
+
+    const passwordHash = data.password ? bcrypt.hashSync(data.password, 10) : null;
     const newUser = await prisma.masterUser.create({
       data: {
         id: data.id,
         name: data.name,
-        email: data.email,
+        email: data.email.toLowerCase().trim(),
+        passwordHash,
         role: data.role,
-        maxTasksLimit: data.maxTasksLimit
+        maxTasksLimit: Number(data.maxTasksLimit)
       }
     });
-    return NextResponse.json(newUser, { status: 201 });
+
+    const { passwordHash: _, ...safeUser } = newUser as any;
+    return NextResponse.json(safeUser, { status: 201 });
   } catch (error: any) {
     console.error('Error creating user:', error);
     return NextResponse.json({ error: error.message || 'Error creating user' }, { status: 500 });

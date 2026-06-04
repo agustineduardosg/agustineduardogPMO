@@ -8,7 +8,7 @@ import { useMasterEquipmentStore, MasterEquipment } from '@/store/masterEquipmen
 import { 
   Plus, Trash2, UserPlus, Building, Users, X, Settings, 
   ShieldAlert, AlertTriangle, Edit2, Search, SlidersHorizontal, Stethoscope, 
-  HelpCircle, HeartPulse, Check 
+  HelpCircle, HeartPulse, Check, Folder, Layers, Loader2
 } from 'lucide-react';
 
 export default function MastersPage() {
@@ -19,30 +19,47 @@ export default function MastersPage() {
   const updateRecinto = useEquipmentStore(state => state.updateRecinto);
   const deleteRecinto = useEquipmentStore(state => state.deleteRecinto);
   const fetchEquipmentData = useEquipmentStore(state => state.fetchEquipmentData);
+  const isRecintosLoading = useEquipmentStore(state => state.isLoading);
 
   const users = useUserStore(state => state.users);
   const addUser = useUserStore(state => state.addUser);
   const updateUser = useUserStore(state => state.updateUser);
   const deleteUser = useUserStore(state => state.deleteUser);
   const fetchUsers = useUserStore(state => state.fetchUsers);
+  const isUsersLoading = useUserStore(state => state.isLoading);
 
   const projects = useProjectStore(state => state.projects);
   const fetchProjects = useProjectStore(state => state.fetchProjects);
+  const parentProjects = useProjectStore(state => state.parentProjects);
+  const fetchParentProjects = useProjectStore(state => state.fetchParentProjects);
+  const addParentProject = useProjectStore(state => state.addParentProject);
+  const updateParentProject = useProjectStore(state => state.updateParentProject);
+  const deleteParentProject = useProjectStore(state => state.deleteParentProject);
+  const isProjectsLoading = useProjectStore(state => state.isLoading);
 
   const masterEquipments = useMasterEquipmentStore(state => state.masterEquipments);
   const fetchMasterEquipments = useMasterEquipmentStore(state => state.fetchMasterEquipments);
   const addMasterEquipment = useMasterEquipmentStore(state => state.addMasterEquipment);
   const updateMasterEquipment = useMasterEquipmentStore(state => state.updateMasterEquipment);
   const deleteMasterEquipment = useMasterEquipmentStore(state => state.deleteMasterEquipment);
+  const isMasterEqLoading = useMasterEquipmentStore(state => state.isLoading);
+
+  const releasePhases = useEquipmentStore(state => state.releasePhases);
+  const fetchReleasePhases = useEquipmentStore(state => state.fetchReleasePhases);
+  const createReleasePhase = useEquipmentStore(state => state.createReleasePhase);
+  const updateReleasePhase = useEquipmentStore(state => state.updateReleasePhase);
+  const deleteReleasePhase = useEquipmentStore(state => state.deleteReleasePhase);
 
   useEffect(() => {
     fetchEquipmentData();
     fetchUsers();
     fetchProjects();
     fetchMasterEquipments();
+    fetchParentProjects();
+    fetchReleasePhases();
   }, []);
 
-  const [activeTab, setActiveTab] = useState<'recintos' | 'colaboradores' | 'equipos'>('recintos');
+  const [activeTab, setActiveTab] = useState<'recintos' | 'colaboradores' | 'equipos' | 'programas' | 'olas'>('recintos');
   const [isSyncing, setIsSyncing] = useState(false);
 
   const handleSyncFromInventory = async () => {
@@ -69,6 +86,8 @@ export default function MastersPage() {
   const [userSearch, setUserSearch] = useState('');
   const [equipmentSearch, setEquipmentSearch] = useState('');
   const [equipmentFilterSection, setEquipmentFilterSection] = useState('all');
+  const [ppSearch, setPpSearch] = useState('');
+  const [rpSearch, setRpSearch] = useState('');
 
   // Form states de creación / edición
   const [showRecintoModal, setShowRecintoModal] = useState(false);
@@ -82,11 +101,13 @@ export default function MastersPage() {
     email: string;
     role: string;
     maxTasksLimit: number;
+    password?: string;
   }>({
     name: '',
     email: '',
     role: 'Project Manager',
-    maxTasksLimit: 5
+    maxTasksLimit: 5,
+    password: ''
   });
 
   const [showEqModal, setShowEqModal] = useState(false);
@@ -96,6 +117,14 @@ export default function MastersPage() {
     section: 'General',
     category: 'Clínico'
   });
+
+  const [showPpModal, setShowPpModal] = useState(false);
+  const [editingPp, setEditingPp] = useState<any | null>(null);
+  const [ppForm, setPpForm] = useState({ name: '', description: '' });
+
+  const [showRpModal, setShowRpModal] = useState(false);
+  const [editingRp, setEditingRp] = useState<any | null>(null);
+  const [rpForm, setRpForm] = useState({ name: '', description: '', isActive: true });
 
   // Filtros aplicados a los Recintos
   const filteredRecintos = useMemo(() => {
@@ -113,6 +142,22 @@ export default function MastersPage() {
       u.role.toLowerCase().includes(userSearch.toLowerCase())
     );
   }, [users, userSearch]);
+
+  // Filtros aplicados a los Proyectos Padres
+  const filteredParentProjects = useMemo(() => {
+    return parentProjects.filter(pp => 
+      pp.name.toLowerCase().includes(ppSearch.toLowerCase()) || 
+      (pp.description && pp.description.toLowerCase().includes(ppSearch.toLowerCase()))
+    );
+  }, [parentProjects, ppSearch]);
+
+  // Filtros aplicados a las Fases de Liberación
+  const filteredReleasePhases = useMemo(() => {
+    return releasePhases.filter(rp => 
+      rp.name.toLowerCase().includes(rpSearch.toLowerCase()) || 
+      (rp.description && rp.description.toLowerCase().includes(rpSearch.toLowerCase()))
+    );
+  }, [releasePhases, rpSearch]);
 
   // Filtros aplicados a los Equipos del Catálogo
   const filteredMasterEquipments = useMemo(() => {
@@ -244,7 +289,8 @@ export default function MastersPage() {
         name: user.name,
         email: user.email,
         role: user.role,
-        maxTasksLimit: user.maxTasksLimit
+        maxTasksLimit: user.maxTasksLimit,
+        password: '' // En blanco para mantener contraseña
       });
     } else {
       setEditingUser(null);
@@ -252,7 +298,8 @@ export default function MastersPage() {
         name: '',
         email: '',
         role: 'Project Manager',
-        maxTasksLimit: 5
+        maxTasksLimit: 5,
+        password: ''
       });
     }
     setShowUserModal(true);
@@ -260,15 +307,24 @@ export default function MastersPage() {
 
   const handleSaveUser = async () => {
     if (!userForm.name.trim() || !userForm.email.trim()) return;
-    
+    if (!editingUser && !userForm.password?.trim()) {
+      alert('La contraseña es obligatoria para nuevos colaboradores.');
+      return;
+    }
+
+    const payload = {
+      ...userForm,
+      password: userForm.password?.trim() ? userForm.password : undefined
+    };
+
     if (editingUser) {
       // Editar
-      await updateUser(editingUser.id, userForm);
+      await updateUser(editingUser.id, payload);
     } else {
       // Agregar
       const newUser: MasterUser = {
         id: `usr-${Date.now()}`,
-        ...userForm
+        ...payload
       };
       await addUser(newUser);
     }
@@ -278,9 +334,62 @@ export default function MastersPage() {
       name: '',
       email: '',
       role: 'Project Manager',
-      maxTasksLimit: 5
+      maxTasksLimit: 5,
+      password: ''
     });
     setEditingUser(null);
+  };
+
+  // Manejo de Programas (Proyectos Padres)
+  const handleOpenPpModal = (pp?: any) => {
+    if (pp) {
+      setEditingPp(pp);
+      setPpForm({ name: pp.name, description: pp.description || '' });
+    } else {
+      setEditingPp(null);
+      setPpForm({ name: '', description: '' });
+    }
+    setShowPpModal(true);
+  };
+
+  const handleSavePp = async () => {
+    if (!ppForm.name.trim()) return;
+    if (editingPp) {
+      await updateParentProject(editingPp.id, ppForm.name, ppForm.description);
+    } else {
+      await addParentProject(ppForm.name, ppForm.description);
+    }
+    setShowPpModal(false);
+    setPpForm({ name: '', description: '' });
+    setEditingPp(null);
+  };
+
+  // Manejo de Olas (Fases de Liberación)
+  const handleOpenRpModal = (rp?: any) => {
+    if (rp) {
+      setEditingRp(rp);
+      setRpForm({ name: rp.name, description: rp.description || '', isActive: rp.isActive });
+    } else {
+      setEditingRp(null);
+      setRpForm({ name: '', description: '', isActive: true });
+    }
+    setShowRpModal(true);
+  };
+
+  const handleSaveRp = async () => {
+    if (!rpForm.name.trim()) return;
+    if (editingRp) {
+      await updateReleasePhase(editingRp.id, rpForm.name, rpForm.description, rpForm.isActive);
+    } else {
+      const res = await createReleasePhase(rpForm.name, rpForm.description);
+      if (res && !res.success) {
+        alert(`Error: ${res.error}`);
+        return;
+      }
+    }
+    setShowRpModal(false);
+    setRpForm({ name: '', description: '', isActive: true });
+    setEditingRp(null);
   };
 
   // Manejo de Catálogo de Equipos - Crear / Editar
@@ -322,7 +431,7 @@ export default function MastersPage() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '24px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '24px', overflow: 'hidden' }}>
       {/* Header */}
       <div>
         <h1 style={{ fontSize: '2rem', margin: 0, display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -332,7 +441,7 @@ export default function MastersPage() {
       </div>
 
       {/* Tabs Select */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border-light)', gap: '8px' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border-light)', gap: '8px', overflowX: 'auto', paddingBottom: '4px' }}>
         <button
           onClick={() => setActiveTab('recintos')}
           style={{
@@ -347,7 +456,8 @@ export default function MastersPage() {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            transition: 'all 0.15s ease'
+            transition: 'all 0.15s ease',
+            whiteSpace: 'nowrap'
           }}
         >
           <Building size={16} /> Sedes Clínicas Bupa
@@ -367,7 +477,8 @@ export default function MastersPage() {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            transition: 'all 0.15s ease'
+            transition: 'all 0.15s ease',
+            whiteSpace: 'nowrap'
           }}
         >
           <Stethoscope size={16} /> Catálogo de Equipamiento Médico
@@ -387,15 +498,58 @@ export default function MastersPage() {
             display: 'flex',
             alignItems: 'center',
             gap: '8px',
-            transition: 'all 0.15s ease'
+            transition: 'all 0.15s ease',
+            whiteSpace: 'nowrap'
           }}
         >
           <Users size={16} /> Capacidad de Colaboradores
         </button>
+
+        <button
+          onClick={() => setActiveTab('programas')}
+          style={{
+            padding: '12px 20px',
+            background: 'none',
+            border: 'none',
+            borderBottom: activeTab === 'programas' ? '3px solid var(--accent-primary)' : '3px solid transparent',
+            color: activeTab === 'programas' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+            fontWeight: 700,
+            fontSize: '0.95rem',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            transition: 'all 0.15s ease',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          <Folder size={16} /> Programas (Proyectos Padres)
+        </button>
+
+        <button
+          onClick={() => setActiveTab('olas')}
+          style={{
+            padding: '12px 20px',
+            background: 'none',
+            border: 'none',
+            borderBottom: activeTab === 'olas' ? '3px solid var(--accent-primary)' : '3px solid transparent',
+            color: activeTab === 'olas' ? 'var(--accent-primary)' : 'var(--text-secondary)',
+            fontWeight: 700,
+            fontSize: '0.95rem',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            transition: 'all 0.15s ease',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          <Layers size={16} /> Olas (Fases de Liberación)
+        </button>
       </div>
 
       {/* Content Area */}
-      <div className="glass-panel" style={{ padding: '24px', flex: 1 }}>
+      <div style={{ padding: '24px', flex: 1, overflowY: 'auto', minHeight: 0, background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', boxShadow: 'var(--panel-shadow)', display: 'flex', flexDirection: 'column' }}>
         
         {/* TAB 1: RECINTOS (SEDES CLINICAS) */}
         {activeTab === 'recintos' && (
@@ -434,7 +588,16 @@ export default function MastersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRecintos.length === 0 ? (
+                  {isRecintosLoading ? (
+                    <tr>
+                      <td colSpan={4} style={{ padding: '36px', textAlign: 'center', color: 'var(--accent-primary)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                          <Loader2 className="animate-spin" size={24} />
+                          <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Cargando sedes clínicas...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredRecintos.length === 0 ? (
                     <tr>
                       <td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
                         No se encontraron sedes que coincidan con la búsqueda.
@@ -548,7 +711,16 @@ export default function MastersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredMasterEquipments.length === 0 ? (
+                  {isMasterEqLoading ? (
+                    <tr>
+                      <td colSpan={5} style={{ padding: '36px', textAlign: 'center', color: 'var(--accent-primary)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                          <Loader2 className="animate-spin" size={24} />
+                          <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Cargando catálogo maestro...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredMasterEquipments.length === 0 ? (
                     <tr>
                       <td colSpan={5} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
                         No se encontraron equipos biomédicos en el catálogo maestro.
@@ -642,7 +814,16 @@ export default function MastersPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredUsers.length === 0 ? (
+                  {isUsersLoading ? (
+                    <tr>
+                      <td colSpan={6} style={{ padding: '36px', textAlign: 'center', color: 'var(--accent-primary)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                          <Loader2 className="animate-spin" size={24} />
+                          <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Cargando nómina de colaboradores...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredUsers.length === 0 ? (
                     <tr>
                       <td colSpan={6} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
                         No se encontraron colaboradores en la nómina.
@@ -766,6 +947,191 @@ export default function MastersPage() {
             </div>
           </div>
         )}
+
+        {/* TAB 4: PROGRAMAS (PROYECTOS PADRES) */}
+        {activeTab === 'programas' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h2 style={{ fontSize: '1.2rem', margin: 0 }}>Programas / Proyectos Padres</h2>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '4px 0 0' }}>Agrupadores lógicos de proyectos del portafolio PMO</p>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <Search size={14} style={{ position: 'absolute', left: '10px', color: 'var(--text-muted)' }} />
+                  <input 
+                    type="text" 
+                    placeholder="Buscar programa..."
+                    value={ppSearch}
+                    onChange={e => setPpSearch(e.target.value)}
+                    style={{ padding: '8px 12px 8px 30px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.82rem', color: 'var(--text-primary)', outline: 'none', width: '200px' }}
+                  />
+                </div>
+                <button className="btn btn-primary" onClick={() => handleOpenPpModal()} style={{ gap: '8px', padding: '8px 16px' }}>
+                  <Plus size={16} /> Crear Programa
+                </button>
+              </div>
+            </div>
+
+            {/* List */}
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-secondary)', borderBottom: '2px solid var(--border-light)' }}>
+                    <th style={{ padding: '12px 16px' }}>Nombre del Programa / Portafolio</th>
+                    <th style={{ padding: '12px 16px' }}>Descripción</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'center' }}>Proyectos Vinculados</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'center', width: '120px' }}>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {isProjectsLoading ? (
+                    <tr>
+                      <td colSpan={4} style={{ padding: '36px', textAlign: 'center', color: 'var(--accent-primary)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                          <Loader2 className="animate-spin" size={24} />
+                          <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Cargando programas de proyectos...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredParentProjects.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        No se encontraron programas de proyectos.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredParentProjects.map(pp => (
+                      <tr key={pp.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                        <td style={{ padding: '12px 16px', fontWeight: 'bold', color: 'var(--accent-primary)' }}>{pp.name}</td>
+                        <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>{pp.description || 'Sin descripción'}</td>
+                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                          <span style={{ fontSize: '0.75rem', fontWeight: 700, padding: '3px 8px', borderRadius: '12px', background: 'rgba(0,121,193,0.1)', color: 'var(--accent-primary)' }}>
+                            {pp.projects?.length || 0} proyecto(s)
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+                            <button 
+                              onClick={() => handleOpenPpModal(pp)} 
+                              style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', cursor: 'pointer' }}
+                              title="Editar Programa"
+                            >
+                              <Edit2 size={15} />
+                            </button>
+                            <button 
+                              onClick={() => { if(confirm('¿Eliminar este programa? Los proyectos asociados no se borrarán, pero perderán su agrupación.')) deleteParentProject(pp.id); }} 
+                              style={{ background: 'none', border: 'none', color: 'var(--accent-danger)', cursor: 'pointer' }}
+                              title="Eliminar Programa"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 5: OLAS (FASES DE LIBERACION) */}
+        {activeTab === 'olas' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+              <div>
+                <h2 style={{ fontSize: '1.2rem', margin: 0 }}>Olas / Fases de Liberación (Go-Live)</h2>
+                <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', margin: '4px 0 0' }}>Planificación de olas incrementales de puesta en marcha para equipamiento clínico</p>
+              </div>
+              <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                  <Search size={14} style={{ position: 'absolute', left: '10px', color: 'var(--text-muted)' }} />
+                  <input 
+                    type="text" 
+                    placeholder="Buscar ola..."
+                    value={rpSearch}
+                    onChange={e => setRpSearch(e.target.value)}
+                    style={{ padding: '8px 12px 8px 30px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.82rem', color: 'var(--text-primary)', outline: 'none', width: '200px' }}
+                  />
+                </div>
+                <button className="btn btn-primary" onClick={() => handleOpenRpModal()} style={{ gap: '8px', padding: '8px 16px' }}>
+                  <Plus size={16} /> Crear Ola
+                </button>
+              </div>
+            </div>
+
+            {/* List */}
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', textAlign: 'left' }}>
+                <thead>
+                  <tr style={{ background: 'var(--bg-secondary)', borderBottom: '2px solid var(--border-light)' }}>
+                    <th style={{ padding: '12px 16px' }}>Nombre de la Ola / Fase</th>
+                    <th style={{ padding: '12px 16px' }}>Descripción / Comentarios</th>
+                    <th style={{ padding: '12px 16px' }}>Estado</th>
+                    <th style={{ padding: '12px 16px', textAlign: 'center', width: '120px' }}>Acciones</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {isRecintosLoading ? (
+                    <tr>
+                      <td colSpan={4} style={{ padding: '36px', textAlign: 'center', color: 'var(--accent-primary)' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                          <Loader2 className="animate-spin" size={24} />
+                          <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Cargando olas de liberación...</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : filteredReleasePhases.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        No se encontraron olas de liberación.
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredReleasePhases.map(rp => (
+                      <tr key={rp.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                        <td style={{ padding: '12px 16px', fontWeight: 'bold', color: 'var(--accent-primary)' }}>{rp.name}</td>
+                        <td style={{ padding: '12px 16px', color: 'var(--text-secondary)' }}>{rp.description || 'Sin descripción'}</td>
+                        <td style={{ padding: '12px 16px' }}>
+                          <span style={{ 
+                            fontSize: '0.75rem', 
+                            fontWeight: 700, 
+                            padding: '3px 8px', 
+                            borderRadius: '12px', 
+                            background: rp.isActive ? 'rgba(16,185,129,0.1)' : 'rgba(107,114,128,0.1)', 
+                            color: rp.isActive ? '#10b981' : '#6b7280' 
+                          }}>
+                            {rp.isActive ? 'Activa' : 'Inactiva'}
+                          </span>
+                        </td>
+                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+                            <button 
+                              onClick={() => handleOpenRpModal(rp)} 
+                              style={{ background: 'none', border: 'none', color: 'var(--accent-primary)', cursor: 'pointer' }}
+                              title="Editar Ola"
+                            >
+                              <Edit2 size={15} />
+                            </button>
+                            <button 
+                              onClick={() => { if(confirm('¿Eliminar esta ola de liberación? Equipos y analitos asociados perderán su ola pero no se eliminarán.')) deleteReleasePhase(rp.id); }} 
+                              style={{ background: 'none', border: 'none', color: 'var(--accent-danger)', cursor: 'pointer' }}
+                              title="Eliminar Ola"
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* MODAL: REGISTRAR / EDITAR RECINTO */}
@@ -819,7 +1185,17 @@ export default function MastersPage() {
                   style={{ width: '100%', padding: '10px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }} />
               </div>
               <div>
-                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Rol Especialista</label>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Contraseña {editingUser ? '(Opcional)' : '*'}</label>
+                <input 
+                  type="password" 
+                  value={userForm.password || ''} 
+                  onChange={e => setUserForm({...userForm, password: e.target.value})} 
+                  placeholder={editingUser ? 'Dejar en blanco para mantener contraseña' : 'Mínimo 6 caracteres'}
+                  style={{ width: '100%', padding: '10px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }} 
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Rol Especialista / Acceso</label>
                 <select 
                   value={userForm.role} 
                   onChange={e => {
@@ -834,18 +1210,22 @@ export default function MastersPage() {
                     }
                   }}
                   style={{ width: '100%', padding: '10px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}>
-                  <option value="Project Manager">Project Manager</option>
+                  <option value="ADMIN">Administrador (ADMIN)</option>
+                  <option value="Project Manager">Project Manager (PM)</option>
+                  <option value="VIEWER">Visualizador (VIEWER)</option>
                   <option value="Ingeniero Biomédico">Ingeniero Biomédico</option>
                   <option value="Físico Médico">Físico Médico</option>
                   <option value="Técnico de TI">Técnico de TI</option>
                   <option value="Mantenimiento Climatización">Mantenimiento Climatización</option>
                   {uniqueUserRoles.map(opt => (
-                    <option key={opt} value={opt}>{opt}</option>
+                    opt !== 'ADMIN' && opt !== 'Project Manager' && opt !== 'VIEWER' && opt !== 'Ingeniero Biomédico' && opt !== 'Físico Médico' && opt !== 'Técnico de TI' && opt !== 'Mantenimiento Climatización' && (
+                      <option key={opt} value={opt}>{opt}</option>
+                    )
                   ))}
-                  {!['Project Manager', 'Ingeniero Biomédico', 'Físico Médico', 'Técnico de TI', 'Mantenimiento Climatización'].includes(userForm.role) && !uniqueUserRoles.includes(userForm.role) && userForm.role && (
+                  {!['ADMIN', 'Project Manager', 'VIEWER', 'Ingeniero Biomédico', 'Físico Médico', 'Técnico de TI', 'Mantenimiento Climatización'].includes(userForm.role) && !uniqueUserRoles.includes(userForm.role) && userForm.role && (
                     <option value={userForm.role}>{userForm.role}</option>
                   )}
-                  <option value="__custom__">➕ Otro...</option>
+                  <option value="__custom__">➕ Otro rol personalizado...</option>
                 </select>
               </div>
               <div>
@@ -938,6 +1318,97 @@ export default function MastersPage() {
 
               <button className="btn btn-primary" onClick={handleSaveEq} style={{ marginTop: '10px', justifyContent: 'center' }}>
                 {editingEq ? 'Guardar Cambios' : 'Guardar en Catálogo'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: REGISTRAR / EDITAR PROGRAMA */}
+      {showPpModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(3px)' }}>
+          <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', width: '420px', padding: '24px', border: '1px solid var(--border-light)', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Folder size={18} />
+                {editingPp ? 'Editar Programa' : 'Crear Programa / Portafolio'}
+              </h3>
+              <button className="icon-btn" onClick={() => setShowPpModal(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={18} /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Nombre del Programa *</label>
+                <input 
+                  type="text" 
+                  value={ppForm.name} 
+                  onChange={e => setPpForm({...ppForm, name: e.target.value})} 
+                  placeholder="Ej: Portafolio Clínicas Bupa 2026"
+                  style={{ width: '100%', padding: '10px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }} 
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Descripción</label>
+                <textarea 
+                  value={ppForm.description} 
+                  onChange={e => setPpForm({...ppForm, description: e.target.value})} 
+                  placeholder="Descripción del agrupador..."
+                  rows={3}
+                  style={{ width: '100%', padding: '10px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} 
+                />
+              </div>
+              <button className="btn btn-primary" onClick={handleSavePp} style={{ marginTop: '10px', justifyContent: 'center' }}>
+                {editingPp ? 'Guardar Cambios' : 'Crear Programa'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: REGISTRAR / EDITAR OLA DE LIBERACION */}
+      {showRpModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(3px)' }}>
+          <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', width: '420px', padding: '24px', border: '1px solid var(--border-light)', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.2rem', fontWeight: 800, color: 'var(--accent-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Layers size={18} />
+                {editingRp ? 'Editar Ola de Liberación' : 'Crear Ola de Liberación (Wave)'}
+              </h3>
+              <button className="icon-btn" onClick={() => setShowRpModal(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={18} /></button>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Nombre de la Ola (ej: Ola 1 - Q1) *</label>
+                <input 
+                  type="text" 
+                  value={rpForm.name} 
+                  onChange={e => setRpForm({...rpForm, name: e.target.value})} 
+                  placeholder="Ej: Ola 1"
+                  style={{ width: '100%', padding: '10px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }} 
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '6px' }}>Descripción / Objetivos</label>
+                <textarea 
+                  value={rpForm.description} 
+                  onChange={e => setRpForm({...rpForm, description: e.target.value})} 
+                  placeholder="Descripción de la ola..."
+                  rows={3}
+                  style={{ width: '100%', padding: '10px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} 
+                />
+              </div>
+              {editingRp && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input 
+                    type="checkbox" 
+                    id="rp-active" 
+                    checked={rpForm.isActive} 
+                    onChange={e => setRpForm({...rpForm, isActive: e.target.checked})} 
+                  />
+                  <label htmlFor="rp-active" style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Fase de Liberación Activa</label>
+                </div>
+              )}
+              <button className="btn btn-primary" onClick={handleSaveRp} style={{ marginTop: '10px', justifyContent: 'center' }}>
+                {editingRp ? 'Guardar Cambios' : 'Crear Ola'}
               </button>
             </div>
           </div>

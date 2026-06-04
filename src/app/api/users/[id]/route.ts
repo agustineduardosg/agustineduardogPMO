@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import bcrypt from 'bcryptjs';
 
 export async function PUT(
   req: Request,
@@ -9,17 +10,24 @@ export async function PUT(
     const { id } = await params;
     const data = await req.json();
 
+    const updatePayload: any = {
+      name: data.name,
+      email: data.email?.toLowerCase().trim(),
+      role: data.role,
+      maxTasksLimit: Number(data.maxTasksLimit)
+    };
+
+    if (data.password && data.password.trim() !== '') {
+      updatePayload.passwordHash = bcrypt.hashSync(data.password, 10);
+    }
+
     const updatedUser = await prisma.masterUser.update({
       where: { id },
-      data: {
-        name: data.name,
-        email: data.email,
-        role: data.role,
-        maxTasksLimit: data.maxTasksLimit
-      }
+      data: updatePayload
     });
 
-    return NextResponse.json(updatedUser);
+    const { passwordHash: _, ...safeUser } = updatedUser as any;
+    return NextResponse.json(safeUser);
   } catch (error: any) {
     console.error('Error updating user:', error);
     return NextResponse.json({ error: error.message || 'Error updating user' }, { status: 500 });

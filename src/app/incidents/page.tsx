@@ -482,7 +482,7 @@ export default function IncidentsPage() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '24px' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '24px', overflow: 'hidden' }}>
       
       {/* 1. Header Banner - Bupa Corporate style */}
       <div 
@@ -958,8 +958,8 @@ export default function IncidentsPage() {
       </div>
 
       {/* 4. Tabla de Incidentes - Píxel perfect Excel de Bupa */}
-      <div className="table-container shadow-sm">
-        <div style={{ overflowX: 'auto', width: '100%', height: '100%' }}>
+      <div className="table-container shadow-sm" style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+        <div style={{ overflow: 'auto', width: '100%', height: '100%' }}>
           <table className="incidents-table">
             <thead>
               <tr>

@@ -106,6 +106,8 @@ interface EquipmentState {
 
   // Acciones de Alcance
   createReleasePhase: (name: string, description?: string) => Promise<{ success: boolean; error?: string }>;
+  updateReleasePhase: (id: string, name: string, description?: string, isActive?: boolean) => Promise<{ success: boolean; error?: string }>;
+  deleteReleasePhase: (id: string) => Promise<{ success: boolean; error?: string }>;
   changeScope: (params: { itemId: string; itemType: 'EQUIPMENT' | 'ANALYTE' | 'RECINTO' | 'INSTRUMENT'; newScope: string | null; newScopeStatus: string; reasonCode: string; justification: string; userEmail: string }) => Promise<{ success: boolean; error?: string }>;
 }
 
@@ -506,6 +508,42 @@ export const useEquipmentStore = create<EquipmentState>()((set, get) => ({
       }
       
       // Actualizar listado local
+      await get().fetchReleasePhases();
+      return { success: true };
+    } catch (err: any) {
+      console.error(err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  updateReleasePhase: async (id, name, description, isActive) => {
+    try {
+      const response = await fetch(`/api/release-phases/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description, isActive })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to update release phase');
+      }
+      await get().fetchReleasePhases();
+      return { success: true };
+    } catch (err: any) {
+      console.error(err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  deleteReleasePhase: async (id) => {
+    try {
+      const response = await fetch(`/api/release-phases/${id}`, {
+        method: 'DELETE'
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to delete release phase');
+      }
       await get().fetchReleasePhases();
       return { success: true };
     } catch (err: any) {

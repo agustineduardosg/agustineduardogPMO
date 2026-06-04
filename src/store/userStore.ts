@@ -6,6 +6,7 @@ export interface MasterUser {
   id: string;
   name: string;
   email: string;
+  password?: string;
   role: MasterUserRole;
   maxTasksLimit: number; // Límite de tareas activas recomendadas (Capacidad de trabajo)
 }
