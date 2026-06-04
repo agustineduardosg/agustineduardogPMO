@@ -2515,18 +2515,20 @@ export default function EquipmentTrackerPage() {
           
           {/* Analyte Tab Specific KPI Panel */}
           {(() => {
-            const applicableAllCount = scopeFilteredAnalytes.length;
-            const activeAllCount = scopeFilteredAnalytes.filter(a => {
-              const state = normalizeAnalyteState(a.state);
-              return state === 'transmitiendo' || state === 'no aplica';
-            }).length;
+            const totalUniverseCount = scopeFilteredAnalytes.length;
+            const noAplicaAllCount = scopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'no aplica').length;
+            const trueApplicableCount = totalUniverseCount - noAplicaAllCount;
+            
+            const activeAllCount = scopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo').length;
             const pausedAllCount = scopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'en pausa').length;
             const pendingAllCount = scopeFilteredAnalytes.filter(a => {
               const state = normalizeAnalyteState(a.state);
               return state === 'No iniciado' || !state;
             }).length;
-            const globalPct = applicableAllCount === 0 ? 0 : (activeAllCount / applicableAllCount) * 100;
-            const globalPctFormatted = globalPct.toFixed(1);
+            
+            const hasApplicable = trueApplicableCount > 0;
+            const globalPct = hasApplicable ? (activeAllCount / trueApplicableCount) * 100 : 0;
+            const globalPctFormatted = hasApplicable ? `${globalPct.toFixed(1)}%` : 'N/A';
 
             return (
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
@@ -2535,8 +2537,11 @@ export default function EquipmentTrackerPage() {
                     <Database size={22} />
                   </div>
                   <div>
-                    <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{applicableAllCount}</div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Analitos Totales Aplicables</div>
+                    <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{totalUniverseCount}</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Universo de Analitos</div>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      Aplicables: {trueApplicableCount} | No Aplica: {noAplicaAllCount}
+                    </div>
                   </div>
                 </div>
 
@@ -2546,10 +2551,17 @@ export default function EquipmentTrackerPage() {
                   </div>
                   <div>
                     <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1, display: 'flex', alignItems: 'baseline', gap: '6px' }}>
-                      {globalPctFormatted}%
-                      <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 'normal' }}>({activeAllCount})</span>
+                      {globalPctFormatted}
+                      {hasApplicable && (
+                        <span style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 'normal' }}>
+                          ({activeAllCount}/{trueApplicableCount})
+                        </span>
+                      )}
                     </div>
                     <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Avance Consolidado</div>
+                    <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                      Cálculo sobre analitos aplicables
+                    </div>
                   </div>
                 </div>
 
@@ -3179,15 +3191,20 @@ export default function EquipmentTrackerPage() {
               const isCollapsed = collapsedRecintoAnalytes[rec.id] || false;
               const recEquips = scopeFilteredEquipments.filter(e => e.recintoId === rec.id);
 
-              // Avance de sede en analitos transmitiendo y no aplica (ambos cuentan como avance) - calculado sobre el total real de la sede para evitar distorsiones por filtros
+              // Avance de sede calculado sobre analitos aplicables (excluye 'no aplica' del denominador)
               const allRecAnalytes = scopeFilteredAnalytes.filter(a => a.recintoId === rec.id);
               const total = allRecAnalytes.length;
+              const recNoAplica = allRecAnalytes.filter(a => normalizeAnalyteState(a.state) === 'no aplica').length;
+              const recApplicable = total - recNoAplica;
+              
               const activeCount = allRecAnalytes.filter(a => {
                 const state = normalizeAnalyteState(a.state);
-                return state === 'transmitiendo' || state === 'no aplica';
+                return state === 'transmitiendo';
               }).length;
-              const pct = total === 0 ? 0 : (activeCount / total) * 100;
-              const pctFormatted = pct.toFixed(1);
+              
+              const hasApplicable = recApplicable > 0;
+              const pct = hasApplicable ? (activeCount / recApplicable) * 100 : 0;
+              const pctFormatted = hasApplicable ? `${pct.toFixed(1)}%` : 'N/A';
 
               // Agrupar por instrumento
               const groupedByEquip: Record<string, any> = {};
@@ -3309,13 +3326,15 @@ export default function EquipmentTrackerPage() {
                             fontSize: '0.78rem',
                             border: '1px solid rgba(255,255,255,0.15)'
                           }} 
-                          title="Porcentaje de Analitos Transmitiendo en este Recinto"
+                          title="Porcentaje de Analitos Transmitiendo sobre Aplicables en este Recinto"
                         >
-                          <span style={{ fontWeight: 800 }}>Transmisión: {pctFormatted}%</span>
+                          <span style={{ fontWeight: 800 }}>Transmisión: {pctFormatted}</span>
                           <div style={{ width: '80px', height: '6px', background: 'rgba(255,255,255,0.2)', borderRadius: '3px', overflow: 'hidden' }}>
-                            <div style={{ width: `${pct}%`, height: '100%', background: '#10b981', borderRadius: '3px' }} />
+                            <div style={{ width: `${hasApplicable ? pct : 0}%`, height: '100%', background: hasApplicable ? '#10b981' : '#6b7280', borderRadius: '3px' }} />
                           </div>
-                          <span style={{ opacity: 0.85, fontSize: '0.72rem' }}>({total} Analitos)</span>
+                          <span style={{ opacity: 0.85, fontSize: '0.72rem' }}>
+                            ({activeCount} de {recApplicable} aplicables)
+                          </span>
                         </div>
                       )}
                     </div>
