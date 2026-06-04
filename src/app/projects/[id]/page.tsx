@@ -777,14 +777,19 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
       { key: 'golive', name: defaultColNames.golive || 'Go-Live' },
     ];
 
-    const activePhases = allPhases.filter(ph => !hiddenDefaultCols.includes(ph.key));
+    // Calcular el promedio real sobre todas las 6 fases fijas (de forma independiente a la UI)
+    const allPhasesCalculated = allPhases.map(ph => ({
+      name: ph.name,
+      pct: sumPhase(ph.key as keyof ClinicalEquipment)
+    }));
+    const avgCompletion = allPhasesCalculated.length === 0 ? 100 : Math.round(allPhasesCalculated.reduce((sum, p) => sum + p.pct, 0) / allPhasesCalculated.length);
 
+    // Filtrar las fases para mostrar en la interfaz de usuario de la tarjeta
+    const activePhases = allPhases.filter(ph => !hiddenDefaultCols.includes(ph.key));
     const phs = activePhases.map(ph => ({
       name: ph.name,
       pct: sumPhase(ph.key as keyof ClinicalEquipment)
     }));
-    
-    const avgCompletion = phs.length === 0 ? 100 : Math.round(phs.reduce((sum, p) => sum + p.pct, 0) / phs.length);
 
     return {
       total: totalEquips,
@@ -1273,6 +1278,8 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
       compromisoDate: '',
       observaciones: 'Ingresar historial...',
       pendienteDe: '',
+      scopeStatus: 'ACTIVE',
+      releasePhaseId: null,
       projectId: id,
       customFields: '{}'
     };

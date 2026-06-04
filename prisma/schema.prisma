@@ -114,17 +114,22 @@ model ClinicalEquipment {
   customFields    String   @default("{}")
   deletedAt       DateTime? // Soft Delete Support
   analytes        Analyte[] // Relación con analitos
+  scopeStatus     String   @default("ACTIVE")
+  releasePhaseId  String?
+  releasePhase    ReleasePhase? @relation(fields: [releasePhaseId], references: [id], onDelete: SetNull)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
   @@index([recintoId])
   @@index([projectId])
+  @@index([releasePhaseId])
 }
 
 model MasterUser {
   id            String   @id @default(cuid())
   name          String
   email         String   @unique
+  passwordHash  String?  // Almacena la contraseña cifrada
   role          String
   maxTasksLimit Int      @default(5)
   createdAt     DateTime @default(now())
@@ -214,10 +219,38 @@ model Analyte {
   recintoId        String?            // Enlace opcional a Recinto
   recinto          Recinto?           @relation(fields: [recintoId], references: [id], onDelete: SetNull)
   customFields     String             @default("{}")
+  scopeStatus      String             @default("INHERITED")
+  releasePhaseId   String?
+  releasePhase     ReleasePhase?      @relation(fields: [releasePhaseId], references: [id], onDelete: SetNull)
 
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 
   @@index([recintoId])
   @@index([equipmentId])
+  @@index([releasePhaseId])
+}
+
+model ReleasePhase {
+  id          String              @id @default(cuid())
+  name        String              @unique
+  description String?
+  isActive    Boolean             @default(true)
+  equipments  ClinicalEquipment[]
+  analytes    Analyte[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+}
+
+model ScopeAuditLog {
+  id            String   @id @default(cuid())
+  itemId        String
+  itemType      String
+  itemName      String
+  previousScope String
+  newScope      String
+  reasonCode    String
+  justification String
+  userEmail     String
+  createdAt     DateTime @default(now())
 }

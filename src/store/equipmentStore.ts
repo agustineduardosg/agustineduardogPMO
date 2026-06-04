@@ -26,6 +26,8 @@ export interface ClinicalEquipment {
   projectId?: string | null; // Asociación opcional a Proyecto
   customFields?: string;
   deletedAt?: string | null;
+  scopeStatus: string;
+  releasePhaseId?: string | null;
 }
 
 export interface Analyte {
@@ -40,20 +42,48 @@ export interface Analyte {
   equipmentId?: string | null;
   recintoId?: string | null;
   customFields?: string;
+  scopeStatus: string;
+  releasePhaseId?: string | null;
   createdAt?: string;
   updatedAt?: string;
+}
+
+export interface ReleasePhase {
+  id: string;
+  name: string;
+  description?: string | null;
+  isActive: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface ScopeAuditLog {
+  id: string;
+  itemId: string;
+  itemType: string;
+  itemName: string;
+  previousScope: string;
+  newScope: string;
+  reasonCode: string;
+  justification: string;
+  userEmail: string;
+  createdAt: string;
 }
 
 interface EquipmentState {
   recintos: Recinto[];
   equipments: ClinicalEquipment[];
   analytes: Analyte[];
+  releasePhases: ReleasePhase[];
+  scopeLogs: ScopeAuditLog[];
   isLoading: boolean;
   error: string | null;
 
   // Carga
   fetchEquipmentData: () => Promise<void>;
   fetchAnalytes: () => Promise<void>;
+  fetchReleasePhases: () => Promise<void>;
+  fetchScopeLogs: (itemId?: string) => Promise<ScopeAuditLog[]>;
   
   // Acciones Recintos
   addRecinto: (recinto: Recinto) => Promise<void>;
@@ -73,12 +103,18 @@ interface EquipmentState {
   deleteAnalyte: (id: string) => Promise<void>;
   bulkImportAnalytes: (analytes: Omit<Analyte, 'id'>[]) => Promise<{ success: boolean; details: any }>;
   assignRecintoToInstrument: (instrumentName: string, recintoId: string, sourceRecintoId?: string) => Promise<{ success: boolean; message: string }>;
+
+  // Acciones de Alcance
+  createReleasePhase: (name: string, description?: string) => Promise<{ success: boolean; error?: string }>;
+  changeScope: (params: { itemId: string; itemType: 'EQUIPMENT' | 'ANALYTE'; newScope: string | null; newScopeStatus: string; reasonCode: string; justification: string; userEmail: string }) => Promise<{ success: boolean; error?: string }>;
 }
 
-export const useEquipmentStore = create<EquipmentState>()((set) => ({
+export const useEquipmentStore = create<EquipmentState>()((set, get) => ({
   recintos: [],
   equipments: [],
   analytes: [],
+  releasePhases: [],
+  scopeLogs: [],
   isLoading: false,
   error: null,
 
@@ -442,6 +478,95 @@ export const useEquipmentStore = create<EquipmentState>()((set) => ({
       console.error(err);
       set({ error: err.message, isLoading: false });
       return { success: false, message: err.message };
+    }
+  },
+
+  fetchReleasePhases: async () => {
+    try {
+      const response = await fetch('/api/release-phases');
+      if (!response.ok) throw new Error('Failed to fetch release phases');
+      const data = await response.json();
+      set({ releasePhases: data });
+    } catch (err: any) {
+      console.error('Error in fetchReleasePhases:', err);
+      set({ error: err.message });
+    }
+  },
+
+  createReleasePhase: async (name, description) => {
+    try {
+      const response = await fetch('/api/release-phases', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, description })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to create release phase');
+      }
+      
+      // Actualizar listado local
+      await get().fetchReleasePhases();
+      return { success: true };
+    } catch (err: any) {
+      console.error(err);
+      return { success: false, error: err.message };
+    }
+  },
+
+  changeScope: async (params) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await fetch('/api/scope/change', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params)
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to execute scope change');
+      }
+
+      // Sincronizar recintos y equipos (por si cambió en cascada)
+      const eqResp = await fetch('/api/recintos');
+      if (eqResp.ok) {
+        const eqData = await eqResp.json();
+        set({
+          recintos: eqData.map((r: any) => ({ id: r.id, name: r.name, code: r.code, isActive: r.isActive })),
+          equipments: eqData.flatMap((r: any) => r.equipments || [])
+        });
+      }
+
+      // Sincronizar analitos
+      const anResp = await fetch('/api/analytes');
+      if (anResp.ok) {
+        const anData = await anResp.json();
+        set({ analytes: anData });
+      }
+
+      set({ isLoading: false });
+      return { success: true };
+    } catch (err: any) {
+      console.error(err);
+      set({ error: err.message, isLoading: false });
+      return { success: false, error: err.message };
+    }
+  },
+
+  fetchScopeLogs: async (itemId) => {
+    try {
+      const url = itemId ? `/api/scope/logs?itemId=${encodeURIComponent(itemId)}` : '/api/scope/logs';
+      const response = await fetch(url);
+      if (!response.ok) throw new Error('Failed to fetch scope logs');
+      const data = await response.json();
+      if (!itemId) {
+        set({ scopeLogs: data });
+      }
+      return data;
+    } catch (err: any) {
+      console.error(err);
+      set({ error: err.message });
+      return [];
     }
   }
 }));

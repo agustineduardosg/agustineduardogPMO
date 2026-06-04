@@ -1,0 +1,1 @@
+"  React.useEffect(() => {\n    fetchEquipmentData();\n    fetchProjects();\n  }, []);"

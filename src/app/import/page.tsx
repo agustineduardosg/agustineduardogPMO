@@ -952,6 +952,8 @@ export default function ImportPage() {
             responsable: colResp && row[colResp] ? String(row[colResp]).trim() : 'Sin asignar',
             observaciones: colObs && row[colObs] ? String(row[colObs]).trim() : '',
             pendienteDe: colPend && row[colPend] ? String(row[colPend]).trim() : '',
+            scopeStatus: 'ACTIVE',
+            releasePhaseId: null,
             projectId: targetProjectId,
             compromisoDate: colComp && row[colComp] ? parseSafeDate(row[colComp], new Date()).toISOString().split('T')[0] : undefined
           };
@@ -1008,6 +1010,8 @@ export default function ImportPage() {
             description: colDesc && row[colDesc] ? String(row[colDesc]).trim() : '',
             section: colSection && row[colSection] ? String(row[colSection]).trim() : 'General',
             state: colState && row[colState] ? String(row[colState]).trim() : 'No Iniciado',
+            scopeStatus: 'INHERITED',
+            releasePhaseId: null,
             recintoId: instrumentSedeMap[instName]
           };
         });

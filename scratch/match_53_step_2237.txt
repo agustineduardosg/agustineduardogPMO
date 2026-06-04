@@ -1,0 +1,1 @@
+"export default function EquipmentTrackerPage() {\n  const { recintos, equipments, addEquipment, updateEquipment, deleteEquipment, fetchEquipmentData } = useEquipmentStore();\n  const { projects, fetchProjects } = useProjectStore();\n  const router = useRouter();"

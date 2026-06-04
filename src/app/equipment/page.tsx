@@ -438,12 +438,40 @@ export default function EquipmentTrackerPage() {
   const updateAnalyte = useEquipmentStore(state => state.updateAnalyte);
   const deleteAnalyte = useEquipmentStore(state => state.deleteAnalyte);
 
+  // Dynamic scope store integrations
+  const releasePhases = useEquipmentStore(state => state.releasePhases);
+  const fetchReleasePhases = useEquipmentStore(state => state.fetchReleasePhases);
+  const changeScope = useEquipmentStore(state => state.changeScope);
+  const fetchScopeLogs = useEquipmentStore(state => state.fetchScopeLogs);
+  const createReleasePhase = useEquipmentStore(state => state.createReleasePhase);
+
   const analytes = useMemo(() => {
     return rawAnalytes.map(a => ({
       ...a,
       state: normalizeAnalyteState(a.state)
     }));
   }, [rawAnalytes]);
+
+  // Dynamic Scope States
+  const [scopeFilter, setScopeFilter] = useState<string>('all');
+  const [isPhaseModalOpen, setIsPhaseModalOpen] = useState(false);
+  const [newPhaseName, setNewPhaseName] = useState('');
+  const [newPhaseDesc, setNewPhaseDesc] = useState('');
+  const [isJustifyModalOpen, setIsJustifyModalOpen] = useState(false);
+  const [scopeChangeParams, setScopeChangeParams] = useState<{
+    itemId: string;
+    itemType: 'EQUIPMENT' | 'ANALYTE';
+    newScope: string | null;
+    newScopeStatus: string;
+    itemName: string;
+    previousScopeName: string;
+  } | null>(null);
+  const [reasonCode, setReasonCode] = useState('PMO_DECISION');
+  const [justification, setJustification] = useState('');
+  const [isTimelineModalOpen, setIsTimelineModalOpen] = useState(false);
+  const [timelineItemId, setTimelineItemId] = useState('');
+  const [timelineItemName, setTimelineItemName] = useState('');
+  const [timelineLogs, setTimelineLogs] = useState<any[]>([]);
 
   const projects = useProjectStore(state => state.projects);
   const fetchProjects = useProjectStore(state => state.fetchProjects);
@@ -541,6 +569,7 @@ export default function EquipmentTrackerPage() {
     fetchProjects();
     fetchUsers();
     fetchAnalytes();
+    fetchReleasePhases();
 
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
@@ -556,6 +585,7 @@ export default function EquipmentTrackerPage() {
         fetchProjects();
         fetchUsers();
         fetchAnalytes();
+        fetchReleasePhases();
       }
     }, 15000);
 
@@ -984,9 +1014,16 @@ export default function EquipmentTrackerPage() {
         (filterProject === 'none' && !eq.projectId) || 
         eq.projectId === filterProject;
 
-      return matchSearch && matchProject;
+      let matchScope = true;
+      if (scopeFilter === 'OUT_OF_SCOPE') {
+        matchScope = eq.scopeStatus === 'OUT_OF_SCOPE';
+      } else if (scopeFilter !== 'all') {
+        matchScope = eq.releasePhaseId === scopeFilter && eq.scopeStatus !== 'OUT_OF_SCOPE';
+      }
+
+      return matchSearch && matchProject && matchScope;
     });
-  }, [equipments, search, filterProject]);
+  }, [equipments, search, filterProject, scopeFilter]);
 
   const filteredAnalytes = useMemo(() => {
     return analytes.filter(a => {
@@ -1005,10 +1042,33 @@ export default function EquipmentTrackerPage() {
       const matchStatus = 
         statusFilter === 'all' ||
         normState.toLowerCase() === statusFilter.toLowerCase();
+
+      let matchScope = true;
+      if (scopeFilter === 'OUT_OF_SCOPE') {
+        matchScope = a.scopeStatus === 'OUT_OF_SCOPE';
+      } else if (scopeFilter !== 'all') {
+        matchScope = a.releasePhaseId === scopeFilter && a.scopeStatus !== 'OUT_OF_SCOPE';
+      }
       
-      return matchSearch && matchStatus;
+      return matchSearch && matchStatus && matchScope;
     });
-  }, [analytes, analyteSearch, recintos, statusFilter]);
+  }, [analytes, analyteSearch, recintos, statusFilter, scopeFilter]);
+
+  const scopeFilteredEquipments = useMemo(() => {
+    return equipments.filter(eq => {
+      if (scopeFilter === 'all') return true;
+      if (scopeFilter === 'OUT_OF_SCOPE') return eq.scopeStatus === 'OUT_OF_SCOPE';
+      return eq.releasePhaseId === scopeFilter && eq.scopeStatus !== 'OUT_OF_SCOPE';
+    });
+  }, [equipments, scopeFilter]);
+
+  const scopeFilteredAnalytes = useMemo(() => {
+    return analytes.filter(a => {
+      if (scopeFilter === 'all') return true;
+      if (scopeFilter === 'OUT_OF_SCOPE') return a.scopeStatus === 'OUT_OF_SCOPE';
+      return a.releasePhaseId === scopeFilter && a.scopeStatus !== 'OUT_OF_SCOPE';
+    });
+  }, [analytes, scopeFilter]);
 
   const exportAnalytesToExcel = () => {
     if (filteredAnalytes.length === 0) {
@@ -1101,7 +1161,7 @@ export default function EquipmentTrackerPage() {
 
   // Calcula estadísticas generales del portafolio clínico
   const stats = useMemo(() => {
-    const total = equipments.length;
+    const total = filteredEquipments.length;
     if (total === 0) return { completion: 0, completedCount: 0, progressCount: 0 };
     
     let totalActivePhases = 0;
@@ -1109,7 +1169,7 @@ export default function EquipmentTrackerPage() {
     let progressCount = 0;
     let completedCount = 0;
     
-    equipments.forEach(eq => {
+    filteredEquipments.forEach(eq => {
       const phasesList = [
         { key: 'levantamiento', val: eq.levantamiento },
         { key: 'parametrizacion', val: eq.parametrizacion },
@@ -1120,11 +1180,6 @@ export default function EquipmentTrackerPage() {
       ];
 
       phasesList.forEach(ph => {
-        // Ignorar si la fase está marcada como "no aplica" (oculta)
-        if (hiddenDefaultCols.includes(ph.key)) {
-          return;
-        }
-
         const p = ph.val;
         if (p === 'Descartado' || p === 'Desestimado') {
           return; // Excluir de la sumatoria y del denominador
@@ -1147,7 +1202,7 @@ export default function EquipmentTrackerPage() {
       completedCount,
       progressCount
     };
-  }, [equipments, hiddenDefaultCols]);
+  }, [filteredEquipments]);
 
   const handleAddEquipment = (recintoId: string) => {
     const newEq: ClinicalEquipment = {
@@ -1165,6 +1220,8 @@ export default function EquipmentTrackerPage() {
       compromisoDate: '',
       observaciones: 'Ingresar historial...',
       pendienteDe: '',
+      scopeStatus: 'ACTIVE',
+      releasePhaseId: null,
       customFields: '{}'
     };
     addEquipment(newEq);
@@ -1335,7 +1392,7 @@ export default function EquipmentTrackerPage() {
             marginLeft: '4px',
             transition: 'all 0.2s ease'
           }}>
-            {equipments.length}
+            {filteredEquipments.length}
           </span>
         </button>
         <button
@@ -1367,8 +1424,109 @@ export default function EquipmentTrackerPage() {
             marginLeft: '4px',
             transition: 'all 0.2s ease'
           }}>
-            {analytes.length}
+            {filteredAnalytes.length}
           </span>
+        </button>
+      </div>
+
+      {/* Selector de Foco Ejecutivo de Alcance */}
+      <div className="glass-panel" style={{
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        padding: '12px 20px',
+        marginBottom: '20px',
+        background: 'var(--bg-secondary)',
+        border: '1px solid var(--border-light)',
+        borderRadius: '12px',
+        gap: '16px',
+        flexWrap: 'wrap'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <Sliders size={16} style={{ color: currentTab === 'analytes' ? '#7c3aed' : '#004B87' }} />
+          <span style={{ fontSize: '0.82rem', fontWeight: 800, color: 'var(--text-primary)' }}>
+            Foco Ejecutivo (Alcance):
+          </span>
+        </div>
+        
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <button
+            onClick={() => setScopeFilter('all')}
+            style={{
+              padding: '6px 14px',
+              borderRadius: '20px',
+              fontSize: '0.78rem',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              background: scopeFilter === 'all' ? (currentTab === 'analytes' ? '#7c3aed' : '#004B87') : 'var(--bg-primary)',
+              color: scopeFilter === 'all' ? 'white' : 'var(--text-secondary)',
+              border: `1px solid ${scopeFilter === 'all' ? (currentTab === 'analytes' ? '#7c3aed' : '#004B87') : 'var(--border-light)'}`
+            }}
+          >
+            🌐 Todo (Consolidado)
+          </button>
+          
+          {releasePhases.map(phase => {
+            const isActive = scopeFilter === phase.id;
+            return (
+              <button
+                key={phase.id}
+                onClick={() => setScopeFilter(phase.id)}
+                style={{
+                  padding: '6px 14px',
+                  borderRadius: '20px',
+                  fontSize: '0.78rem',
+                  fontWeight: 'bold',
+                  cursor: 'pointer',
+                  transition: 'all 0.2s ease',
+                  background: isActive ? '#2563eb' : 'var(--bg-primary)',
+                  color: isActive ? 'white' : '#2563eb',
+                  border: `1px solid ${isActive ? '#2563eb' : 'rgba(59, 130, 246, 0.2)'}`
+                }}
+              >
+                📅 {phase.name}
+              </button>
+            );
+          })}
+          
+          <button
+            onClick={() => setScopeFilter('OUT_OF_SCOPE')}
+            style={{
+              padding: '6px 14px',
+              borderRadius: '20px',
+              fontSize: '0.78rem',
+              fontWeight: 'bold',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              background: scopeFilter === 'OUT_OF_SCOPE' ? '#4b5563' : 'var(--bg-primary)',
+              color: scopeFilter === 'OUT_OF_SCOPE' ? 'white' : '#4b5563',
+              border: `1px solid ${scopeFilter === 'OUT_OF_SCOPE' ? '#4b5563' : 'rgba(107, 114, 128, 0.2)'}`
+            }}
+          >
+            ⚙️ Fuera de Alcance
+          </button>
+        </div>
+
+        {/* Botón para Configurar Fases PMO */}
+        <button
+          onClick={() => setIsPhaseModalOpen(true)}
+          style={{
+            padding: '6px 12px',
+            borderRadius: '6px',
+            fontSize: '0.75rem',
+            fontWeight: 700,
+            background: 'var(--bg-primary)',
+            border: '1px dashed var(--border-light)',
+            color: 'var(--text-secondary)',
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '4px'
+          }}
+          className="btn-light-hover"
+        >
+          ➕ Configurar Fases
         </button>
       </div>
 
@@ -1881,11 +2039,6 @@ export default function EquipmentTrackerPage() {
               ];
 
               phasesList.forEach(ph => {
-                // Ignorar si está oculta por el usuario (no aplica)
-                if (hiddenDefaultCols.includes(ph.key)) {
-                  return;
-                }
-
                 const p = ph.val;
                 if (p === 'Descartado' || p === 'Desestimado') return;
                 totalActivePhases++;
@@ -1994,6 +2147,7 @@ export default function EquipmentTrackerPage() {
                       {!hiddenDefaultCols.includes('name') && <th style={{ padding: '12px 12px', width: '180px' }}>{defaultColNames.name}</th>}
                       {!hiddenDefaultCols.includes('section') && <th style={{ padding: '12px 12px', width: '145px' }}>{defaultColNames.section}</th>}
                       <th style={{ padding: '12px 12px', width: '195px' }}>Proyecto Asociado</th>
+                      <th style={{ padding: '12px 12px', width: '180px' }}>Fase de Lanzamiento</th>
                       {!hiddenDefaultCols.includes('levantamiento') && <th style={{ padding: '12px 8px', width: '125px', minWidth: '140px', textAlign: 'center' }}>{defaultColNames.levantamiento}</th>}
                       {!hiddenDefaultCols.includes('parametrizacion') && <th style={{ padding: '12px 8px', width: '125px', minWidth: '140px', textAlign: 'center' }}>{defaultColNames.parametrizacion}</th>}
                       {!hiddenDefaultCols.includes('pruebas') && <th style={{ padding: '12px 8px', width: '125px', minWidth: '140px', textAlign: 'center' }}>{defaultColNames.pruebas}</th>}
@@ -2050,7 +2204,7 @@ export default function EquipmentTrackerPage() {
                   <tbody>
                     {recintoEquips.length === 0 ? (
                       <tr>
-                        <td colSpan={15 - hiddenDefaultCols.length + customColumns.length} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
+                        <td colSpan={16 - hiddenDefaultCols.length + customColumns.length} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-muted)' }}>
                           No hay equipos registrados en esta sede clínica. Registra uno usando el botón superior.
                         </td>
                       </tr>
@@ -2100,6 +2254,65 @@ export default function EquipmentTrackerPage() {
                                 ))}
                               </select>
                             </td>
+
+                             {/* Fase de Lanzamiento */}
+                             <td style={{ padding: '8px 12px' }}>
+                               <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                 <select
+                                   value={eq.scopeStatus === 'OUT_OF_SCOPE' ? 'OUT_OF_SCOPE' : (eq.releasePhaseId || '')}
+                                   onChange={(e) => {
+                                     const val = e.target.value;
+                                     let newScopeStatus = 'ACTIVE';
+                                     let newScopeId: string | null = null;
+                                     
+                                     if (val === 'OUT_OF_SCOPE') {
+                                       newScopeStatus = 'OUT_OF_SCOPE';
+                                     } else if (val) {
+                                       newScopeStatus = 'ACTIVE';
+                                       newScopeId = val;
+                                     } else {
+                                       newScopeStatus = 'ACTIVE';
+                                     }
+                                     
+                                     (globalThis as any).initiateScopeChange(
+                                       eq.id, 
+                                       'EQUIPMENT', 
+                                       newScopeId, 
+                                       newScopeStatus, 
+                                       eq.name, 
+                                       eq.releasePhaseId
+                                     );
+                                   }}
+                                   style={{
+                                     width: '100%',
+                                     padding: '6px',
+                                     background: 'transparent',
+                                     border: '1px solid transparent',
+                                     borderRadius: '4px',
+                                     outline: 'none',
+                                     color: eq.scopeStatus === 'OUT_OF_SCOPE' ? '#6b7280' : '#2563eb',
+                                     fontWeight: 'bold',
+                                     fontSize: '0.8rem',
+                                     cursor: 'pointer'
+                                   }}
+                                   className="cell-input"
+                                 >
+                                   <option value="">-- Sin Asignar --</option>
+                                   {releasePhases.map(phase => (
+                                     <option key={phase.id} value={phase.id}>📅 {phase.name}</option>
+                                   ))}
+                                   <option value="OUT_OF_SCOPE">⚙️ Fuera de Alcance</option>
+                                 </select>
+                                 
+                                 <button
+                                   onClick={() => (globalThis as any).showItemTimeline(eq.id, eq.name)}
+                                   style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', padding: '2px', display: 'flex', alignItems: 'center' }}
+                                   title="Ver historial de cambios de alcance"
+                                 >
+                                   <Database size={13} />
+                                 </button>
+                               </div>
+                             </td>
 
                             {/* Las 6 Fases Select */}
                             {!hiddenDefaultCols.includes('levantamiento') && (
@@ -2283,13 +2496,13 @@ export default function EquipmentTrackerPage() {
           
           {/* Analyte Tab Specific KPI Panel */}
           {(() => {
-            const applicableAllCount = analytes.length;
-            const activeAllCount = analytes.filter(a => {
+            const applicableAllCount = scopeFilteredAnalytes.length;
+            const activeAllCount = scopeFilteredAnalytes.filter(a => {
               const state = normalizeAnalyteState(a.state);
               return state === 'transmitiendo' || state === 'no aplica';
             }).length;
-            const pausedAllCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'en pausa').length;
-            const pendingAllCount = analytes.filter(a => {
+            const pausedAllCount = scopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'en pausa').length;
+            const pendingAllCount = scopeFilteredAnalytes.filter(a => {
               const state = normalizeAnalyteState(a.state);
               return state === 'No iniciado' || !state;
             }).length;
@@ -2352,11 +2565,11 @@ export default function EquipmentTrackerPage() {
               
               {/* Píldoras de Estado */}
               {(() => {
-                const totalCount = analytes.length;
-                const activeCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo').length;
-                const pausedCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'en pausa').length;
-                const pendingCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'No iniciado').length;
-                const noAplicaCount = analytes.filter(a => normalizeAnalyteState(a.state) === 'no aplica').length;
+                const totalCount = scopeFilteredAnalytes.length;
+                const activeCount = scopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo').length;
+                const pausedCount = scopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'en pausa').length;
+                const pendingCount = scopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'No iniciado').length;
+                const noAplicaCount = scopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'no aplica').length;
 
                 return (
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -2945,10 +3158,10 @@ export default function EquipmentTrackerPage() {
             {recintos.map((rec) => {
               const recAnalytes = filteredAnalytes.filter(a => a.recintoId === rec.id);
               const isCollapsed = collapsedRecintoAnalytes[rec.id] || false;
-              const recEquips = equipments.filter(e => e.recintoId === rec.id);
+              const recEquips = scopeFilteredEquipments.filter(e => e.recintoId === rec.id);
 
               // Avance de sede en analitos transmitiendo y no aplica (ambos cuentan como avance) - calculado sobre el total real de la sede para evitar distorsiones por filtros
-              const allRecAnalytes = analytes.filter(a => a.recintoId === rec.id);
+              const allRecAnalytes = scopeFilteredAnalytes.filter(a => a.recintoId === rec.id);
               const total = allRecAnalytes.length;
               const activeCount = allRecAnalytes.filter(a => {
                 const state = normalizeAnalyteState(a.state);
@@ -3190,6 +3403,7 @@ export default function EquipmentTrackerPage() {
                                           {!hiddenAnalyteCols.includes('description') && <th style={{ padding: '10px 12px' }}>Descripción</th>}
                                           {!hiddenAnalyteCols.includes('section') && <th style={{ padding: '10px 12px' }}>Sección / Lab</th>}
                                           {!hiddenAnalyteCols.includes('state') && <th style={{ padding: '10px 16px', width: '150px', textAlign: 'center' }}>Estado Transmisión</th>}
+                                          <th style={{ padding: '10px 12px', width: '170px' }}>Fase / Alcance</th>
                                           
                                           {/* Cabeceras de Columnas Dinámicas de Analitos */}
                                           {customColumnsAnalytes.map((col, cIdx) => (
@@ -3283,6 +3497,68 @@ export default function EquipmentTrackerPage() {
                                                     />
                                                   </td>
                                                 )}
+
+                                                <td style={{ padding: '6px 12px' }}>
+                                                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                    <select
+                                                      value={analyte.scopeStatus === 'INHERITED' ? 'INHERITED' : (analyte.scopeStatus === 'OUT_OF_SCOPE' ? 'OUT_OF_SCOPE' : (analyte.releasePhaseId || ''))}
+                                                      onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        let newScopeStatus = 'ACTIVE';
+                                                        let newScopeId: string | null = null;
+                                                        
+                                                        if (val === 'INHERITED') {
+                                                          newScopeStatus = 'INHERITED';
+                                                          const parentEq = equipments.find(eq => eq.id === analyte.equipmentId);
+                                                          newScopeId = parentEq ? parentEq.releasePhaseId || null : null;
+                                                        } else if (val === 'OUT_OF_SCOPE') {
+                                                          newScopeStatus = 'OUT_OF_SCOPE';
+                                                        } else if (val) {
+                                                          newScopeStatus = 'ACTIVE';
+                                                          newScopeId = val;
+                                                        } else {
+                                                          newScopeStatus = 'ACTIVE';
+                                                        }
+                                                        
+                                                        (globalThis as any).initiateScopeChange(
+                                                          analyte.id, 
+                                                          'ANALYTE', 
+                                                          newScopeId, 
+                                                          newScopeStatus, 
+                                                          analyte.name, 
+                                                          analyte.releasePhaseId
+                                                        );
+                                                      }}
+                                                      style={{
+                                                        width: '100%',
+                                                        padding: '4px',
+                                                        background: 'transparent',
+                                                        border: '1px solid transparent',
+                                                        borderRadius: '4px',
+                                                        outline: 'none',
+                                                        color: analyte.scopeStatus === 'INHERITED' ? 'var(--text-secondary)' : (analyte.scopeStatus === 'OUT_OF_SCOPE' ? '#6b7280' : '#2563eb'),
+                                                        fontWeight: 'bold',
+                                                        fontSize: '0.78rem',
+                                                        cursor: 'pointer'
+                                                      }}
+                                                      className="cell-input"
+                                                    >
+                                                      <option value="INHERITED">👪 Heredado (Padre)</option>
+                                                      {releasePhases.map(phase => (
+                                                        <option key={phase.id} value={phase.id}>📅 {phase.name}</option>
+                                                      ))}
+                                                      <option value="OUT_OF_SCOPE">⚙️ Fuera de Alcance</option>
+                                                    </select>
+
+                                                    <button
+                                                      onClick={() => (globalThis as any).showItemTimeline(analyte.id, analyte.name)}
+                                                      style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', padding: '2px', display: 'flex', alignItems: 'center' }}
+                                                      title="Ver historial de alcance del analito"
+                                                    >
+                                                      <Database size={12} />
+                                                    </button>
+                                                  </div>
+                                                </td>
 
                                                 {/* Celdas de Columnas Dinámicas para Analitos */}
                                                 {customColumnsAnalytes.map(col => {
@@ -3820,6 +4096,325 @@ export default function EquipmentTrackerPage() {
             
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px', borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
               <button type="button" onClick={() => setIsTrashOpen(false)} className="btn btn-secondary" style={{ padding: '8px 16px', background: '#004B87', color: 'white', border: 'none', cursor: 'pointer', borderRadius: '6px' }}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Helper actions for scope change */}
+      {(() => {
+        // Inicializar funciones auxiliares en caliente
+        (globalThis as any).initiateScopeChange = (itemId: string, itemType: 'EQUIPMENT' | 'ANALYTE', newScopeId: string | null, newScopeStatus: string, itemName: string, currentPhaseId: string | null) => {
+          let previousScopeName = 'Ninguno';
+          if (currentPhaseId) {
+            const rp = releasePhases.find(p => p.id === currentPhaseId);
+            if (rp) previousScopeName = rp.name;
+          } else if (newScopeStatus === 'OUT_OF_SCOPE') {
+            previousScopeName = 'Fuera de Alcance';
+          }
+          
+          setScopeChangeParams({
+            itemId,
+            itemType,
+            newScope: newScopeId,
+            newScopeStatus,
+            itemName,
+            previousScopeName
+          });
+          setJustification('');
+          setReasonCode('PMO_DECISION');
+          setIsJustifyModalOpen(true);
+        };
+
+        (globalThis as any).showItemTimeline = async (itemId: string, itemName: string) => {
+          setTimelineItemId(itemId);
+          setTimelineItemName(itemName);
+          setTimelineLogs([]);
+          setIsTimelineModalOpen(true);
+          
+          const logs = await fetchScopeLogs(itemId);
+          setTimelineLogs(logs);
+        };
+        return null;
+      })()}
+
+      {/* MODAL 1: CONFIGURACIÓN DE FASES DINÁMICAS */}
+      {isPhaseModalOpen && (
+        <div className="custom-modal-backdrop">
+          <div className="custom-modal-card" style={{ width: '500px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#004B87', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Calendar size={18} />
+                Configurar Fases de Lanzamiento
+              </h3>
+              <button onClick={() => setIsPhaseModalOpen(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* Listado de Fases */}
+            <div style={{ marginBottom: '20px' }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', display: 'block', marginBottom: '8px' }}>
+                Fases Existentes
+              </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '180px', overflowY: 'auto', border: '1px solid var(--border-light)', borderRadius: '8px', padding: '8px' }}>
+                {releasePhases.length === 0 ? (
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', textAlign: 'center', padding: '12px' }}>No hay fases configuradas.</div>
+                ) : (
+                  releasePhases.map(p => (
+                    <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 12px', background: 'var(--bg-secondary)', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}>
+                      <div>
+                        <span style={{ fontWeight: 'bold', fontSize: '0.82rem', color: 'var(--text-primary)' }}>{p.name}</span>
+                        {p.description && <p style={{ margin: 0, fontSize: '0.72rem', color: 'var(--text-muted)' }}>{p.description}</p>}
+                      </div>
+                      <span style={{ fontSize: '0.65rem', background: 'rgba(16, 185, 129, 0.1)', color: '#10b981', padding: '2px 6px', borderRadius: '4px', fontWeight: 'bold' }}>Activa</span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Crear Nueva Fase */}
+            <form onSubmit={async (e) => {
+              e.preventDefault();
+              if (!newPhaseName.trim()) return;
+              const res = await createReleasePhase(newPhaseName, newPhaseDesc);
+              if (res.success) {
+                setNewPhaseName('');
+                setNewPhaseDesc('');
+                alert("Fase creada exitosamente");
+              } else {
+                alert(`Error: ${res.error}`);
+              }
+            }} style={{ display: 'flex', flexDirection: 'column', gap: '12px', background: 'var(--bg-secondary)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-light)' }}>
+              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#004B87', textTransform: 'uppercase', display: 'block' }}>
+                Crear Nueva Fase
+              </span>
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Nombre de la Fase:</label>
+                <input 
+                  type="text" 
+                  value={newPhaseName} 
+                  onChange={e => setNewPhaseName(e.target.value)} 
+                  placeholder="Ej: Fase 3 - Expansión"
+                  style={{ width: '100%', padding: '8px', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.8rem', background: 'var(--bg-primary)', color: 'var(--text-primary)', outline: 'none' }}
+                  required
+                />
+              </div>
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Descripción:</label>
+                <textarea 
+                  value={newPhaseDesc} 
+                  onChange={e => setNewPhaseDesc(e.target.value)} 
+                  placeholder="Detalles sobre el alcance de esta fase..."
+                  rows={2}
+                  style={{ width: '100%', padding: '8px', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.8rem', background: 'var(--bg-primary)', color: 'var(--text-primary)', outline: 'none', resize: 'none' }}
+                />
+              </div>
+              <button 
+                type="submit" 
+                style={{ alignSelf: 'flex-end', padding: '8px 16px', background: 'linear-gradient(135deg, #004B87 0%, #003B64 100%)', color: 'white', border: 'none', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 'bold', cursor: 'pointer' }}
+              >
+                Agregar Fase
+              </button>
+            </form>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+              <button type="button" onClick={() => setIsPhaseModalOpen(false)} className="btn btn-secondary" style={{ padding: '8px 16px', background: '#e2e8f0', color: '#1e293b', border: 'none', cursor: 'pointer', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 'bold' }}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 2: JUSTIFICACIÓN OBLIGATORIA DE ALCANCE */}
+      {isJustifyModalOpen && scopeChangeParams && (
+        <div className="custom-modal-backdrop">
+          <div className="custom-modal-card" style={{ width: '480px', animation: 'scaleUp 0.25s cubic-bezier(0.4, 0, 0.2, 1)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#f59e0b', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ShieldAlert size={18} />
+                Control de Cambios de Alcance
+              </h3>
+              <button onClick={() => {
+                setIsJustifyModalOpen(false);
+                setScopeChangeParams(null);
+              }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', background: 'rgba(245, 158, 11, 0.08)', padding: '12px 16px', borderRadius: '8px', border: '1px solid rgba(245, 158, 11, 0.15)', color: '#b45309', fontSize: '0.82rem', marginBottom: '16px' }}>
+              <Info size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
+              <span>
+                <strong>Atención:</strong> Vas a cambiar el alcance de <strong>"{scopeChangeParams.itemName}"</strong> ({scopeChangeParams.itemType === 'EQUIPMENT' ? 'Equipo Clínico' : 'Analito'}). 
+                {scopeChangeParams.itemType === 'EQUIPMENT' && ' Este cambio se aplicará en cascada a todos los analitos asociados que heredan su alcance.'}
+              </span>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', marginBottom: '20px' }}>
+              <div>
+                <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-muted)', display: 'block' }}>Transición de Alcance:</span>
+                <div style={{ fontSize: '0.82rem', fontWeight: 'bold', color: 'var(--text-primary)', marginTop: '4px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ background: '#f1f5f9', padding: '2px 8px', borderRadius: '4px' }}>{scopeChangeParams.previousScopeName}</span>
+                  <span>➡️</span>
+                  <span style={{ background: '#eff6ff', color: '#1e40af', padding: '2px 8px', borderRadius: '4px' }}>
+                    {scopeChangeParams.newScopeStatus === 'OUT_OF_SCOPE' ? 'Fuera de Alcance' : (releasePhases.find(p => p.id === scopeChangeParams.newScope)?.name || 'Sin Asignar')}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Motivo del Cambio:</label>
+                <select
+                  value={reasonCode}
+                  onChange={e => setReasonCode(e.target.value)}
+                  style={{ width: '100%', padding: '8px', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.8rem', background: 'var(--bg-primary)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+                >
+                  <option value="PMO_DECISION">Decisión de la PMO (Bupa Chile)</option>
+                  <option value="TECHNICAL">Limitación / Criterio Técnico</option>
+                  <option value="CONTRACTUAL">Hito Contractual o Comercial</option>
+                  <option value="VENDOR_DELAY">Retraso del Proveedor (LIS / Instrumento)</option>
+                  <option value="CLINICAL_REQUEST">Solicitud de Dirección Médica</option>
+                </select>
+              </div>
+
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--text-secondary)', display: 'block', marginBottom: '4px' }}>Justificación Detallada:</label>
+                <textarea 
+                  value={justification} 
+                  onChange={e => setJustification(e.target.value)} 
+                  placeholder="Describa el motivo técnico, comercial o de planificación por el cual se realiza este cambio de alcance..."
+                  rows={4}
+                  style={{ width: '100%', padding: '8px', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.8rem', background: 'var(--bg-primary)', color: 'var(--text-primary)', outline: 'none', resize: 'none' }}
+                  required
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button 
+                type="button" 
+                onClick={() => {
+                  setIsJustifyModalOpen(false);
+                  setScopeChangeParams(null);
+                }} 
+                style={{ padding: '8px 16px', background: '#e2e8f0', color: '#1e293b', border: 'none', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 'bold', cursor: 'pointer' }}
+              >
+                Cancelar
+              </button>
+              <button 
+                type="button" 
+                onClick={async () => {
+                  if (!justification.trim() || justification.trim().length < 5) {
+                    alert("Debe ingresar una justificación válida de al menos 5 caracteres.");
+                    return;
+                  }
+                  setSaveStatus('saving');
+                  const res = await changeScope({
+                    itemId: scopeChangeParams.itemId,
+                    itemType: scopeChangeParams.itemType,
+                    newScope: scopeChangeParams.newScope,
+                    newScopeStatus: scopeChangeParams.newScopeStatus,
+                    reasonCode,
+                    justification: justification.trim(),
+                    userEmail: 'agustin@bupa.cl' // Simulador de usuario PMO
+                  });
+                  if (res.success) {
+                    setSaveStatus('saved');
+                    setIsJustifyModalOpen(false);
+                    setScopeChangeParams(null);
+                    setTimeout(() => setSaveStatus('idle'), 1500);
+                  } else {
+                    alert(`Error al guardar: ${res.error}`);
+                    setSaveStatus('idle');
+                  }
+                }} 
+                style={{ padding: '8px 16px', background: 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', color: 'white', border: 'none', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 'bold', cursor: 'pointer' }}
+              >
+                Confirmar y Registrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 3: LÍNEA DE TIEMPO DE AUDITORÍA (HISTORIAL DE ALCANCE) */}
+      {isTimelineModalOpen && (
+        <div className="custom-modal-backdrop">
+          <div className="custom-modal-card" style={{ width: '520px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#7c3aed', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Database size={18} />
+                Historial de Alcance
+              </h3>
+              <button onClick={() => setIsTimelineModalOpen(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ marginBottom: '12px' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>Historial de cambios para:</span>
+              <div style={{ fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>🔬 {timelineItemName}</div>
+            </div>
+
+            {/* Timeline scroll area */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', padding: '16px 8px', background: 'var(--bg-secondary)', borderRadius: '8px', border: '1px solid var(--border-light)', minHeight: '180px', maxHeight: '350px', overflowY: 'auto' }}>
+              {timelineLogs.length === 0 ? (
+                <div style={{ fontSize: '0.82rem', color: 'var(--text-secondary)', textAlign: 'center', padding: '40px 20px' }}>
+                  No se registran cambios de alcance históricos en la bitácora de auditoría para este ítem.
+                </div>
+              ) : (
+                timelineLogs.map((log, idx) => {
+                  const dateFormatted = format(new Date(log.createdAt), 'dd/MM/yyyy HH:mm');
+                  const reasonMap: Record<string, string> = {
+                    'PMO_DECISION': 'Decisión PMO',
+                    'TECHNICAL': 'Criterio Técnico',
+                    'CONTRACTUAL': 'Hito Contractual',
+                    'VENDOR_DELAY': 'Retraso Proveedor',
+                    'CLINICAL_REQUEST': 'Solicitud Médica'
+                  };
+                  const reasonLabel = reasonMap[log.reasonCode] || log.reasonCode;
+
+                  return (
+                    <div key={log.id} style={{ display: 'flex', gap: '12px', position: 'relative' }}>
+                      {/* Línea vertical conectora */}
+                      {idx !== timelineLogs.length - 1 && (
+                        <div style={{ position: 'absolute', left: '7px', top: '16px', bottom: '-24px', width: '2px', background: 'var(--border-light)' }} />
+                      )}
+
+                      {/* Nodo del timeline */}
+                      <div style={{ width: '16px', height: '16px', borderRadius: '50%', background: '#7c3aed', border: '3px solid white', flexShrink: 0, marginTop: '2px', boxShadow: '0 0 6px rgba(124,58,237,0.3)' }} />
+
+                      {/* Caja de contenido */}
+                      <div style={{ flex: 1, background: 'var(--bg-primary)', padding: '10px 12px', borderRadius: '8px', border: '1px solid var(--border-subtle)', fontSize: '0.78rem' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                          <span style={{ fontWeight: 'bold', color: 'var(--text-primary)' }}>
+                            {log.previousScope} ➡️ {log.newScope}
+                          </span>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{dateFormatted}</span>
+                        </div>
+                        
+                        <div style={{ display: 'flex', gap: '6px', margin: '4px 0' }}>
+                          <span style={{ background: 'rgba(124, 58, 237, 0.08)', color: '#7c3aed', padding: '1px 6px', borderRadius: '4px', fontSize: '0.65rem', fontWeight: 'bold' }}>
+                            {reasonLabel}
+                          </span>
+                          <span style={{ color: 'var(--text-secondary)', fontSize: '0.68rem' }}>
+                            Por: {log.userEmail}
+                          </span>
+                        </div>
+
+                        <p style={{ margin: '6px 0 0 0', color: 'var(--text-muted)', fontStyle: 'italic', lineHeight: 1.2 }}>
+                          "{log.justification}"
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '16px' }}>
+              <button type="button" onClick={() => setIsTimelineModalOpen(false)} className="btn btn-secondary" style={{ padding: '8px 16px', background: '#e2e8f0', color: '#1e293b', border: 'none', cursor: 'pointer', borderRadius: '6px', fontSize: '0.8rem', fontWeight: 'bold' }}>Cerrar</button>
             </div>
           </div>
         </div>
