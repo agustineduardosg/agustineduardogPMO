@@ -515,6 +515,13 @@ export default function EquipmentTrackerPage() {
   const [loadingTrash, setLoadingTrash] = useState(false);
   const [deletedCount, setDeletedCount] = useState(0);
 
+  const selectedPhaseName = useMemo(() => {
+    if (scopeFilter === 'all') return 'Global';
+    if (scopeFilter === 'OUT_OF_SCOPE') return 'Fuera de Alcance';
+    return releasePhases.find(p => p.id === scopeFilter)?.name || 'Fase Filtrada';
+  }, [scopeFilter, releasePhases]);
+
+
   const fetchDeletedEquipments = async () => {
     setLoadingTrash(true);
     try {
@@ -1103,6 +1110,35 @@ export default function EquipmentTrackerPage() {
       return effectivePhaseId === scopeFilter && effectiveStatus !== 'OUT_OF_SCOPE';
     });
   }, [analytes, equipments, scopeFilter]);
+
+  const searchAndScopeFilteredAnalytes = useMemo(() => {
+    return analytes.filter(a => {
+      const recintoName = recintos.find(r => r.id === a.recintoId)?.name || 'Sede sin Asignar';
+      
+      const matchSearch = 
+        a.name.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+        (a.description || '').toLowerCase().includes(analyteSearch.toLowerCase()) ||
+        a.transmissionCode.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+        a.testCode.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+        a.section.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+        a.instrumentName.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+        recintoName.toLowerCase().includes(analyteSearch.toLowerCase());
+      
+      const { effectiveStatus, effectivePhaseId } = getEffectiveScope(a, equipments);
+
+      let matchScope = true;
+      if (scopeFilter === 'OUT_OF_SCOPE') {
+        matchScope = effectiveStatus === 'OUT_OF_SCOPE';
+      } else if (scopeFilter !== 'all') {
+        matchScope = effectivePhaseId === scopeFilter && effectiveStatus !== 'OUT_OF_SCOPE';
+      } else {
+        matchScope = effectiveStatus !== 'OUT_OF_SCOPE';
+      }
+      
+      return matchSearch && matchScope;
+    });
+  }, [analytes, analyteSearch, recintos, scopeFilter, equipments]);
+
 
   const exportAnalytesToExcel = () => {
     if (filteredAnalytes.length === 0) {
@@ -1958,8 +1994,10 @@ export default function EquipmentTrackerPage() {
             <Layers size={22} />
           </div>
           <div>
-            <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{equipments.length}</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Equipos Biomédicos Totales</div>
+            <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{filteredEquipments.length}</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              {scopeFilter === 'all' ? "Equipos Biomédicos Totales" : `Equipos en ${selectedPhaseName}`}
+            </div>
           </div>
         </div>
         <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -1968,7 +2006,9 @@ export default function EquipmentTrackerPage() {
           </div>
           <div>
             <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{stats.completion}%</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Implementación Global (Avance Promedio)</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              {scopeFilter === 'all' ? "Implementación Global (Avance Promedio)" : `Avance Promedio - ${selectedPhaseName}`}
+            </div>
           </div>
         </div>
         <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -1977,7 +2017,9 @@ export default function EquipmentTrackerPage() {
           </div>
           <div>
             <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{stats.progressCount}</div>
-            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Hitos Biomédicos en Curso</div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              {scopeFilter === 'all' ? "Hitos Biomédicos en Curso" : `Hitos en Curso - ${selectedPhaseName}`}
+            </div>
           </div>
         </div>
       </div>
@@ -2567,13 +2609,13 @@ export default function EquipmentTrackerPage() {
           
           {/* Analyte Tab Specific KPI Panel */}
           {(() => {
-            const totalUniverseCount = scopeFilteredAnalytes.length;
-            const noAplicaAllCount = scopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'no aplica').length;
+            const totalUniverseCount = searchAndScopeFilteredAnalytes.length;
+            const noAplicaAllCount = searchAndScopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'no aplica').length;
             const trueApplicableCount = totalUniverseCount - noAplicaAllCount;
             
-            const activeAllCount = scopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo').length;
-            const pausedAllCount = scopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'en pausa').length;
-            const pendingAllCount = scopeFilteredAnalytes.filter(a => {
+            const activeAllCount = searchAndScopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo').length;
+            const pausedAllCount = searchAndScopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'en pausa').length;
+            const pendingAllCount = searchAndScopeFilteredAnalytes.filter(a => {
               const state = normalizeAnalyteState(a.state);
               return state === 'No iniciado' || !state;
             }).length;
@@ -2590,7 +2632,9 @@ export default function EquipmentTrackerPage() {
                   </div>
                   <div>
                     <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{totalUniverseCount}</div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Universo de Analitos</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                      {scopeFilter === 'all' ? "Universo de Analitos" : `Analitos en ${selectedPhaseName}`}
+                    </div>
                     <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                       Aplicables: {trueApplicableCount} | No Aplica: {noAplicaAllCount}
                     </div>
@@ -2610,7 +2654,9 @@ export default function EquipmentTrackerPage() {
                         </span>
                       )}
                     </div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Avance Consolidado</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                      {scopeFilter === 'all' ? "Avance Consolidado" : `Avance - ${selectedPhaseName}`}
+                    </div>
                     <div style={{ fontSize: '0.68rem', color: 'var(--text-muted)', marginTop: '2px' }}>
                       Cálculo sobre analitos aplicables
                     </div>
@@ -2623,7 +2669,9 @@ export default function EquipmentTrackerPage() {
                   </div>
                   <div>
                     <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{pausedAllCount}</div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Transmisión en Pausa</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                      {scopeFilter === 'all' ? "Transmisión en Pausa" : `En Pausa - ${selectedPhaseName}`}
+                    </div>
                   </div>
                 </div>
 
@@ -2633,7 +2681,9 @@ export default function EquipmentTrackerPage() {
                   </div>
                   <div>
                     <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{pendingAllCount}</div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>Pendientes de Iniciar</div>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                      {scopeFilter === 'all' ? "Pendientes de Iniciar" : `Pendientes - ${selectedPhaseName}`}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -2645,13 +2695,56 @@ export default function EquipmentTrackerPage() {
             <h3 style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-primary)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
               📊 Desglose de Avance Real por Fase de Lanzamiento
             </h3>
+
+            {/* Leyenda Matemática de Estados */}
+            <div style={{ 
+              display: 'flex', 
+              gap: '16px', 
+              flexWrap: 'wrap', 
+              background: 'var(--bg-primary)', 
+              padding: '10px 14px', 
+              borderRadius: '8px', 
+              border: '1px solid var(--border-subtle)',
+              fontSize: '0.74rem', 
+              color: 'var(--text-secondary)' 
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#10b981', display: 'inline-block' }}></span>
+                <span>🟢 <strong>Transmitiendo:</strong> Suma al avance (Numerador)</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#f59e0b', display: 'inline-block' }}></span>
+                <span>🟡 <strong>En pausa:</strong> 0% avance (Suma al Denominador)</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#6b7280', display: 'inline-block' }}></span>
+                <span>⚫ <strong>No iniciado:</strong> 0% avance (Suma al Denominador)</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#ef4444', display: 'inline-block' }}></span>
+                <span>🔴 <strong>No aplica:</strong> Excluido por completo (Fuera de cálculo)</span>
+              </div>
+            </div>
+
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
               {releasePhases.map(phase => {
                 const phaseAnalytes = analytes.filter(a => {
                   const { effectiveStatus, effectivePhaseId } = getEffectiveScope(a, equipments);
                   if (effectiveStatus === 'OUT_OF_SCOPE') return false;
+                  if (effectivePhaseId !== phase.id) return false;
+
+                  // Aplicar filtro de búsqueda
+                  const recintoName = recintos.find(r => r.id === a.recintoId)?.name || 'Sede sin Asignar';
+                  const matchSearch = 
+                    a.name.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+                    (a.description || '').toLowerCase().includes(analyteSearch.toLowerCase()) ||
+                    a.transmissionCode.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+                    a.testCode.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+                    a.section.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+                    a.instrumentName.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+                    recintoName.toLowerCase().includes(analyteSearch.toLowerCase());
                   
-                  return effectivePhaseId === phase.id;
+                  return matchSearch;
                 });
 
                 const total = phaseAnalytes.length;
@@ -2690,8 +2783,20 @@ export default function EquipmentTrackerPage() {
                 const unassignedAnalytes = analytes.filter(a => {
                   const { effectiveStatus, effectivePhaseId } = getEffectiveScope(a, equipments);
                   if (effectiveStatus === 'OUT_OF_SCOPE') return false;
+                  if (effectivePhaseId) return false;
+
+                  // Aplicar filtro de búsqueda
+                  const recintoName = recintos.find(r => r.id === a.recintoId)?.name || 'Sede sin Asignar';
+                  const matchSearch = 
+                    a.name.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+                    (a.description || '').toLowerCase().includes(analyteSearch.toLowerCase()) ||
+                    a.transmissionCode.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+                    a.testCode.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+                    a.section.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+                    a.instrumentName.toLowerCase().includes(analyteSearch.toLowerCase()) ||
+                    recintoName.toLowerCase().includes(analyteSearch.toLowerCase());
                   
-                  return !effectivePhaseId;
+                  return matchSearch;
                 });
 
                 const total = unassignedAnalytes.length;
@@ -2734,11 +2839,11 @@ export default function EquipmentTrackerPage() {
               
               {/* Píldoras de Estado */}
               {(() => {
-                const totalCount = scopeFilteredAnalytes.length;
-                const activeCount = scopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo').length;
-                const pausedCount = scopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'en pausa').length;
-                const pendingCount = scopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'No iniciado').length;
-                const noAplicaCount = scopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'no aplica').length;
+                const totalCount = searchAndScopeFilteredAnalytes.length;
+                const activeCount = searchAndScopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo').length;
+                const pausedCount = searchAndScopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'en pausa').length;
+                const pendingCount = searchAndScopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'No iniciado').length;
+                const noAplicaCount = searchAndScopeFilteredAnalytes.filter(a => normalizeAnalyteState(a.state) === 'no aplica').length;
 
                 return (
                   <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
