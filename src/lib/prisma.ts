@@ -59,7 +59,7 @@ export const prisma = globalForPrisma.prisma || new PrismaClient({
 });
 
 // Configuración de ALTA CONCURRENCIA para SQLite (WAL Mode y Synchronous Normal)
-if (!globalForPrisma.prisma) {
+if (!globalForPrisma.prisma && databaseUrl && databaseUrl.startsWith('file:')) {
   (async () => {
     try {
       // Activa Write-Ahead Logging (Lectores y Escritores no se bloquean mutuamente)
