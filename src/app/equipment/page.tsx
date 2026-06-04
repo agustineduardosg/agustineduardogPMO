@@ -3461,6 +3461,71 @@ export default function EquipmentTrackerPage() {
                                         <option value="no aplica">🔴 no aplica</option>
                                       </select>
                                     </div>
+
+                                    {/* Cambiar Fase del Equipo Padre (Afecta en cascada a todos los heredados) */}
+                                    {(() => {
+                                      const parentEq = equipments.find(e => e.name === equipName && e.recintoId === rec.id);
+                                      if (!parentEq) return null;
+                                      
+                                      return (
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                          <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>FASE:</span>
+                                          <select
+                                            value={parentEq.releasePhaseId || ''}
+                                            onChange={(e) => {
+                                              const val = e.target.value;
+                                              let newScopeStatus = 'ACTIVE';
+                                              let newScopeId: string | null = null;
+                                              
+                                              if (val === 'OUT_OF_SCOPE') {
+                                                newScopeStatus = 'OUT_OF_SCOPE';
+                                              } else if (val) {
+                                                newScopeStatus = 'ACTIVE';
+                                                newScopeId = val;
+                                              } else {
+                                                newScopeStatus = 'ACTIVE';
+                                              }
+                                              
+                                              (globalThis as any).initiateScopeChange(
+                                                parentEq.id, 
+                                                'EQUIPMENT', 
+                                                newScopeId, 
+                                                newScopeStatus, 
+                                                parentEq.name, 
+                                                parentEq.releasePhaseId
+                                              );
+                                            }} 
+                                            style={{
+                                              padding: '3px 8px',
+                                              background: 'var(--bg-primary)',
+                                              border: '1px solid rgba(124, 58, 237, 0.25)',
+                                              borderRadius: '6px',
+                                              color: parentEq.scopeStatus === 'OUT_OF_SCOPE' ? '#6b7280' : '#2563eb',
+                                              fontSize: '0.72rem',
+                                              fontWeight: 'bold',
+                                              outline: 'none',
+                                              cursor: 'pointer'
+                                            }}
+                                          >
+                                            <option value="">-- Sin Asignar --</option>
+                                            {releasePhases.map(phase => (
+                                              <option key={phase.id} value={phase.id}>
+                                                📅 {phase.name}
+                                              </option>
+                                            ))}
+                                            <option value="OUT_OF_SCOPE">⚙️ Fuera de Alcance</option>
+                                          </select>
+                                          
+                                          <button
+                                            onClick={() => (globalThis as any).showItemTimeline(parentEq.id, parentEq.name)}
+                                            style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', padding: '2px', display: 'flex', alignItems: 'center' }}
+                                            title="Ver historial de cambios de alcance de este equipo"
+                                          >
+                                            <Database size={13} />
+                                          </button>
+                                        </div>
+                                      );
+                                    })()}
                                   </div>
                                 )}
                               </div>
