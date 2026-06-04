@@ -12,14 +12,31 @@ model Project {
   name         String
   description  String?
   manager      String?
+  sponsor      String?
+  responsible  String?
   area         String?
   status       String   @default("Planificación")
   hasEquipment Boolean  @default(false)
   startDate    DateTime
   endDate      DateTime
   phases       Phase[]
+  
+  parentProjectId String?
+  parentProject   ParentProject? @relation(fields: [parentProjectId], references: [id], onDelete: SetNull)
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  @@index([parentProjectId])
+}
+
+model ParentProject {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  projects    Project[]
 }
 
 model Phase {

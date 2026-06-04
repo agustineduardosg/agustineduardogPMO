@@ -14,11 +14,14 @@ export async function PUT(
         name: data.name,
         description: data.description !== undefined ? data.description : undefined,
         manager: data.manager !== undefined ? data.manager : undefined,
+        sponsor: data.sponsor !== undefined ? data.sponsor : undefined,
+        responsible: data.responsible !== undefined ? data.responsible : undefined,
         area: data.area !== undefined ? data.area : undefined,
         status: data.status !== undefined ? data.status : undefined,
         hasEquipment: data.hasEquipment !== undefined ? data.hasEquipment : undefined,
         startDate: data.startDate ? new Date(data.startDate) : undefined,
-        endDate: data.endDate ? new Date(data.endDate) : undefined
+        endDate: data.endDate ? new Date(data.endDate) : undefined,
+        parentProjectId: data.parentProjectId !== undefined ? data.parentProjectId : undefined
       },
       include: {
         phases: {

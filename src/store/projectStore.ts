@@ -86,16 +86,29 @@ export interface Project {
   name: string;
   description?: string;
   manager?: string;
+  sponsor?: string;
+  responsible?: string;
   area?: string;
   status?: 'Planificación' | 'Ejecución' | 'Pausado' | 'Completado';
   hasEquipment?: boolean;
   phases: Phase[];
   startDate: Date;
   endDate: Date;
+  parentProjectId?: string | null;
+}
+
+export interface ParentProject {
+  id: string;
+  name: string;
+  description?: string | null;
+  projects?: Project[];
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 interface ProjectState {
   projects: Project[];
+  parentProjects: ParentProject[];
   activeProjectId: string | null;
   isLoading: boolean;
   error: string | null;
@@ -110,6 +123,10 @@ interface ProjectState {
   addPhase: (projectId: string, phase: Phase) => Promise<void>;
   updatePhase: (projectId: string, phaseId: string, updates: Partial<Phase>) => Promise<void>;
   deletePhase: (projectId: string, phaseId: string) => Promise<void>;
+  fetchParentProjects: () => Promise<void>;
+  addParentProject: (name: string, description?: string) => Promise<void>;
+  updateParentProject: (id: string, name: string, description?: string) => Promise<void>;
+  deleteParentProject: (id: string) => Promise<void>;
 }
 
 const recalculatePhase = (phase: Phase): Phase => {
@@ -244,6 +261,22 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
           }))
         }));
         set({ projects });
+      }
+
+      const ppResponse = await fetch('/api/parent-projects');
+      if (ppResponse.ok) {
+        const ppData = await ppResponse.json();
+        const parentProjects = ppData.map((pp: any) => ({
+          ...pp,
+          createdAt: new Date(pp.createdAt),
+          updatedAt: new Date(pp.updatedAt),
+          projects: (pp.projects || []).map((p: any) => ({
+            ...p,
+            startDate: new Date(p.startDate),
+            endDate: new Date(p.endDate)
+          }))
+        }));
+        set({ parentProjects });
       }
     } catch (reloadErr) {
       console.error('Error reloading projects:', reloadErr);
@@ -384,6 +417,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
 
   return {
     projects: [],
+    parentProjects: [],
     activeProjectId: null,
     isLoading: false,
     error: null,
@@ -749,6 +783,79 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         console.error(err);
         set({ error: err.message });
         await reloadProjects();
+      }
+    },
+
+    fetchParentProjects: async () => {
+      set({ isLoading: true, error: null });
+      try {
+        const response = await fetch('/api/parent-projects');
+        if (!response.ok) throw new Error('Failed to fetch parent projects');
+        const data = await response.json();
+        const parentProjects = data.map((pp: any) => ({
+          ...pp,
+          createdAt: new Date(pp.createdAt),
+          updatedAt: new Date(pp.updatedAt),
+          projects: (pp.projects || []).map((p: any) => ({
+            ...p,
+            startDate: new Date(p.startDate),
+            endDate: new Date(p.endDate)
+          }))
+        }));
+        set({ parentProjects, isLoading: false });
+      } catch (err: any) {
+        console.error(err);
+        set({ error: err.message, isLoading: false });
+      }
+    },
+
+    addParentProject: async (name, description) => {
+      set({ isLoading: true, error: null });
+      try {
+        const response = await fetch('/api/parent-projects', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, description })
+        });
+        if (!response.ok) throw new Error('Failed to create parent project');
+        const getStore = get();
+        await getStore.fetchParentProjects();
+      } catch (err: any) {
+        console.error(err);
+        set({ error: err.message, isLoading: false });
+      }
+    },
+
+    updateParentProject: async (id, name, description) => {
+      set({ isLoading: true, error: null });
+      try {
+        const response = await fetch(`/api/parent-projects/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, description })
+        });
+        if (!response.ok) throw new Error('Failed to update parent project');
+        const getStore = get();
+        await getStore.fetchParentProjects();
+      } catch (err: any) {
+        console.error(err);
+        set({ error: err.message, isLoading: false });
+      }
+    },
+
+    deleteParentProject: async (id) => {
+      set({ isLoading: true, error: null });
+      try {
+        const response = await fetch(`/api/parent-projects/${id}`, {
+          method: 'DELETE'
+        });
+        if (!response.ok) throw new Error('Failed to delete parent project');
+        const getStore = get();
+        await getStore.fetchParentProjects();
+        await getStore.fetchProjects(); // Recargar proyectos por si se limpió la relación
+      } catch (err: any) {
+        console.error(err);
+        set({ error: err.message, isLoading: false });
       }
     }
   };

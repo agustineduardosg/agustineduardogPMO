@@ -36,11 +36,14 @@ export async function POST(req: Request) {
         name: data.name,
         description: data.description,
         manager: data.manager,
+        sponsor: data.sponsor,
+        responsible: data.responsible,
         area: data.area,
         status: data.status || 'Planificación',
         hasEquipment: data.hasEquipment || false,
         startDate: new Date(data.startDate),
         endDate: new Date(data.endDate),
+        parentProjectId: data.parentProjectId || null,
         phases: data.phases ? {
           create: data.phases.map((ph: any) => ({
             id: ph.id,

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState, useEffect, useRef } from 'react';
-import { useProjectStore, Project, Task, Phase, TaskStatus, TaskPriority } from '@/store/projectStore';
+import { useProjectStore, Project, Task, Phase, TaskStatus, TaskPriority, ParentProject } from '@/store/projectStore';
 import { useUserStore } from '@/store/userStore';
 import { format, differenceInDays, addDays, eachDayOfInterval, startOfWeek, addWeeks, startOfMonth, addMonths, isToday } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -28,6 +28,7 @@ const StatusBadge = ({ status }: { status: TaskStatus }) => {
 
 export default function GanttPage() {
   const projects = useProjectStore(state => state.projects);
+  const parentProjects = useProjectStore(state => state.parentProjects);
   const activeProjectId = useProjectStore(state => state.activeProjectId);
   const updateTask = useProjectStore(state => state.updateTask);
   const deleteTask = useProjectStore(state => state.deleteTask);
@@ -46,6 +47,26 @@ export default function GanttPage() {
     fetchProjects();
     fetchUsers();
   }, []);
+
+  const groupedProjects = useMemo(() => {
+    const groups: { parent: ParentProject | null; projects: Project[] }[] = [];
+    
+    // Agrupar proyectos vinculados a un padre
+    parentProjects.forEach(pp => {
+      const ppProjects = projects.filter(p => p.parentProjectId === pp.id);
+      groups.push({ parent: pp, projects: ppProjects });
+    });
+    
+    // Agrupar proyectos independientes
+    const independentProjects = projects.filter(
+      p => !p.parentProjectId || !parentProjects.some(pp => pp.id === p.parentProjectId)
+    );
+    if (independentProjects.length > 0) {
+      groups.push({ parent: null, projects: independentProjects });
+    }
+    
+    return groups;
+  }, [parentProjects, projects]);
 
   const project = projects.find(p => p.id === activeProjectId);
 
@@ -763,32 +784,57 @@ export default function GanttPage() {
                   <div style={{ padding: '8px 12px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', textTransform: 'uppercase', borderBottom: '1px solid var(--border-light)', background: 'var(--bg-tertiary)' }}>
                     Seleccionar Proyecto Activo
                   </div>
-                  {projects.map(p => (
-                    <div 
-                      key={p.id}
-                      onClick={() => {
-                        setActiveProject(p.id);
-                        setIsProjectDropdownOpen(false);
-                      }}
-                      style={{
-                        padding: '10px 16px',
-                        cursor: 'pointer',
-                        background: p.id === activeProjectId ? 'rgba(0,121,193,0.08)' : 'transparent',
-                        color: p.id === activeProjectId ? 'var(--accent-primary)' : 'var(--text-primary)',
-                        fontWeight: p.id === activeProjectId ? 700 : 500,
-                        fontSize: '0.85rem',
-                        display: 'flex',
-                        alignItems: 'center',
-                        gap: '8px',
-                        borderBottom: '1px solid var(--border-subtle)',
-                        transition: 'background 0.2s'
-                      }}
-                      className="proj-select-option"
-                    >
-                      <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: p.id === activeProjectId ? 'var(--accent-primary)' : 'transparent' }} />
-                      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.name}</span>
-                    </div>
-                  ))}
+                  <div style={{ maxHeight: '350px', overflowY: 'auto' }}>
+                    {groupedProjects.map((group, groupIdx) => (
+                      <div key={groupIdx} style={{ display: 'flex', flexDirection: 'column' }}>
+                        <div style={{ 
+                          padding: '6px 12px', 
+                          fontSize: '0.72rem', 
+                          fontWeight: 700, 
+                          color: group.parent ? '#004B87' : 'var(--text-secondary)', 
+                          background: group.parent ? 'rgba(0, 121, 193, 0.04)' : 'var(--bg-tertiary)',
+                          borderBottom: '1px solid var(--border-subtle)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '6px'
+                        }}>
+                          {group.parent ? `📁 ${group.parent.name}` : '⚙️ Proyectos Independientes'}
+                        </div>
+                        {group.projects.length === 0 ? (
+                          <div style={{ padding: '8px 24px', fontSize: '0.78rem', color: 'var(--text-muted)', fontStyle: 'italic' }}>
+                            No hay proyectos en esta sección
+                          </div>
+                        ) : (
+                          group.projects.map(p => (
+                            <div 
+                              key={p.id}
+                              onClick={() => {
+                                setActiveProject(p.id);
+                                setIsProjectDropdownOpen(false);
+                              }}
+                              style={{
+                                padding: '10px 16px 10px 24px',
+                                cursor: 'pointer',
+                                background: p.id === activeProjectId ? 'rgba(0,121,193,0.08)' : 'transparent',
+                                color: p.id === activeProjectId ? 'var(--accent-primary)' : 'var(--text-primary)',
+                                fontWeight: p.id === activeProjectId ? 700 : 500,
+                                fontSize: '0.85rem',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                borderBottom: '1px solid var(--border-subtle)',
+                                transition: 'background 0.2s'
+                              }}
+                              className="proj-select-option"
+                            >
+                              <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: p.id === activeProjectId ? 'var(--accent-primary)' : 'transparent' }} />
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flex: 1 }}>{p.name}</span>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </>
             )}

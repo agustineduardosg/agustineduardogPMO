@@ -49,6 +49,36 @@ const FASES_CLINICAS = [
   'Go-live'
 ];
 
+const COLUMN_CONFIG: Record<string, { label: string; width?: string; minWidth?: string }> = {
+  id: { label: 'ID', width: '55px' },
+  fecha: { label: 'Fecha', width: '120px' },
+  recintoName: { label: 'Sede / Clínica', width: '160px' },
+  equipmentName: { label: 'Equipo Afectado', width: '180px' },
+  faseAfectada: { label: 'Fase Afectada', width: '150px' },
+  descripcion: { label: 'Descripción del Incidente / Desviación', minWidth: '280px' },
+  impacto: { label: 'Impacto', width: '115px' },
+  responsable: { label: 'Responsable', width: '160px' },
+  estado: { label: 'Estado', width: '120px' },
+  planDeAccion: { label: 'Plan de Acción Inmediato / Mitigación', minWidth: '240px' },
+  fechaCierre: { label: 'F. Cierre', width: '120px' },
+  projectId: { label: 'Proyecto Asociado', width: '180px' }
+};
+
+const DEFAULT_COLUMN_ORDER = [
+  'id',
+  'fecha',
+  'recintoName',
+  'equipmentName',
+  'faseAfectada',
+  'descripcion',
+  'impacto',
+  'responsable',
+  'estado',
+  'planDeAccion',
+  'fechaCierre',
+  'projectId'
+];
+
 export default function IncidentsPage() {
   const incidents = useIncidentStore(state => state.incidents);
   const addIncident = useIncidentStore(state => state.addIncident);
@@ -63,7 +93,9 @@ export default function IncidentsPage() {
   const fetchUsers = useUserStore(state => state.fetchUsers);
 
   const projects = useProjectStore(state => state.projects);
+  const parentProjects = useProjectStore(state => state.parentProjects);
   const fetchProjects = useProjectStore(state => state.fetchProjects);
+  const fetchParentProjects = useProjectStore(state => state.fetchParentProjects);
 
   // Auto-save Feedback State
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -135,6 +167,7 @@ export default function IncidentsPage() {
     fetchEquipmentData();
     fetchUsers();
     fetchProjects();
+    fetchParentProjects();
 
     const saved = localStorage.getItem('incidents_dashboard_collapsed');
     if (saved !== null) {
@@ -149,23 +182,59 @@ export default function IncidentsPage() {
   const [filterRecinto, setFilterRecinto] = useState<string>('all');
   const [filterProject, setFilterProject] = useState<string>('all');
 
-  // Estado para columnas dinámicas
+  // Estado para columnas dinámicas y orden
   const [customColumns, setCustomColumns] = useState<string[]>([]);
+  const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [newColName, setNewColName] = useState('');
   const [isAddingCol, setIsAddingCol] = useState(false);
   const [editingColIndex, setEditingColIndex] = useState<number | null>(null);
   const [editingColName, setEditingColName] = useState('');
 
-  // Cargar columnas dinámicas desde localStorage
+  // Cargar columnas dinámicas y su orden desde localStorage
   React.useEffect(() => {
-    const saved = localStorage.getItem('custom_cols_incidents');
-    if (saved) {
+    const savedCols = localStorage.getItem('custom_cols_incidents');
+    let loadedCustoms: string[] = [];
+    if (savedCols) {
       try {
-        setCustomColumns(JSON.parse(saved));
+        loadedCustoms = JSON.parse(savedCols);
+        setCustomColumns(loadedCustoms);
       } catch (e) {
         console.error('Error loading custom columns', e);
       }
     }
+
+    const savedOrder = localStorage.getItem('incidents_column_order');
+    let parsedOrder: string[] = [];
+    if (savedOrder) {
+      try {
+        parsedOrder = JSON.parse(savedOrder);
+      } catch (e) {
+        console.error('Error loading column order', e);
+      }
+    }
+
+    // El orden base debe ser el guardado o el default
+    let baseOrder = parsedOrder.length > 0 ? parsedOrder : [...DEFAULT_COLUMN_ORDER];
+
+    // Asegurar que todas las columnas estándar estén presentes en baseOrder (por si acaso se eliminó alguna)
+    DEFAULT_COLUMN_ORDER.forEach(col => {
+      if (!baseOrder.includes(col)) {
+        // Insertar en su lugar correspondiente si es posible, o al inicio
+        baseOrder.push(col);
+      }
+    });
+
+    // Asegurar que todas las customColumns cargadas estén en baseOrder si no lo están
+    loadedCustoms.forEach(c => {
+      if (!baseOrder.includes(c)) {
+        baseOrder.push(c);
+      }
+    });
+
+    // Filtrar cualquier columna personalizada que ya no esté activa
+    baseOrder = baseOrder.filter(c => DEFAULT_COLUMN_ORDER.includes(c) || loadedCustoms.includes(c));
+
+    setColumnOrder(baseOrder);
   }, []);
 
   // Auto-descubrimiento y sincronización de columnas desde la base de datos
@@ -198,9 +267,21 @@ export default function IncidentsPage() {
       if (changed) {
         setCustomColumns(updated);
         localStorage.setItem('custom_cols_incidents', JSON.stringify(updated));
+
+        // Sincronizar el columnOrder para agregar las nuevas columnas descubiertas
+        setColumnOrder(prevOrder => {
+          const newOrder = [...prevOrder];
+          updated.forEach(c => {
+            if (!newOrder.includes(c)) {
+              newOrder.push(c);
+            }
+          });
+          localStorage.setItem('incidents_column_order', JSON.stringify(newOrder));
+          return newOrder;
+        });
       }
     }
-  }, [incidents]);
+  }, [incidents, customColumns]);
 
   // Guardar columnas dinámicas en localStorage
   const saveCustomColumns = (cols: string[]) => {
@@ -208,32 +289,60 @@ export default function IncidentsPage() {
     localStorage.setItem('custom_cols_incidents', JSON.stringify(cols));
   };
 
+  // Mover columna (arriba/abajo o izquierda/derecha)
+  const handleMoveColumn = (idx: number, direction: 'up' | 'down') => {
+    const nextIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (nextIdx < 0 || nextIdx >= columnOrder.length) return;
+
+    const updated = [...columnOrder];
+    const temp = updated[idx];
+    updated[idx] = updated[nextIdx];
+    updated[nextIdx] = temp;
+
+    setColumnOrder(updated);
+    localStorage.setItem('incidents_column_order', JSON.stringify(updated));
+  };
+
   // Agregar nueva columna dinámica
   const handleAddColumn = (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName = newColName.trim();
     if (!cleanName) return;
-    if (customColumns.includes(cleanName)) {
+    if (customColumns.includes(cleanName) || DEFAULT_COLUMN_ORDER.includes(cleanName)) {
       alert('Ya existe una columna con ese nombre.');
       return;
     }
-    const updated = [...customColumns, cleanName];
-    saveCustomColumns(updated);
+
+    const updatedCols = [...customColumns, cleanName];
+    saveCustomColumns(updatedCols);
+
+    const updatedOrder = [...columnOrder, cleanName];
+    setColumnOrder(updatedOrder);
+    localStorage.setItem('incidents_column_order', JSON.stringify(updatedOrder));
+
     setNewColName('');
   };
 
   // Eliminar columna dinámica
   const handleDeleteColumn = (colName: string) => {
     if (confirm(`¿Está seguro de eliminar la columna "${colName}"? Se borrarán sus datos asociados.`)) {
-      const updated = customColumns.filter(c => c !== colName);
-      saveCustomColumns(updated);
+      const updatedCols = customColumns.filter(c => c !== colName);
+      saveCustomColumns(updatedCols);
+
+      const updatedOrder = columnOrder.filter(c => c !== colName);
+      setColumnOrder(updatedOrder);
+      localStorage.setItem('incidents_column_order', JSON.stringify(updatedOrder));
       
       // Limpiar los datos de los incidentes asociados a esa columna
       incidents.forEach(inc => {
-        const customFields = inc.customFields ? JSON.parse(inc.customFields) : {};
-        if (customFields[colName] !== undefined) {
-          delete customFields[colName];
-          updateIncident(inc.id, { customFields: JSON.stringify(customFields) });
+        if (inc.customFields) {
+          try {
+            const customFields = JSON.parse(inc.customFields);
+            if (customFields[colName] !== undefined) {
+              delete customFields[colName];
+              updateIncident(inc.id, { customFields: JSON.stringify(customFields) });
+            }
+          } catch(e) {}
         }
       });
       if (editingColIndex !== null) setEditingColIndex(null);
@@ -244,16 +353,21 @@ export default function IncidentsPage() {
   const handleRenameColumnDirect = (oldName: string, newName: string) => {
     if (!newName || !newName.trim() || newName.trim() === oldName) return;
     const cleanName = newName.trim();
-    if (customColumns.includes(cleanName) && cleanName !== oldName) {
+    if ((customColumns.includes(cleanName) || DEFAULT_COLUMN_ORDER.includes(cleanName)) && cleanName !== oldName) {
       alert('Ya existe una columna con ese nombre.');
       return;
     }
     
     // 1. Renombrar en el array customColumns
-    const updated = customColumns.map(c => c === oldName ? cleanName : c);
-    saveCustomColumns(updated);
+    const updatedCols = customColumns.map(c => c === oldName ? cleanName : c);
+    saveCustomColumns(updatedCols);
+
+    // 2. Renombrar en el columnOrder
+    const updatedOrder = columnOrder.map(c => c === oldName ? cleanName : c);
+    setColumnOrder(updatedOrder);
+    localStorage.setItem('incidents_column_order', JSON.stringify(updatedOrder));
     
-    // 2. Renombrar la llave en el JSON customFields de cada incidente
+    // 3. Renombrar la llave en el JSON customFields de cada incidente
     incidents.forEach(inc => {
       if (inc.customFields) {
         try {
@@ -495,78 +609,131 @@ export default function IncidentsPage() {
               </div>
             </form>
 
-            {/* Listado de Columnas Existentes */}
+            {/* Listado de Columnas Existentes (Reordenamiento y Administración) */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '6px' }}>Columnas Activas ({customColumns.length})</span>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '200px', overflowY: 'auto', paddingRight: '4px' }}>
-                {customColumns.length === 0 ? (
-                  <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', textAlign: 'center', padding: '12px' }}>No hay columnas personalizadas activas.</div>
-                ) : (
-                  customColumns.map((col, idx) => (
-                    <div key={col} style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-primary)', padding: '8px 10px', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}>
-                      {editingColIndex === idx ? (
-                        <>
-                          <input 
-                            type="text" 
-                            value={editingColName}
-                            onChange={e => setEditingColName(e.target.value)}
-                            className="control-input"
-                            style={{ flex: 1, padding: '4px 8px', fontSize: '0.82rem', border: '1px solid var(--accent-primary)', borderRadius: '4px', background: 'white', outline: 'none' }}
-                            autoFocus
-                            onKeyDown={(e) => {
-                              if (e.key === 'Enter') {
-                                handleRenameColumnDirect(col, editingColName);
-                                setEditingColIndex(null);
-                              }
-                            }}
-                          />
-                          <button 
-                            type="button"
-                            onClick={() => {
-                              handleRenameColumnDirect(col, editingColName);
-                              setEditingColIndex(null);
-                            }}
-                            style={{ border: 'none', background: 'transparent', color: '#10b981', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
-                            title="Guardar nombre"
-                          >
-                            <Check size={16} />
-                          </button>
-                          <button 
-                            type="button"
-                            onClick={() => setEditingColIndex(null)}
-                            style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
-                            title="Cancelar"
-                          >
-                            <X size={16} />
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <span style={{ flex: 1, fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-primary)' }}>{col}</span>
-                          <button 
-                            type="button"
-                            onClick={() => {
-                              setEditingColIndex(idx);
-                              setEditingColName(col);
-                            }}
-                            style={{ border: 'none', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
-                            title="Renombrar columna"
-                          >
-                            <Edit2 size={14} />
-                          </button>
-                          <button 
-                            type="button"
-                            onClick={() => handleDeleteColumn(col)}
-                            style={{ border: 'none', background: 'transparent', color: 'red', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '4px' }}
-                            title="Eliminar columna"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </>
+              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '6px' }}>
+                Orden de Columnas ({columnOrder.length})
+              </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '250px', overflowY: 'auto', paddingRight: '4px' }}>
+                {columnOrder.map((colKey, idx) => {
+                  const isStandard = DEFAULT_COLUMN_ORDER.includes(colKey);
+                  const label = isStandard ? COLUMN_CONFIG[colKey].label : colKey;
+                  const cIdx = isStandard ? -1 : customColumns.indexOf(colKey);
+
+                  return (
+                    <div key={colKey} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', background: 'var(--bg-primary)', padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}>
+                      <span style={{ flex: 1, fontSize: '0.82rem', fontWeight: 600, color: isStandard ? 'var(--text-secondary)' : 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px' }} title={colKey}>
+                        <span style={{ opacity: 0.6, fontSize: '0.9rem' }}>{isStandard ? '📌' : '⚡'}</span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '170px' }}>{label}</span>
+                      </span>
+
+                      {/* Botones de Reordenamiento */}
+                      <div style={{ display: 'flex', gap: '1px', alignItems: 'center' }}>
+                        <button
+                          type="button"
+                          disabled={idx === 0}
+                          onClick={() => handleMoveColumn(idx, 'up')}
+                          style={{
+                            border: 'none',
+                            background: idx === 0 ? 'transparent' : 'rgba(0, 75, 135, 0.05)',
+                            cursor: idx === 0 ? 'not-allowed' : 'pointer',
+                            color: idx === 0 ? 'var(--text-muted)' : '#004B87',
+                            padding: '3px 6px',
+                            borderRadius: '4px',
+                            fontSize: '0.75rem',
+                            fontWeight: 'bold',
+                            transition: 'all 0.15s'
+                          }}
+                          title="Mover hacia la izquierda"
+                        >
+                          ▲
+                        </button>
+                        <button
+                          type="button"
+                          disabled={idx === columnOrder.length - 1}
+                          onClick={() => handleMoveColumn(idx, 'down')}
+                          style={{
+                            border: 'none',
+                            background: idx === columnOrder.length - 1 ? 'transparent' : 'rgba(0, 75, 135, 0.05)',
+                            cursor: idx === columnOrder.length - 1 ? 'not-allowed' : 'pointer',
+                            color: idx === columnOrder.length - 1 ? 'var(--text-muted)' : '#004B87',
+                            padding: '3px 6px',
+                            borderRadius: '4px',
+                            fontSize: '0.75rem',
+                            fontWeight: 'bold',
+                            transition: 'all 0.15s'
+                          }}
+                          title="Mover hacia la derecha"
+                        >
+                          ▼
+                        </button>
+                      </div>
+
+                      {/* Botones de Edición para Columnas Personalizadas */}
+                      {!isStandard && (
+                        <div style={{ display: 'flex', gap: '4px', borderLeft: '1px solid var(--border-subtle)', paddingLeft: '8px', alignItems: 'center' }}>
+                          {editingColIndex === cIdx ? (
+                            <>
+                              <input 
+                                type="text" 
+                                value={editingColName}
+                                onChange={e => setEditingColName(e.target.value)}
+                                className="control-input"
+                                style={{ width: '80px', padding: '2px 4px', fontSize: '0.78rem', border: '1px solid var(--accent-primary)', borderRadius: '4px', background: 'white' }}
+                                autoFocus
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleRenameColumnDirect(colKey, editingColName);
+                                    setEditingColIndex(null);
+                                  }
+                                }}
+                              />
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  handleRenameColumnDirect(colKey, editingColName);
+                                  setEditingColIndex(null);
+                                }}
+                                style={{ border: 'none', background: 'transparent', color: '#10b981', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
+                              >
+                                <Check size={14} />
+                              </button>
+                              <button 
+                                type="button"
+                                onClick={() => setEditingColIndex(null)}
+                                style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
+                              >
+                                <X size={14} />
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button 
+                                type="button"
+                                onClick={() => {
+                                  setEditingColIndex(cIdx);
+                                  setEditingColName(colKey);
+                                }}
+                                style={{ border: 'none', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
+                                title="Renombrar columna"
+                              >
+                                <Edit2 size={12} />
+                              </button>
+                              <button 
+                                type="button"
+                                onClick={() => handleDeleteColumn(colKey)}
+                                style={{ border: 'none', background: 'transparent', color: 'red', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
+                                title="Eliminar columna"
+                              >
+                                <Trash2 size={12} />
+                              </button>
+                            </>
+                          )}
+                        </div>
                       )}
                     </div>
-                  ))
-                )}
+                  );
+                })}
               </div>
             </div>
 
@@ -751,9 +918,28 @@ export default function IncidentsPage() {
             >
               <option value="all">Todos los Proyectos</option>
               <option value="none">Sin Proyecto Asociado</option>
-              {projects.map(p => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
+              {parentProjects.map(pp => {
+                const subProjs = projects.filter(p => p.parentProjectId === pp.id);
+                if (subProjs.length === 0) return null;
+                return (
+                  <optgroup key={pp.id} label={`📁 ${pp.name}`}>
+                    {subProjs.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </optgroup>
+                );
+              })}
+              {(() => {
+                const indeps = projects.filter(p => !p.parentProjectId || !parentProjects.some(pp => pp.id === p.parentProjectId));
+                if (indeps.length === 0) return null;
+                return (
+                  <optgroup label="⚙️ Proyectos Independientes">
+                    {indeps.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </optgroup>
+                );
+              })()}
             </select>
           </div>
 
@@ -777,65 +963,71 @@ export default function IncidentsPage() {
           <table className="incidents-table">
             <thead>
               <tr>
-                <th style={{ width: '55px', textAlign: 'center' }}>ID</th>
-                <th style={{ width: '120px' }}>Fecha</th>
-                <th style={{ width: '160px' }}>Sede / Clínica</th>
-                <th style={{ width: '180px' }}>Proyecto Asociado</th>
-                <th style={{ width: '180px' }}>Equipo Afectado</th>
-                <th style={{ width: '150px' }}>Fase Afectada</th>
-                <th style={{ minWidth: '280px' }}>Descripción del Incidente / Desviación</th>
-                <th style={{ width: '115px', textAlign: 'center' }}>Impacto</th>
-                <th style={{ width: '160px' }}>Responsable</th>
-                <th style={{ width: '120px', textAlign: 'center' }}>Estado</th>
-                <th style={{ minWidth: '240px' }}>Plan de Acción Inmediato / Mitigación</th>
-                <th style={{ width: '120px' }}>F. Cierre</th>
-
-                {/* Cabeceras de Columnas Dinámicas */}
-                {customColumns.map((col, idx) => (
-                  <th key={col} style={{ minWidth: '150px', position: 'relative' }} className="custom-th">
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                      <span 
-                        style={{ cursor: 'pointer' }} 
-                        onClick={() => {
-                          setIsAddingCol(true);
-                          setEditingColIndex(idx);
-                          setEditingColName(col);
-                        }} 
-                        title="Administrar columna"
+                {columnOrder.map((colKey) => {
+                  const isStandard = DEFAULT_COLUMN_ORDER.includes(colKey);
+                  if (isStandard) {
+                    const config = COLUMN_CONFIG[colKey];
+                    return (
+                      <th 
+                        key={colKey} 
+                        style={{ 
+                          width: config.width, 
+                          minWidth: config.minWidth,
+                          textAlign: colKey === 'id' || colKey === 'impacto' || colKey === 'estado' ? 'center' : 'left' 
+                        }}
                       >
-                        {col}
-                      </span>
-                      <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
-                        <button 
-                          onClick={() => {
-                            setIsAddingCol(true);
-                            setEditingColIndex(idx);
-                            setEditingColName(col);
-                          }} 
-                          style={{ border: 'none', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', padding: '2px' }}
-                          title={`Renombrar columna "${col}"`}
-                        >
-                          <Edit2 size={12} />
-                        </button>
-                        <button 
-                          onClick={() => handleDeleteColumn(col)} 
-                          style={{ border: 'none', background: 'transparent', color: 'red', cursor: 'pointer', padding: '2px' }}
-                          title={`Eliminar columna "${col}"`}
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    </div>
-                  </th>
-                ))}
-
+                        {config.label}
+                      </th>
+                    );
+                  } else {
+                    return (
+                      <th key={colKey} style={{ minWidth: '150px', position: 'relative' }} className="custom-th">
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                          <span 
+                            style={{ cursor: 'pointer' }} 
+                            onClick={() => {
+                              setIsAddingCol(true);
+                              const cIdx = customColumns.indexOf(colKey);
+                              setEditingColIndex(cIdx !== -1 ? cIdx : null);
+                              setEditingColName(colKey);
+                            }} 
+                            title="Administrar columna"
+                          >
+                            {colKey}
+                          </span>
+                          <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                            <button 
+                              onClick={() => {
+                                setIsAddingCol(true);
+                                const cIdx = customColumns.indexOf(colKey);
+                                setEditingColIndex(cIdx !== -1 ? cIdx : null);
+                                setEditingColName(colKey);
+                              }} 
+                              style={{ border: 'none', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', padding: '2px' }}
+                              title={`Renombrar columna "${colKey}"`}
+                            >
+                              <Edit2 size={12} />
+                            </button>
+                            <button 
+                              onClick={() => handleDeleteColumn(colKey)} 
+                              style={{ border: 'none', background: 'transparent', color: 'red', cursor: 'pointer', padding: '2px' }}
+                              title={`Eliminar columna "${colKey}"`}
+                            >
+                              <X size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      </th>
+                    );
+                  }
+                })}
                 <th style={{ width: '55px', textAlign: 'center' }}>Acciones</th>
               </tr>
             </thead>
             <tbody>
               {filteredIncidents.length === 0 ? (
                 <tr>
-                  <td colSpan={13 + customColumns.length} className="no-data-cell">
+                  <td colSpan={columnOrder.length + 1} className="no-data-cell">
                     <div style={{ padding: '40px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
                       <AlertOctagon size={36} color="var(--text-muted)" />
                       <span style={{ fontWeight: 600, color: 'var(--text-secondary)' }}>No se encontraron incidentes registrados</span>
@@ -857,190 +1049,261 @@ export default function IncidentsPage() {
                     <tr 
                       key={inc.id} 
                       className="incident-row"
-                      onClick={() => {
+                      onDoubleClick={() => {
                         setSelectedIncidentId(inc.id);
                         setIsDrawerOpen(true);
                       }}
                     >
-                      
-                      {/* ID visual correlativo */}
-                      <td style={{ textAlign: 'center', fontWeight: 800, color: '#004B87', backgroundColor: '#F8FAFC' }}>
-                        #{inc.indexId}
-                      </td>
-
-                      {/* Fecha del incidente */}
-                      <td style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
-                        {inc.fecha ? (
-                          (() => {
-                            try {
-                              const [year, month, day] = inc.fecha.split('-');
-                              if (year && month && day) {
-                                return `${day}/${month}/${year}`;
-                              }
-                              return inc.fecha;
-                            } catch (e) {
-                              return inc.fecha;
-                            }
-                          })()
-                        ) : (
-                          <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>Sin fecha</span>
-                        )}
-                      </td>
-
-                      {/* Sede / Clínica */}
-                      <td style={{ fontWeight: 700, color: '#004B87' }}>
-                        {inc.recintoName}
-                      </td>
-
-                      {/* Proyecto Asociado */}
-                      <td>
-                        {(() => {
-                          const proj = projects.find(p => p.id === inc.projectId);
-                          return proj ? (
-                            <span style={{ color: '#0079C1', fontWeight: 700 }}>
-                              📁 {proj.name}
-                            </span>
-                          ) : (
-                            <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.78rem' }}>
-                              -- Sin Proyecto --
-                            </span>
-                          );
-                        })()}
-                      </td>
-
-                      {/* Equipo Afectado */}
-                      <td style={{ fontWeight: 600, color: 'var(--text-primary)' }}>
-                        {inc.equipmentName || (
-                          <span style={{ color: 'var(--text-muted)', fontStyle: 'italic' }}>General</span>
-                        )}
-                      </td>
-
-                      {/* Fase Afectada */}
-                      <td style={{ color: 'var(--text-secondary)' }}>
-                        <span style={{ 
-                          background: 'var(--bg-tertiary)', 
-                          padding: '4px 8px', 
-                          borderRadius: '4px', 
-                          border: '1px solid var(--border-light)',
-                          fontSize: '0.75rem',
-                          fontWeight: 'bold'
-                        }}>
-                          {inc.faseAfectada}
-                        </span>
-                      </td>
-
-                      {/* Descripción */}
-                      <td className="clickable-preview-cell">
-                        <div className="preview-text">
-                          {inc.descripcion ? (
-                            inc.descripcion.length > 70 ? `${inc.descripcion.substring(0, 70)}...` : inc.descripcion
-                          ) : (
-                            <span className="placeholder-text">Detallar incidente...</span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Impacto */}
-                      <td style={{ textAlign: 'center' }}>
-                        <span style={{
-                          background: impactColor.bg,
-                          color: impactColor.color,
-                          border: `1px solid ${impactColor.border}`,
-                          borderRadius: '20px',
-                          padding: '4px 12px',
-                          fontSize: '0.75rem',
-                          fontWeight: 'bold',
-                          display: 'inline-block',
-                          textAlign: 'center',
-                          minWidth: '85px'
-                        }}>
-                          {inc.impacto}
-                        </span>
-                      </td>
-
-                      {/* Responsable */}
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                          <div style={{ 
-                            width: '24px', 
-                            height: '24px', 
-                            borderRadius: '50%', 
-                            background: 'linear-gradient(135deg, #004B87 0%, #0079C1 100%)', 
-                            color: 'white', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            justifyContent: 'center', 
-                            fontSize: '0.68rem', 
-                            fontWeight: 'bold',
-                            flexShrink: 0
-                          }}>
-                            {(() => {
-                              const nameParts = inc.responsable.split(' ');
-                              const initial1 = nameParts[0]?.[0] || '';
-                              const initial2 = nameParts[1]?.[0] || '';
-                              return (initial1 + initial2).toUpperCase();
-                            })()}
-                          </div>
-                          <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{inc.responsable}</span>
-                        </div>
-                      </td>
-
-                      {/* Estado */}
-                      <td style={{ textAlign: 'center' }}>
-                        <span style={{
-                          background: statusColor.bg,
-                          color: statusColor.color,
-                          border: `1px solid ${statusColor.border}`,
-                          borderRadius: '20px',
-                          padding: '4px 12px',
-                          fontSize: '0.75rem',
-                          fontWeight: 'bold',
-                          display: 'inline-block',
-                          textAlign: 'center',
-                          minWidth: '85px'
-                        }}>
-                          {inc.estado}
-                        </span>
-                      </td>
-
-                      {/* Plan de Acción */}
-                      <td className="clickable-preview-cell">
-                        <div className="preview-text">
-                          {inc.planDeAccion ? (
-                            inc.planDeAccion.length > 70 ? `${inc.planDeAccion.substring(0, 70)}...` : inc.planDeAccion
-                          ) : (
-                            <span className="placeholder-text">Ingresar plan inmediato...</span>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* Fecha de Cierre */}
-                      <td style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
-                        {inc.fechaCierre ? (
-                          (() => {
-                            try {
-                              const [year, month, day] = inc.fechaCierre.split('-');
-                              if (year && month && day) {
-                                return `${day}/${month}/${year}`;
-                              }
-                              return inc.fechaCierre;
-                            } catch (e) {
-                              return inc.fechaCierre;
-                            }
-                          })()
-                        ) : (
-                          <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.78rem' }}>--</span>
-                        )}
-                      </td>
-
-                      {/* Celdas de Columnas Dinámicas */}
-                      {customColumns.map(col => {
-                        const cellValue = customFieldsData[col] || '';
-                        return (
-                          <td key={col} style={{ color: 'var(--text-primary)' }}>
-                            {cellValue || <span style={{ color: 'var(--text-muted)', fontStyle: 'italic', fontSize: '0.75rem' }}>--</span>}
-                          </td>
-                        );
+                      {columnOrder.map(colKey => {
+                        switch (colKey) {
+                          case 'id':
+                            return (
+                              <td key={colKey} style={{ textAlign: 'center', fontWeight: 800, color: '#004B87', backgroundColor: '#F8FAFC' }}>
+                                #{inc.indexId}
+                              </td>
+                            );
+                          
+                          case 'fecha':
+                            return (
+                              <td key={colKey}>
+                                <input
+                                  type="date"
+                                  value={inc.fecha || ''}
+                                  onChange={(e) => handleUpdateIncident(inc.id, { fecha: e.target.value })}
+                                  className="table-cell-input"
+                                  style={{ fontSize: '0.8rem', padding: '4px' }}
+                                />
+                              </td>
+                            );
+                            
+                          case 'recintoName':
+                            return (
+                              <td key={colKey}>
+                                <select
+                                  value={inc.recintoName}
+                                  onChange={(e) => handleUpdateIncident(inc.id, { recintoName: e.target.value })}
+                                  className="table-cell-select"
+                                  style={{ fontWeight: 700, color: '#004B87', padding: '4px' }}
+                                >
+                                  {recintos.map(r => (
+                                    <option key={r.id} value={r.name}>{r.name}</option>
+                                  ))}
+                                  {uniqueRecintosInIncidents.map(name => {
+                                    if (recintos.some(r => r.name === name)) return null;
+                                    return <option key={name} value={name}>{name}</option>;
+                                  })}
+                                </select>
+                              </td>
+                            );
+                            
+                          case 'equipmentName':
+                            return (
+                              <td key={colKey}>
+                                <InlineInput
+                                  value={inc.equipmentName}
+                                  onSave={(val) => handleUpdateIncident(inc.id, { equipmentName: val })}
+                                  placeholder="General"
+                                  className="table-cell-input"
+                                  style={{ padding: '4px' }}
+                                />
+                              </td>
+                            );
+                            
+                          case 'faseAfectada':
+                            return (
+                              <td key={colKey}>
+                                <select
+                                  value={inc.faseAfectada}
+                                  onChange={(e) => handleUpdateIncident(inc.id, { faseAfectada: e.target.value })}
+                                  className="table-cell-select"
+                                  style={{ padding: '4px' }}
+                                >
+                                  {FASES_CLINICAS.map(fase => (
+                                    <option key={fase} value={fase}>{fase}</option>
+                                  ))}
+                                </select>
+                              </td>
+                            );
+                            
+                          case 'descripcion':
+                            return (
+                              <td key={colKey}>
+                                <InlineTextarea
+                                  value={inc.descripcion}
+                                  onSave={(val) => handleUpdateIncident(inc.id, { descripcion: val })}
+                                  placeholder="Detallar incidente..."
+                                  className="table-cell-textarea"
+                                  style={{ padding: '4px', fontSize: '0.8rem', minHeight: '32px' }}
+                                />
+                              </td>
+                            );
+                            
+                          case 'impacto':
+                            return (
+                              <td key={colKey}>
+                                <select
+                                  value={inc.impacto}
+                                  onChange={(e) => handleUpdateIncident(inc.id, { impacto: e.target.value })}
+                                  className="table-cell-select table-cell-select-badge"
+                                  style={{
+                                    background: impactColor.bg,
+                                    color: impactColor.color,
+                                    border: `1px solid ${impactColor.border}`,
+                                    borderRadius: '20px',
+                                    fontWeight: 'bold',
+                                    fontSize: '0.75rem',
+                                    padding: '4px 8px',
+                                    width: '100%',
+                                    minWidth: '95px',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  <option value="Crítico">Crítico</option>
+                                  <option value="Medio">Medio</option>
+                                  <option value="Bajo">Bajo</option>
+                                </select>
+                              </td>
+                            );
+                            
+                          case 'responsable':
+                            return (
+                              <td key={colKey}>
+                                <select
+                                  value={inc.responsable}
+                                  onChange={(e) => handleUpdateIncident(inc.id, { responsable: e.target.value })}
+                                  className="table-cell-select"
+                                  style={{ padding: '4px' }}
+                                >
+                                  <optgroup label="Equipo de Proyecto">
+                                    {users.map(u => (
+                                      <option key={u.id} value={u.name}>{u.name}</option>
+                                    ))}
+                                  </optgroup>
+                                  <optgroup label="Equipos de Apoyo">
+                                    <option value="Equipo técnico">Equipo técnico</option>
+                                    <option value="Laboratorio">Laboratorio</option>
+                                    <option value="Usuario / Clínica">Usuario / Clínica</option>
+                                    <option value="Proveedor Siemens">Proveedor Siemens</option>
+                                    <option value="Sistemas TI Bupa">Sistemas TI Bupa</option>
+                                  </optgroup>
+                                </select>
+                              </td>
+                            );
+                            
+                          case 'estado':
+                            return (
+                              <td key={colKey}>
+                                <select
+                                  value={inc.estado}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    const closureDate = val === 'Cerrado' ? new Date().toISOString().split('T')[0] : '';
+                                    handleUpdateIncident(inc.id, { 
+                                      estado: val,
+                                      fechaCierre: closureDate
+                                    });
+                                  }}
+                                  className="table-cell-select table-cell-select-badge"
+                                  style={{
+                                    background: statusColor.bg,
+                                    color: statusColor.color,
+                                    border: `1px solid ${statusColor.border}`,
+                                    borderRadius: '20px',
+                                    fontWeight: 'bold',
+                                    fontSize: '0.75rem',
+                                    padding: '4px 8px',
+                                    width: '100%',
+                                    minWidth: '95px',
+                                    cursor: 'pointer'
+                                  }}
+                                >
+                                  <option value="Abierto">Abierto</option>
+                                  <option value="En proceso">En proceso</option>
+                                  <option value="Cerrado">Cerrado</option>
+                                </select>
+                              </td>
+                            );
+                            
+                          case 'planDeAccion':
+                            return (
+                              <td key={colKey}>
+                                <InlineTextarea
+                                  value={inc.planDeAccion}
+                                  onSave={(val) => handleUpdateIncident(inc.id, { planDeAccion: val })}
+                                  placeholder="Ingresar plan..."
+                                  className="table-cell-textarea"
+                                  style={{ padding: '4px', fontSize: '0.8rem', minHeight: '32px' }}
+                                />
+                              </td>
+                            );
+                            
+                          case 'fechaCierre':
+                            return (
+                              <td key={colKey}>
+                                <input
+                                  type="date"
+                                  value={inc.fechaCierre || ''}
+                                  onChange={(e) => handleUpdateIncident(inc.id, { fechaCierre: e.target.value })}
+                                  className="table-cell-input"
+                                  style={{ fontSize: '0.8rem', padding: '4px' }}
+                                />
+                              </td>
+                            );
+                            
+                          case 'projectId':
+                            return (
+                              <td key={colKey}>
+                                <select
+                                  value={inc.projectId || ''}
+                                  onChange={(e) => handleUpdateIncident(inc.id, { projectId: e.target.value || null })}
+                                  className="table-cell-select"
+                                  style={{ padding: '4px', fontWeight: 600, color: '#0079C1' }}
+                                >
+                                  <option value="">-- Sin Proyecto --</option>
+                                  {parentProjects.map(pp => {
+                                    const subProjs = projects.filter(p => p.parentProjectId === pp.id);
+                                    if (subProjs.length === 0) return null;
+                                    return (
+                                      <optgroup key={pp.id} label={`📁 ${pp.name}`}>
+                                        {subProjs.map(p => (
+                                          <option key={p.id} value={p.id}>{p.name}</option>
+                                        ))}
+                                      </optgroup>
+                                    );
+                                  })}
+                                  {(() => {
+                                    const indeps = projects.filter(p => !p.parentProjectId || !parentProjects.some(pp => pp.id === p.parentProjectId));
+                                    if (indeps.length === 0) return null;
+                                    return (
+                                      <optgroup label="⚙️ Proyectos Independientes">
+                                        {indeps.map(p => (
+                                          <option key={p.id} value={p.id}>{p.name}</option>
+                                        ))}
+                                      </optgroup>
+                                    );
+                                  })()}
+                                </select>
+                              </td>
+                            );
+                            
+                          default: {
+                            const cellValue = customFieldsData[colKey] || '';
+                            return (
+                              <td key={colKey}>
+                                <InlineInput
+                                  value={cellValue}
+                                  onSave={(val) => {
+                                    const updatedFields = { ...customFieldsData, [colKey]: val };
+                                    handleUpdateIncident(inc.id, { customFields: JSON.stringify(updatedFields) });
+                                  }}
+                                  placeholder="--"
+                                  className="table-cell-input"
+                                  style={{ padding: '4px' }}
+                                />
+                              </td>
+                            );
+                          }
+                        }
                       })}
 
                       {/* Botón de acción */}
@@ -1071,7 +1334,6 @@ export default function IncidentsPage() {
                           </button>
                         </div>
                       </td>
-
                     </tr>
                   );
                 })
@@ -1191,9 +1453,28 @@ export default function IncidentsPage() {
                   className="drawer-select"
                 >
                   <option value="">-- Sin Proyecto --</option>
-                  {projects.map(p => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
+                  {parentProjects.map(pp => {
+                    const subProjs = projects.filter(p => p.parentProjectId === pp.id);
+                    if (subProjs.length === 0) return null;
+                    return (
+                      <optgroup key={pp.id} label={`📁 ${pp.name}`}>
+                        {subProjs.map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </optgroup>
+                    );
+                  })}
+                  {(() => {
+                    const indeps = projects.filter(p => !p.parentProjectId || !parentProjects.some(pp => pp.id === p.parentProjectId));
+                    if (indeps.length === 0) return null;
+                    return (
+                      <optgroup label="⚙️ Proyectos Independientes">
+                        {indeps.map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </optgroup>
+                    );
+                  })()}
                 </select>
               </div>
             </div>
