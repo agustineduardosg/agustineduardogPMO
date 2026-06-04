@@ -123,6 +123,53 @@ export async function POST(req: Request) {
         });
 
         return { success: true, item: updatedAnalyte, auditLog };
+      } else if (itemType === 'RECINTO') {
+        // 2c. Buscar Recinto
+        const recinto = await tx.recinto.findUnique({
+          where: { id: itemId }
+        });
+        if (!recinto) throw new Error('Sede clínica no encontrada');
+        itemName = recinto.name;
+        previousScopeName = 'Varios (Lote)';
+
+        // 3c. Actualizar todos los equipos de este recinto
+        const updatedEquips = await tx.clinicalEquipment.updateMany({
+          where: { recintoId: itemId },
+          data: {
+            scopeStatus: newScopeStatus,
+            releasePhaseId: newScope || null
+          }
+        });
+
+        // 4c. Actualizar todos los analitos de este recinto (tanto heredados como manuales)
+        const updatedAnalytes = await tx.analyte.updateMany({
+          where: { recintoId: itemId },
+          data: {
+            releasePhaseId: newScope || null
+          }
+        });
+
+        // 5c. Crear log de auditoría consolidado
+        const auditLog = await tx.scopeAuditLog.create({
+          data: {
+            itemId,
+            itemType: 'RECINTO',
+            itemName,
+            previousScope: previousScopeName,
+            newScope: `${newScopeName} (${newScopeStatus})`,
+            reasonCode,
+            justification: justification.trim(),
+            userEmail: userEmail.trim()
+          }
+        });
+
+        return { 
+          success: true, 
+          recintoId: itemId, 
+          equipmentsUpdated: updatedEquips.count, 
+          analytesUpdated: updatedAnalytes.count, 
+          auditLog 
+        };
       } else {
         throw new Error('Tipo de ítem no soportado');
       }

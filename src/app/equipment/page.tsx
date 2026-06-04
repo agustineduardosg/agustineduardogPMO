@@ -1043,16 +1043,26 @@ export default function EquipmentTrackerPage() {
         statusFilter === 'all' ||
         normState.toLowerCase() === statusFilter.toLowerCase();
 
+      // Resolve parent equipment scope status and phase
+      const parentEq = equipments.find(eq => eq.id === a.equipmentId);
+      const effectiveStatus = a.scopeStatus === 'INHERITED'
+        ? (parentEq ? parentEq.scopeStatus : 'ACTIVE')
+        : a.scopeStatus;
+      
+      const effectivePhaseId = a.scopeStatus === 'INHERITED'
+        ? (parentEq ? parentEq.releasePhaseId : null)
+        : a.releasePhaseId;
+
       let matchScope = true;
       if (scopeFilter === 'OUT_OF_SCOPE') {
-        matchScope = a.scopeStatus === 'OUT_OF_SCOPE';
+        matchScope = effectiveStatus === 'OUT_OF_SCOPE';
       } else if (scopeFilter !== 'all') {
-        matchScope = a.releasePhaseId === scopeFilter && a.scopeStatus !== 'OUT_OF_SCOPE';
+        matchScope = effectivePhaseId === scopeFilter && effectiveStatus !== 'OUT_OF_SCOPE';
       }
       
       return matchSearch && matchStatus && matchScope;
     });
-  }, [analytes, analyteSearch, recintos, statusFilter, scopeFilter]);
+  }, [analytes, analyteSearch, recintos, statusFilter, scopeFilter, equipments]);
 
   const scopeFilteredEquipments = useMemo(() => {
     return equipments.filter(eq => {
@@ -1064,11 +1074,20 @@ export default function EquipmentTrackerPage() {
 
   const scopeFilteredAnalytes = useMemo(() => {
     return analytes.filter(a => {
+      const parentEq = equipments.find(eq => eq.id === a.equipmentId);
+      const effectiveStatus = a.scopeStatus === 'INHERITED'
+        ? (parentEq ? parentEq.scopeStatus : 'ACTIVE')
+        : a.scopeStatus;
+      
+      const effectivePhaseId = a.scopeStatus === 'INHERITED'
+        ? (parentEq ? parentEq.releasePhaseId : null)
+        : a.releasePhaseId;
+
       if (scopeFilter === 'all') return true;
-      if (scopeFilter === 'OUT_OF_SCOPE') return a.scopeStatus === 'OUT_OF_SCOPE';
-      return a.releasePhaseId === scopeFilter && a.scopeStatus !== 'OUT_OF_SCOPE';
+      if (scopeFilter === 'OUT_OF_SCOPE') return effectiveStatus === 'OUT_OF_SCOPE';
+      return effectivePhaseId === scopeFilter && effectiveStatus !== 'OUT_OF_SCOPE';
     });
-  }, [analytes, scopeFilter]);
+  }, [analytes, equipments, scopeFilter]);
 
   const exportAnalytesToExcel = () => {
     if (filteredAnalytes.length === 0) {
@@ -3221,6 +3240,63 @@ export default function EquipmentTrackerPage() {
                     </div>
 
                     <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                      {/* Reasignación Masiva de Sede */}
+                      <div 
+                        style={{ display: 'flex', alignItems: 'center', gap: '6px' }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <span style={{ fontSize: '0.72rem', fontWeight: 'bold', color: 'rgba(255,255,255,0.85)' }}>
+                          Foco Sede:
+                        </span>
+                        <select
+                          value=""
+                          onChange={(e) => {
+                            const val = e.target.value;
+                            if (!val) return;
+                            
+                            let newScopeStatus = 'ACTIVE';
+                            let newScopeId: string | null = null;
+                            
+                            if (val === 'OUT_OF_SCOPE') {
+                              newScopeStatus = 'OUT_OF_SCOPE';
+                            } else {
+                              newScopeStatus = 'ACTIVE';
+                              newScopeId = val;
+                            }
+                            
+                            (globalThis as any).initiateScopeChange(
+                              rec.id, 
+                              'RECINTO', 
+                              newScopeId, 
+                              newScopeStatus, 
+                              rec.name, 
+                              null
+                            );
+                          }}
+                          style={{
+                            padding: '4px 8px',
+                            borderRadius: '4px',
+                            background: 'rgba(255,255,255,0.15)',
+                            border: '1px solid rgba(255,255,255,0.25)',
+                            color: 'white',
+                            fontWeight: 'bold',
+                            fontSize: '0.72rem',
+                            outline: 'none',
+                            cursor: 'pointer'
+                          }}
+                        >
+                          <option value="" style={{ background: '#7c3aed', color: 'white' }}>-- Mover Sede Completa --</option>
+                          {releasePhases.map(phase => (
+                            <option key={phase.id} value={phase.id} style={{ background: '#ffffff', color: '#000000' }}>
+                              📅 Mover a {phase.name}
+                            </option>
+                          ))}
+                          <option value="OUT_OF_SCOPE" style={{ background: '#ffffff', color: '#dc2626' }}>
+                            ⚙️ Fuera de Alcance
+                          </option>
+                        </select>
+                      </div>
+
                       {total > 0 && ( 
                         <div 
                           style={{ 
