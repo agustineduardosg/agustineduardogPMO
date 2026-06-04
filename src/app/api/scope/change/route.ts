@@ -57,15 +57,22 @@ export async function POST(req: Request) {
           }
         });
 
-        // 4a. Cascada automática a los analitos que heredan del equipo (scopeStatus = 'INHERITED')
+        // 4a. Cascada automática redundante a los analitos que heredan del equipo (por id o nombre + recinto)
         const cascadeResult = await tx.analyte.updateMany({
           where: {
-            equipmentId: itemId,
+            OR: [
+              {
+                equipmentId: itemId
+              },
+              {
+                instrumentName: equip.name,
+                recintoId: equip.recintoId
+              }
+            ],
             scopeStatus: 'INHERITED'
           },
           data: {
             releasePhaseId: newScope || null
-            // Mantienen scopeStatus = 'INHERITED' pero adoptan la nueva fase del padre
           }
         });
 
@@ -123,6 +130,74 @@ export async function POST(req: Request) {
         });
 
         return { success: true, item: updatedAnalyte, auditLog };
+
+      } else if (itemType === 'INSTRUMENT') {
+        // 2d. Descomponer recinto e instrumento
+        const parts = itemId.split('||');
+        const recintoId = parts[0];
+        const instrumentName = parts.slice(1).join('||');
+        if (!recintoId || !instrumentName) throw new Error('Identificador de instrumento no válido');
+
+        itemName = instrumentName;
+        previousScopeName = 'Varios (Lote)';
+
+        // 3d. Actualizar todos los analitos de este instrumento en este recinto
+        const updatedAnalytes = await tx.analyte.updateMany({
+          where: {
+            instrumentName,
+            recintoId
+          },
+          data: {
+            scopeStatus: newScopeStatus,
+            releasePhaseId: newScope || null
+          }
+        });
+
+        // 4d. Si existe un equipo clínico físico con el mismo nombre en esta sede, actualizarlo también
+        const matchingEquip = await tx.clinicalEquipment.findFirst({
+          where: {
+            recintoId,
+            name: {
+              equals: instrumentName
+            }
+          }
+        });
+
+        let equipmentsUpdated = 0;
+        if (matchingEquip) {
+          await tx.clinicalEquipment.update({
+            where: { id: matchingEquip.id },
+            data: {
+              scopeStatus: newScopeStatus,
+              releasePhaseId: newScope || null
+            }
+          });
+          equipmentsUpdated = 1;
+        }
+
+        // 5d. Crear log de auditoría
+        const auditLog = await tx.scopeAuditLog.create({
+          data: {
+            itemId,
+            itemType: 'INSTRUMENT',
+            itemName: `${instrumentName} (${recintoId})`,
+            previousScope: previousScopeName,
+            newScope: `${newScopeName} (${newScopeStatus})`,
+            reasonCode,
+            justification: justification.trim(),
+            userEmail: userEmail.trim()
+          }
+        });
+
+        return {
+          success: true,
+          instrumentName,
+          recintoId,
+          analytesUpdated: updatedAnalytes.count,
+          equipmentsUpdated,
+          auditLog
+        };
+
       } else if (itemType === 'RECINTO') {
         // 2c. Buscar Recinto
         const recinto = await tx.recinto.findUnique({
@@ -145,6 +220,7 @@ export async function POST(req: Request) {
         const updatedAnalytes = await tx.analyte.updateMany({
           where: { recintoId: itemId },
           data: {
+            scopeStatus: newScopeStatus === 'OUT_OF_SCOPE' ? 'OUT_OF_SCOPE' : 'INHERITED',
             releasePhaseId: newScope || null
           }
         });

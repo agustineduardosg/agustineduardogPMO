@@ -424,6 +424,31 @@ const AnalyteModal = ({
   );
 };
 
+const getParentEquipment = (a: Analyte, equipments: ClinicalEquipment[]) => {
+  if (a.equipmentId) {
+    const eq = equipments.find(eq => eq.id === a.equipmentId);
+    if (eq) return eq;
+  }
+  return equipments.find(eq => 
+    eq.name.toLowerCase().trim() === a.instrumentName.toLowerCase().trim() && 
+    eq.recintoId === a.recintoId
+  );
+};
+
+const getEffectiveScope = (a: Analyte, equipments: ClinicalEquipment[]) => {
+  const parentEq = getParentEquipment(a, equipments);
+  
+  const effectiveStatus = a.scopeStatus === 'INHERITED'
+    ? (parentEq ? parentEq.scopeStatus : 'ACTIVE')
+    : a.scopeStatus;
+  
+  const effectivePhaseId = a.scopeStatus === 'INHERITED'
+    ? (parentEq ? parentEq.releasePhaseId : a.releasePhaseId)
+    : a.releasePhaseId;
+    
+  return { effectiveStatus, effectivePhaseId, parentEq };
+};
+
 export default function EquipmentTrackerPage() {
   const recintos = useEquipmentStore(state => state.recintos);
   const equipments = useEquipmentStore(state => state.equipments);
@@ -460,7 +485,7 @@ export default function EquipmentTrackerPage() {
   const [isJustifyModalOpen, setIsJustifyModalOpen] = useState(false);
   const [scopeChangeParams, setScopeChangeParams] = useState<{
     itemId: string;
-    itemType: 'EQUIPMENT' | 'ANALYTE';
+    itemType: 'EQUIPMENT' | 'ANALYTE' | 'RECINTO' | 'INSTRUMENT';
     newScope: string | null;
     newScopeStatus: string;
     itemName: string;
@@ -1044,14 +1069,7 @@ export default function EquipmentTrackerPage() {
         normState.toLowerCase() === statusFilter.toLowerCase();
 
       // Resolve parent equipment scope status and phase
-      const parentEq = equipments.find(eq => eq.id === a.equipmentId);
-      const effectiveStatus = a.scopeStatus === 'INHERITED'
-        ? (parentEq ? parentEq.scopeStatus : 'ACTIVE')
-        : a.scopeStatus;
-      
-      const effectivePhaseId = a.scopeStatus === 'INHERITED'
-        ? (parentEq ? parentEq.releasePhaseId : null)
-        : a.releasePhaseId;
+      const { effectiveStatus, effectivePhaseId } = getEffectiveScope(a, equipments);
 
       let matchScope = true;
       if (scopeFilter === 'OUT_OF_SCOPE') {
@@ -1074,14 +1092,7 @@ export default function EquipmentTrackerPage() {
 
   const scopeFilteredAnalytes = useMemo(() => {
     return analytes.filter(a => {
-      const parentEq = equipments.find(eq => eq.id === a.equipmentId);
-      const effectiveStatus = a.scopeStatus === 'INHERITED'
-        ? (parentEq ? parentEq.scopeStatus : 'ACTIVE')
-        : a.scopeStatus;
-      
-      const effectivePhaseId = a.scopeStatus === 'INHERITED'
-        ? (parentEq ? parentEq.releasePhaseId : null)
-        : a.releasePhaseId;
+      const { effectiveStatus, effectivePhaseId } = getEffectiveScope(a, equipments);
 
       if (scopeFilter === 'all') return true;
       if (scopeFilter === 'OUT_OF_SCOPE') return effectiveStatus === 'OUT_OF_SCOPE';
@@ -2596,15 +2607,8 @@ export default function EquipmentTrackerPage() {
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '16px' }}>
               {releasePhases.map(phase => {
                 const phaseAnalytes = analytes.filter(a => {
-                  const parentEq = equipments.find(eq => eq.id === a.equipmentId);
-                  const effectiveStatus = a.scopeStatus === 'INHERITED'
-                    ? (parentEq ? parentEq.scopeStatus : 'ACTIVE')
-                    : a.scopeStatus;
+                  const { effectiveStatus, effectivePhaseId } = getEffectiveScope(a, equipments);
                   if (effectiveStatus === 'OUT_OF_SCOPE') return false;
-                  
-                  const effectivePhaseId = a.scopeStatus === 'INHERITED'
-                    ? (parentEq ? parentEq.releasePhaseId : null)
-                    : a.releasePhaseId;
                   
                   return effectivePhaseId === phase.id;
                 });
@@ -2643,15 +2647,8 @@ export default function EquipmentTrackerPage() {
               {/* Sin Asignar */}
               {(() => {
                 const unassignedAnalytes = analytes.filter(a => {
-                  const parentEq = equipments.find(eq => eq.id === a.equipmentId);
-                  const effectiveStatus = a.scopeStatus === 'INHERITED'
-                    ? (parentEq ? parentEq.scopeStatus : 'ACTIVE')
-                    : a.scopeStatus;
+                  const { effectiveStatus, effectivePhaseId } = getEffectiveScope(a, equipments);
                   if (effectiveStatus === 'OUT_OF_SCOPE') return false;
-                  
-                  const effectivePhaseId = a.scopeStatus === 'INHERITED'
-                    ? (parentEq ? parentEq.releasePhaseId : null)
-                    : a.releasePhaseId;
                   
                   return !effectivePhaseId;
                 });
@@ -3581,16 +3578,25 @@ export default function EquipmentTrackerPage() {
                                       </select>
                                     </div>
 
-                                    {/* Cambiar Fase del Equipo Padre (Afecta en cascada a todos los heredados) */}
+                                                                        {/* Cambiar Fase del Instrumento / Equipo (Afecta en cascada a todos los analitos) */}
                                     {(() => {
-                                      const parentEq = equipments.find(e => e.name === equipName && e.recintoId === rec.id);
-                                      if (!parentEq) return null;
+                                      const parentEq = equipments.find(e => 
+                                        (e.name === equipName || e.name.toLowerCase().trim() === equipName.toLowerCase().trim()) && 
+                                        e.recintoId === rec.id
+                                      );
+                                      
+                                      const currentPhaseId = parentEq ? parentEq.releasePhaseId : (list[0]?.releasePhaseId || null);
+                                      const currentScopeStatus = parentEq ? parentEq.scopeStatus : (list[0]?.scopeStatus || 'INHERITED');
+                                      
+                                      const scopeItemId = parentEq ? parentEq.id : `${rec.id}||${equipName}`;
+                                      const scopeItemType = parentEq ? 'EQUIPMENT' : 'INSTRUMENT';
+                                      const scopeItemName = parentEq ? parentEq.name : equipName;
                                       
                                       return (
                                         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                                           <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)', fontWeight: 700 }}>FASE:</span>
                                           <select
-                                            value={parentEq.releasePhaseId || ''}
+                                            value={currentScopeStatus === 'OUT_OF_SCOPE' ? 'OUT_OF_SCOPE' : (currentPhaseId || '')}
                                             onChange={(e) => {
                                               const val = e.target.value;
                                               let newScopeStatus = 'ACTIVE';
@@ -3601,17 +3607,15 @@ export default function EquipmentTrackerPage() {
                                               } else if (val) {
                                                 newScopeStatus = 'ACTIVE';
                                                 newScopeId = val;
-                                              } else {
-                                                newScopeStatus = 'ACTIVE';
                                               }
                                               
                                               (globalThis as any).initiateScopeChange(
-                                                parentEq.id, 
-                                                'EQUIPMENT', 
+                                                scopeItemId, 
+                                                scopeItemType, 
                                                 newScopeId, 
                                                 newScopeStatus, 
-                                                parentEq.name, 
-                                                parentEq.releasePhaseId
+                                                scopeItemName, 
+                                                currentPhaseId
                                               );
                                             }} 
                                             style={{
@@ -3619,7 +3623,7 @@ export default function EquipmentTrackerPage() {
                                               background: 'var(--bg-primary)',
                                               border: '1px solid rgba(124, 58, 237, 0.25)',
                                               borderRadius: '6px',
-                                              color: parentEq.scopeStatus === 'OUT_OF_SCOPE' ? '#6b7280' : '#2563eb',
+                                              color: currentScopeStatus === 'OUT_OF_SCOPE' ? '#6b7280' : '#2563eb',
                                               fontSize: '0.72rem',
                                               fontWeight: 'bold',
                                               outline: 'none',
@@ -3636,9 +3640,9 @@ export default function EquipmentTrackerPage() {
                                           </select>
                                           
                                           <button
-                                            onClick={() => (globalThis as any).showItemTimeline(parentEq.id, parentEq.name)}
+                                            onClick={() => (globalThis as any).showItemTimeline(scopeItemId, scopeItemName)}
                                             style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#7c3aed', padding: '2px', display: 'flex', alignItems: 'center' }}
-                                            title="Ver historial de cambios de alcance de este equipo"
+                                            title="Ver historial de cambios de alcance de este equipo/instrumento"
                                           >
                                             <Database size={13} />
                                           </button>
@@ -3769,7 +3773,7 @@ export default function EquipmentTrackerPage() {
                                                         
                                                         if (val === 'INHERITED') {
                                                           newScopeStatus = 'INHERITED';
-                                                          const parentEq = equipments.find(eq => eq.id === analyte.equipmentId);
+                                                          const parentEq = getParentEquipment(analyte, equipments);
                                                           newScopeId = parentEq ? parentEq.releasePhaseId || null : null;
                                                         } else if (val === 'OUT_OF_SCOPE') {
                                                           newScopeStatus = 'OUT_OF_SCOPE';
@@ -4364,9 +4368,11 @@ export default function EquipmentTrackerPage() {
       {/* Helper actions for scope change */}
       {(() => {
         // Inicializar funciones auxiliares en caliente
-        (globalThis as any).initiateScopeChange = (itemId: string, itemType: 'EQUIPMENT' | 'ANALYTE', newScopeId: string | null, newScopeStatus: string, itemName: string, currentPhaseId: string | null) => {
+        (globalThis as any).initiateScopeChange = (itemId: string, itemType: 'EQUIPMENT' | 'ANALYTE' | 'RECINTO' | 'INSTRUMENT', newScopeId: string | null, newScopeStatus: string, itemName: string, currentPhaseId: string | null) => {
           let previousScopeName = 'Ninguno';
-          if (currentPhaseId) {
+          if (itemType === 'RECINTO' || itemType === 'INSTRUMENT') {
+            previousScopeName = 'Varios (Lote)';
+          } else if (currentPhaseId) {
             const rp = releasePhases.find(p => p.id === currentPhaseId);
             if (rp) previousScopeName = rp.name;
           } else if (newScopeStatus === 'OUT_OF_SCOPE') {
@@ -4506,7 +4512,13 @@ export default function EquipmentTrackerPage() {
             <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', background: 'rgba(245, 158, 11, 0.08)', padding: '12px 16px', borderRadius: '8px', border: '1px solid rgba(245, 158, 11, 0.15)', color: '#b45309', fontSize: '0.82rem', marginBottom: '16px' }}>
               <Info size={16} style={{ flexShrink: 0, marginTop: '2px' }} />
               <span>
-                <strong>Atención:</strong> Vas a cambiar el alcance de <strong>"{scopeChangeParams.itemName}"</strong> ({scopeChangeParams.itemType === 'EQUIPMENT' ? 'Equipo Clínico' : 'Analito'}). 
+                                <strong>Atención:</strong> Vas a cambiar el alcance de <strong>"{scopeChangeParams.itemName}"</strong> ({
+                  scopeChangeParams.itemType === 'RECINTO' ? 'Sede Completa' :
+                  scopeChangeParams.itemType === 'INSTRUMENT' ? 'Instrumento LIS' :
+                  scopeChangeParams.itemType === 'EQUIPMENT' ? 'Equipo Clínico' : 'Analito'
+                }). 
+                {scopeChangeParams.itemType === 'RECINTO' && ' Este cambio se aplicará a todos los equipos clínicos y analitos asociados a esta sede.'}
+                {scopeChangeParams.itemType === 'INSTRUMENT' && ' Este cambio se aplicará a todos los analitos asociados a este instrumento en esta sede.'}
                 {scopeChangeParams.itemType === 'EQUIPMENT' && ' Este cambio se aplicará en cascada a todos los analitos asociados que heredan su alcance.'}
               </span>
             </div>

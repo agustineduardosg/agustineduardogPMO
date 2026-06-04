@@ -1,5 +1,8 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+
 
 const initialRecintos = [
   { id: 'rec-1', name: 'BUPA CLA', code: 'ID: 4057', isActive: true },

@@ -106,7 +106,7 @@ interface EquipmentState {
 
   // Acciones de Alcance
   createReleasePhase: (name: string, description?: string) => Promise<{ success: boolean; error?: string }>;
-  changeScope: (params: { itemId: string; itemType: 'EQUIPMENT' | 'ANALYTE' | 'RECINTO'; newScope: string | null; newScopeStatus: string; reasonCode: string; justification: string; userEmail: string }) => Promise<{ success: boolean; error?: string }>;
+  changeScope: (params: { itemId: string; itemType: 'EQUIPMENT' | 'ANALYTE' | 'RECINTO' | 'INSTRUMENT'; newScope: string | null; newScopeStatus: string; reasonCode: string; justification: string; userEmail: string }) => Promise<{ success: boolean; error?: string }>;
 }
 
 export const useEquipmentStore = create<EquipmentState>()((set, get) => ({

@@ -1,5 +1,8 @@
+export const dynamic = 'force-dynamic';
+
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+
 
 // Equipos iniciales pre-cargados
 const initialEquipments = [
