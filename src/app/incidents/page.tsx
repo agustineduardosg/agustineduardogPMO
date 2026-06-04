@@ -229,7 +229,12 @@ export default function IncidentsPage() {
         }
       }
 
-      setCustomColumns(loadedCustoms);
+      setCustomColumns(prev => {
+        if (JSON.stringify(prev) !== JSON.stringify(loadedCustoms)) {
+          return loadedCustoms;
+        }
+        return prev;
+      });
 
       let baseOrder = parsedOrder.length > 0 ? parsedOrder : [...DEFAULT_COLUMN_ORDER];
 
@@ -246,21 +251,35 @@ export default function IncidentsPage() {
       });
 
       baseOrder = baseOrder.filter(c => DEFAULT_COLUMN_ORDER.includes(c) || loadedCustoms.includes(c));
-      setColumnOrder(baseOrder);
+      
+      setColumnOrder(prev => {
+        if (JSON.stringify(prev) !== JSON.stringify(baseOrder)) {
+          return baseOrder;
+        }
+        return prev;
+      });
     };
 
+    // Carga inicial
     loadConfig();
-
     fetchIncidents();
     fetchEquipmentData();
     fetchUsers();
     fetchProjects();
     fetchParentProjects();
 
+    // Sincronización en tiempo real periódica (cada 4 segundos)
+    const intervalId = setInterval(() => {
+      loadConfig();
+      fetchIncidents();
+    }, 4000);
+
     const saved = localStorage.getItem('incidents_dashboard_collapsed');
     if (saved !== null) {
       setIsDashboardCollapsed(saved === 'true');
     }
+
+    return () => clearInterval(intervalId);
   }, []);
 
   // Auto-descubrimiento y sincronización de columnas desde la base de datos

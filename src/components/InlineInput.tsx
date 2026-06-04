@@ -22,16 +22,24 @@ export const InlineInput: React.FC<InlineInputProps> = ({
   title
 }) => {
   const [val, setVal] = useState(initialValue || '');
+  const [isFocused, setIsFocused] = useState(false);
 
   useEffect(() => {
-    setVal(initialValue || '');
-  }, [initialValue]);
+    if (!isFocused) {
+      setVal(initialValue || '');
+    }
+  }, [initialValue, isFocused]);
 
   const handleBlur = () => {
+    setIsFocused(false);
     const trimmed = val.trim();
     if (trimmed !== (initialValue || '').trim()) {
       onSave(trimmed);
     }
+  };
+
+  const handleFocus = () => {
+    setIsFocused(true);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -45,6 +53,7 @@ export const InlineInput: React.FC<InlineInputProps> = ({
       type="text"
       value={val}
       onChange={(e) => setVal(e.target.value)}
+      onFocus={handleFocus}
       onBlur={handleBlur}
       onKeyDown={handleKeyDown}
       placeholder={placeholder}
@@ -74,22 +83,31 @@ export const InlineTextarea: React.FC<InlineTextareaProps> = ({
   disabled
 }) => {
   const [val, setVal] = useState(initialValue || '');
+  const [isFocused, setIsFocused] = useState(false);
 
   useEffect(() => {
-    setVal(initialValue || '');
-  }, [initialValue]);
+    if (!isFocused) {
+      setVal(initialValue || '');
+    }
+  }, [initialValue, isFocused]);
 
   const handleBlur = () => {
+    setIsFocused(false);
     const trimmed = val.trim();
     if (trimmed !== (initialValue || '').trim()) {
       onSave(trimmed);
     }
   };
 
+  const handleFocus = () => {
+    setIsFocused(true);
+  };
+
   return (
     <textarea
       value={val}
       onChange={(e) => setVal(e.target.value)}
+      onFocus={handleFocus}
       onBlur={handleBlur}
       placeholder={placeholder}
       style={style}
