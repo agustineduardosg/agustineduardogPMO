@@ -9,7 +9,7 @@ import { useRouter } from 'next/navigation';
 import { 
   Plus, Search, Folder, ChevronRight, ChevronDown, Edit2, Trash2, X, Save, 
   Calendar, User, FolderPlus, Loader2, UploadCloud, BarChart3, AlertCircle, 
-  CheckCircle2, Clock, PauseCircle, Settings, LayoutGrid 
+  CheckCircle2, Clock, PauseCircle, Settings, LayoutGrid, Activity 
 } from 'lucide-react';
 
 type ProjectStatus = 'Planificación' | 'Ejecución' | 'Pausado' | 'Completado';
@@ -82,13 +82,21 @@ const EmptyModal = ({ onClose, onSave, parentProjects }: { onClose: () => void; 
     hasEquipment: false, 
     startDate: format(new Date(), 'yyyy-MM-dd'), 
     endDate: format(addBusinessDays(new Date(), 30), 'yyyy-MM-dd'),
-    parentProjectId: ''
+    parentProjectId: '',
+    type: 'Proyecto Estratégico',
+    methodology: 'Tradicional',
+    pmo: '',
+    jiraId: '',
+    goLiveDate: format(addBusinessDays(new Date(), 30), 'yyyy-MM-dd'),
+    cutoffDate: format(new Date(), 'yyyy-MM-dd')
   });
 
   const handleSave = () => {
     if (!form.name.trim() || !form.manager.trim()) return;
     const [sy, sm, sd] = form.startDate.split('-').map(Number);
     const [ey, em, ed] = form.endDate.split('-').map(Number);
+    const [gy, gm, gd] = form.goLiveDate.split('-').map(Number);
+    const [cy, cm, cd] = form.cutoffDate.split('-').map(Number);
     const proj = {
       id: `proj-${Date.now()}`, 
       name: form.name, 
@@ -102,14 +110,20 @@ const EmptyModal = ({ onClose, onSave, parentProjects }: { onClose: () => void; 
       startDate: new Date(sy, sm-1, sd), 
       endDate: new Date(ey, em-1, ed), 
       phases: [],
-      parentProjectId: form.parentProjectId || null
+      parentProjectId: form.parentProjectId || null,
+      type: form.type,
+      methodology: form.methodology,
+      pmo: form.pmo,
+      jiraId: form.jiraId,
+      goLiveDate: form.goLiveDate ? new Date(gy, gm-1, gd) : null,
+      cutoffDate: form.cutoffDate ? new Date(cy, cm-1, cd) : null
     };
     onSave(proj);
   };
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
-      <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', width: '560px', maxWidth: '95vw', boxShadow: '0 30px 60px rgba(0,0,0,0.3)', border: '1px solid var(--border-light)', animation: 'fadeIn 0.25s ease' }}>
+      <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', width: '560px', maxWidth: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 30px 60px rgba(0,0,0,0.3)', border: '1px solid var(--border-light)', animation: 'fadeIn 0.25s ease' }}>
         <div style={{ padding: '28px 28px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h2 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>Nuevo Proyecto</h2>
@@ -118,7 +132,7 @@ const EmptyModal = ({ onClose, onSave, parentProjects }: { onClose: () => void; 
           <button className="icon-btn" onClick={onClose}><X size={20} /></button>
         </div>
 
-        <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: '18px', overflowY: 'auto', flex: 1 }}>
           <div>
             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Nombre del Proyecto *</label>
             <input type="text" value={form.name} onChange={e => setForm({...form, name: e.target.value})} placeholder="Ej: Implementación ERP Clínico"
@@ -167,6 +181,58 @@ const EmptyModal = ({ onClose, onSave, parentProjects }: { onClose: () => void; 
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Fecha Término</label>
               <input type="date" value={form.endDate} onChange={e => setForm({...form, endDate: e.target.value})}
                 style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }} />
+            </div>
+          </div>
+
+          <div style={{ margin: '8px 0', borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#0079C1', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '12px' }}>
+              📊 Datos Complementarios (Estándar Bupa Chile)
+            </span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Tipo de Proyecto</label>
+                <select value={form.type} onChange={e => setForm({...form, type: e.target.value})}
+                  style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}>
+                  <option value="Proyecto Estratégico">Proyecto Estratégico</option>
+                  <option value="Proyecto SCL">Proyecto SCL</option>
+                  <option value="Inversión">Inversión</option>
+                  <option value="Operaciones">Operaciones</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Metodología</label>
+                <select value={form.methodology} onChange={e => setForm({...form, methodology: e.target.value})}
+                  style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}>
+                  <option value="Tradicional">Tradicional</option>
+                  <option value="Híbrido">Híbrido</option>
+                  <option value="Ágil">Ágil</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>PMO / Scrum Master</label>
+                <input type="text" value={form.pmo} onChange={e => setForm({...form, pmo: e.target.value})} placeholder="Catalina Pacheco"
+                  style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Jira / ID</label>
+                <input type="text" value={form.jiraId} onChange={e => setForm({...form, jiraId: e.target.value})} placeholder="PRSCL-62"
+                  style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }} />
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Fecha Go-Live</label>
+                <input type="date" value={form.goLiveDate} onChange={e => setForm({...form, goLiveDate: e.target.value})}
+                  style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Última Actualización</label>
+                <input type="date" value={form.cutoffDate} onChange={e => setForm({...form, cutoffDate: e.target.value})}
+                  style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }} />
+              </div>
             </div>
           </div>
 
@@ -219,13 +285,21 @@ const EditModal = ({ project, onClose, onSave, parentProjects }: { project: Proj
     hasEquipment: project.hasEquipment || false, 
     startDate: formatDateForInput(project.startDate), 
     endDate: formatDateForInput(project.endDate),
-    parentProjectId: project.parentProjectId || ''
+    parentProjectId: project.parentProjectId || '',
+    type: project.type || 'Proyecto Estratégico',
+    methodology: project.methodology || 'Tradicional',
+    pmo: project.pmo || '',
+    jiraId: project.jiraId || '',
+    goLiveDate: formatDateForInput(project.goLiveDate) || formatDateForInput(project.endDate),
+    cutoffDate: formatDateForInput(project.cutoffDate) || formatDateForInput(new Date())
   });
 
   const handleSave = () => {
     if (!form.name.trim() || !form.manager.trim()) return;
     const [sy, sm, sd] = form.startDate.split('-').map(Number);
     const [ey, em, ed] = form.endDate.split('-').map(Number);
+    const [gy, gm, gd] = form.goLiveDate.split('-').map(Number);
+    const [cy, cm, cd] = form.cutoffDate.split('-').map(Number);
     const updates = {
       name: form.name, 
       manager: form.manager, 
@@ -237,14 +311,20 @@ const EditModal = ({ project, onClose, onSave, parentProjects }: { project: Proj
       hasEquipment: form.hasEquipment,
       startDate: new Date(sy, sm-1, sd), 
       endDate: new Date(ey, em-1, ed),
-      parentProjectId: form.parentProjectId || null
+      parentProjectId: form.parentProjectId || null,
+      type: form.type,
+      methodology: form.methodology,
+      pmo: form.pmo,
+      jiraId: form.jiraId,
+      goLiveDate: form.goLiveDate ? new Date(gy, gm-1, gd) : null,
+      cutoffDate: form.cutoffDate ? new Date(cy, cm-1, cd) : null
     };
     onSave(project.id, updates);
   };
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
-      <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', width: '560px', maxWidth: '95vw', boxShadow: '0 30px 60px rgba(0,0,0,0.3)', border: '1px solid var(--border-light)', animation: 'fadeIn 0.25s ease' }}>
+      <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', width: '560px', maxWidth: '95vw', maxHeight: '90vh', display: 'flex', flexDirection: 'column', boxShadow: '0 30px 60px rgba(0,0,0,0.3)', border: '1px solid var(--border-light)', animation: 'fadeIn 0.25s ease' }}>
         <div style={{ padding: '28px 28px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>
             <h2 style={{ fontSize: '1.4rem', fontWeight: 700, margin: 0 }}>Editar Configuración</h2>
@@ -253,7 +333,7 @@ const EditModal = ({ project, onClose, onSave, parentProjects }: { project: Proj
           <button className="icon-btn" onClick={onClose}><X size={20} /></button>
         </div>
 
-        <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        <div style={{ padding: '24px 28px', display: 'flex', flexDirection: 'column', gap: '18px', overflowY: 'auto', flex: 1 }}>
           <div>
             <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Nombre del Proyecto *</label>
             <input type="text" value={form.name} onChange={e => setForm({...form, name: e.target.value})}
@@ -302,6 +382,58 @@ const EditModal = ({ project, onClose, onSave, parentProjects }: { project: Proj
               <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Fecha Término</label>
               <input type="date" value={form.endDate} onChange={e => setForm({...form, endDate: e.target.value})}
                 style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }} />
+            </div>
+          </div>
+
+          <div style={{ margin: '8px 0', borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
+            <span style={{ fontSize: '0.78rem', fontWeight: 800, color: '#0079C1', textTransform: 'uppercase', letterSpacing: '0.5px', display: 'block', marginBottom: '12px' }}>
+              📊 Datos Complementarios (Estándar Bupa Chile)
+            </span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Tipo de Proyecto</label>
+                <select value={form.type} onChange={e => setForm({...form, type: e.target.value})}
+                  style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}>
+                  <option value="Proyecto Estratégico">Proyecto Estratégico</option>
+                  <option value="Proyecto SCL">Proyecto SCL</option>
+                  <option value="Inversión">Inversión</option>
+                  <option value="Operaciones">Operaciones</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Metodología</label>
+                <select value={form.methodology} onChange={e => setForm({...form, methodology: e.target.value})}
+                  style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}>
+                  <option value="Tradicional">Tradicional</option>
+                  <option value="Híbrido">Híbrido</option>
+                  <option value="Ágil">Ágil</option>
+                </select>
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>PMO / Scrum Master</label>
+                <input type="text" value={form.pmo} onChange={e => setForm({...form, pmo: e.target.value})} placeholder="Catalina Pacheco"
+                  style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Jira / ID</label>
+                <input type="text" value={form.jiraId} onChange={e => setForm({...form, jiraId: e.target.value})} placeholder="PRSCL-62"
+                  style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }} />
+              </div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Fecha Go-Live</label>
+                <input type="date" value={form.goLiveDate} onChange={e => setForm({...form, goLiveDate: e.target.value})}
+                  style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }} />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Última Actualización</label>
+                <input type="date" value={form.cutoffDate} onChange={e => setForm({...form, cutoffDate: e.target.value})}
+                  style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }} />
+              </div>
             </div>
           </div>
 
@@ -669,27 +801,28 @@ export default function ProjectsPage() {
 
           {/* Meta */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            {project.manager && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                <User size={13} style={{ flexShrink: 0 }} />
-                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>PM:</span>
-                <span>{project.manager}</span>
-              </div>
-            )}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+              <User size={13} style={{ flexShrink: 0 }} />
+              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>PM:</span>
+              <span>{project.manager || 'No asignado'}</span>
+            </div>
+            
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
+              <Activity size={13} style={{ flexShrink: 0, color: '#0284c7' }} />
+              <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Go-Live:</span>
+              <span style={{ fontWeight: project.goLiveDate ? 700 : 'normal', color: project.goLiveDate ? 'var(--text-primary)' : 'var(--text-muted)' }}>
+                {project.goLiveDate ? format(new Date(project.goLiveDate), 'dd MMM yyyy', { locale: es }) : 'No programada'}
+              </span>
+            </div>
+
             {project.sponsor && (
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                <User size={13} style={{ flexShrink: 0, color: '#0284c7' }} />
+                <User size={13} style={{ flexShrink: 0, color: '#0d9488' }} />
                 <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Sponsor:</span>
                 <span>{project.sponsor}</span>
               </div>
             )}
-            {project.responsible && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
-                <User size={13} style={{ flexShrink: 0, color: '#0d9488' }} />
-                <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>Resp:</span>
-                <span>{project.responsible}</span>
-              </div>
-            )}
+
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
               <Calendar size={13} style={{ flexShrink: 0 }} />
               <span>{format(new Date(project.startDate), 'dd MMM yyyy', { locale: es })} — {format(new Date(project.endDate), 'dd MMM yyyy', { locale: es })}</span>
@@ -888,15 +1021,23 @@ export default function ProjectsPage() {
                     </div>
                   </div>
 
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '24px' }}>
                     {subProjects.length > 0 && (
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                        <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)' }}>Avance Consolidado</span>
-                        <div style={{ width: '120px', height: '8px', background: 'var(--border-light)', borderRadius: '99px', overflow: 'hidden' }}>
-                          <div style={{ height: '100%', width: `${groupProgress}%`, background: 'linear-gradient(90deg, #0079C1, #00B2E3)', borderRadius: '99px' }} />
+                      <>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+                          <span style={{ fontSize: '0.7rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Presupuesto Consolidado</span>
+                          <span style={{ fontSize: '0.88rem', fontWeight: 900, color: 'var(--text-primary)' }}>
+                            ${subProjects.reduce((sum, p) => sum + (p.budget || 0), 0).toLocaleString('es-CL')}
+                          </span>
                         </div>
-                        <span style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-primary)', minWidth: '32px' }}>{groupProgress}%</span>
-                      </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                          <span style={{ fontSize: '0.78rem', fontWeight: 700, color: 'var(--text-secondary)' }}>Avance Consolidado</span>
+                          <div style={{ width: '120px', height: '8px', background: 'var(--border-light)', borderRadius: '99px', overflow: 'hidden' }}>
+                            <div style={{ height: '100%', width: `${groupProgress}%`, background: 'linear-gradient(90deg, #0079C1, #00B2E3)', borderRadius: '99px' }} />
+                          </div>
+                          <span style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--accent-primary)', minWidth: '32px' }}>{groupProgress}%</span>
+                        </div>
+                      </>
                     )}
                     <button style={{ border: 'none', background: 'transparent', cursor: 'pointer', display: 'flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
                       {isCollapsed ? <ChevronRight size={22} /> : <ChevronDown size={22} />}

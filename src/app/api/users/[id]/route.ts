@@ -1,12 +1,15 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
+import { checkSession, unauthorizedResponse } from '@/lib/apiAuth';
 
 export async function PUT(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await checkSession();
+    if (!session) return unauthorizedResponse();
     const { id } = await params;
     const data = await req.json();
 
@@ -18,7 +21,7 @@ export async function PUT(
     };
 
     if (data.password && data.password.trim() !== '') {
-      updatePayload.passwordHash = bcrypt.hashSync(data.password, 10);
+      updatePayload.passwordHash = await bcrypt.hash(data.password, 10);
     }
 
     const updatedUser = await prisma.masterUser.update({
@@ -39,6 +42,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await checkSession();
+    if (!session) return unauthorizedResponse();
     const { id } = await params;
 
     await prisma.masterUser.delete({

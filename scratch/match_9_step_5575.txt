@@ -1,1 +1,0 @@
-"      {/* TAB CONTENT: SEGUIMIENTO CLINICO (FASES) */}\n      {currentTab === 'tracking' && (\n        <React.Fragment>\n          {/* KPI Panel */}\n          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px' }}>"

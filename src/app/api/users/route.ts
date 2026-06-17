@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import bcrypt from 'bcryptjs';
+import { checkSession, unauthorizedResponse } from '@/lib/apiAuth';
 
 // Datos iniciales de colaboradores con contraseñas encriptadas
 const getInitialUsers = () => [
@@ -32,13 +33,8 @@ const getInitialUsers = () => [
 
 export async function GET() {
   try {
-    const count = await prisma.masterUser.count();
-    if (count === 0) {
-      // Auto-sembrado inicial
-      await prisma.masterUser.createMany({
-        data: getInitialUsers()
-      });
-    }
+    const session = await checkSession();
+    if (!session) return unauthorizedResponse();
 
     const users = await prisma.masterUser.findMany({
       orderBy: { createdAt: 'asc' }
@@ -55,6 +51,9 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const session = await checkSession();
+    if (!session) return unauthorizedResponse();
+
     const data = await req.json();
     
     // Evitar emails duplicados
@@ -65,7 +64,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'El email ingresado ya está registrado por otro colaborador.' }, { status: 400 });
     }
 
-    const passwordHash = data.password ? bcrypt.hashSync(data.password, 10) : null;
+    const passwordHash = data.password ? await bcrypt.hash(data.password, 10) : null;
     const newUser = await prisma.masterUser.create({
       data: {
         id: data.id,

@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { checkSession, unauthorizedResponse } from '@/lib/apiAuth';
 
 export async function POST(req: Request) {
   try {
+    const session = await checkSession();
+    if (!session) return unauthorizedResponse();
     const data = await req.json();
     const newTask = await prisma.task.create({
       data: {
@@ -20,7 +23,16 @@ export async function POST(req: Request) {
         jiraCode: data.jiraCode,
         phaseId: data.phaseId,
         parentId: data.parentId,
-        dependencies: data.dependencies ? JSON.stringify(data.dependencies) : null
+        dependencies: data.dependencies ? JSON.stringify(data.dependencies) : null,
+        realStartDate: data.realStartDate ? new Date(data.realStartDate) : null,
+        realEndDate: data.realEndDate ? new Date(data.realEndDate) : null,
+        expectedProgress: data.expectedProgress !== undefined && data.expectedProgress !== null ? Number(data.expectedProgress) : null,
+        delayDays: data.delayDays !== undefined && data.delayDays !== null ? Number(data.delayDays) : null,
+        semaphore: data.semaphore || null,
+        estimatedCost: data.estimatedCost !== undefined && data.estimatedCost !== null ? Number(data.estimatedCost) : null,
+        realCost: data.realCost !== undefined && data.realCost !== null ? Number(data.realCost) : null,
+        risk: data.risk || null,
+        customFields: data.customFields ? (typeof data.customFields === 'string' ? data.customFields : JSON.stringify(data.customFields)) : '{}'
       },
       include: {
         attachments: true

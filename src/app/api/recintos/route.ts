@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { checkSession, unauthorizedResponse } from '@/lib/apiAuth';
 
 
 const initialRecintos = [
@@ -12,13 +13,8 @@ const initialRecintos = [
 
 export async function GET() {
   try {
-    const count = await prisma.recinto.count();
-    if (count === 0) {
-      // Auto-sembrado inicial de recintos
-      await prisma.recinto.createMany({
-        data: initialRecintos
-      });
-    }
+    const session = await checkSession();
+    if (!session) return unauthorizedResponse();
 
     const recintos = await prisma.recinto.findMany({
       include: {
@@ -38,6 +34,9 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const session = await checkSession();
+    if (!session) return unauthorizedResponse();
+
     const data = await req.json();
     const newRecinto = await prisma.recinto.create({
       data: {

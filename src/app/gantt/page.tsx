@@ -5,7 +5,7 @@ import { useProjectStore, Project, Task, Phase, TaskStatus, TaskPriority, Parent
 import { useUserStore } from '@/store/userStore';
 import { format, differenceInDays, addDays, eachDayOfInterval, startOfWeek, addWeeks, startOfMonth, addMonths, isToday } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { Calendar, Save, X, Trash2, Plus, ChevronDown, ChevronRight, AlertTriangle, Edit2, FolderPlus, Loader2, Paperclip } from 'lucide-react';
+import { Calendar, Save, X, Trash2, Plus, ChevronDown, ChevronUp, ChevronRight, AlertTriangle, Edit2, FolderPlus, Loader2, Paperclip } from 'lucide-react';
 import { addBusinessDays, differenceInBusinessDays } from '@/utils/dateUtils';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -85,6 +85,28 @@ export default function GanttPage() {
     setCollapsedTasks(prev => ({ ...prev, [taskId]: !prev[taskId] }));
   };
   
+  const handleCollapseAll = () => {
+    if (!project) return;
+    const newCollapsedPhases: Record<string, boolean> = {};
+    project.phases.forEach(ph => {
+      newCollapsedPhases[ph.id] = true;
+    });
+    setCollapsedPhases(newCollapsedPhases);
+
+    const newCollapsedTasks: Record<string, boolean> = {};
+    project.phases.forEach(ph => {
+      ph.tasks.forEach(t => {
+        newCollapsedTasks[t.id] = true;
+      });
+    });
+    setCollapsedTasks(newCollapsedTasks);
+  };
+
+  const handleExpandAll = () => {
+    setCollapsedPhases({});
+    setCollapsedTasks({});
+  };
+  
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
   const [wbsWidth, setWbsWidth] = useState(380);
@@ -157,19 +179,25 @@ export default function GanttPage() {
 
     if (viewMode === 'day') {
       const days = eachDayOfInterval({ start: minDate, end: maxDate });
-      periods = days.map(d => ({ 
-        date: d, 
-        labelTop: format(d, 'MMM', { locale: es }), 
-        labelBottom: format(d, 'dd'),
-        isToday: isToday(d),
-        isWeekend: d.getDay() === 0 || d.getDay() === 6
-      }));
+      periods = days.map(d => {
+        const rawLabel = format(d, 'MMM yy', { locale: es });
+        const capitalizedLabel = (rawLabel.charAt(0).toUpperCase() + rawLabel.slice(1)).replace('.', '');
+        return { 
+          date: d, 
+          labelTop: capitalizedLabel, 
+          labelBottom: format(d, 'dd'),
+          isToday: isToday(d),
+          isWeekend: d.getDay() === 0 || d.getDay() === 6
+        };
+      });
     } else if (viewMode === 'week') {
       let curr = startOfWeek(minDate, { weekStartsOn: 1 });
       while (curr <= maxDate) {
+        const rawLabel = format(curr, 'MMM yy', { locale: es });
+        const capitalizedLabel = (rawLabel.charAt(0).toUpperCase() + rawLabel.slice(1)).replace('.', '');
         periods.push({
           date: curr,
-          labelTop: format(curr, 'MMM', { locale: es }),
+          labelTop: capitalizedLabel,
           labelBottom: `Sem ${format(curr, 'w')}`,
           isToday: isToday(curr) || (new Date() >= curr && new Date() < addWeeks(curr, 1))
         });
@@ -894,6 +922,26 @@ export default function GanttPage() {
           >
             <Calendar size={18} /> Hoy
           </motion.button>
+          
+          <motion.button 
+            whileHover={{ scale: 1.03, translateY: -1 }}
+            whileTap={{ scale: 0.97 }}
+            className="btn btn-secondary" 
+            onClick={handleCollapseAll}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+          >
+            <ChevronUp size={18} /> Colapsar Todo
+          </motion.button>
+          
+          <motion.button 
+            whileHover={{ scale: 1.03, translateY: -1 }}
+            whileTap={{ scale: 0.97 }}
+            className="btn btn-secondary" 
+            onClick={handleExpandAll}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}
+          >
+            <ChevronDown size={18} /> Expandir Todo
+          </motion.button>
         </div>
       </header>
 
@@ -1141,7 +1189,7 @@ export default function GanttPage() {
               
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
                 <div>
-                  <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Inicio</label>
+                  <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Inicio Plan</label>
                   <input 
                     type="date" 
                     value={format(new Date(editingTask.task.startDate), 'yyyy-MM-dd')} 
@@ -1150,7 +1198,7 @@ export default function GanttPage() {
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Término</label>
+                  <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Término Plan</label>
                   <input 
                     type="date" 
                     value={format(new Date(editingTask.task.endDate), 'yyyy-MM-dd')} 
@@ -1167,6 +1215,75 @@ export default function GanttPage() {
                     onChange={e => handleTaskDateChange('duration', e.target.value)}
                     style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
                   />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Inicio Real</label>
+                  <input 
+                    type="date" 
+                    value={editingTask.task.realStartDate ? format(new Date(editingTask.task.realStartDate), 'yyyy-MM-dd') : ''} 
+                    onChange={e => setEditingTask({
+                      ...editingTask,
+                      task: { ...editingTask.task, realStartDate: e.target.value ? new Date(e.target.value) : null }
+                    })}
+                    style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Término Real</label>
+                  <input 
+                    type="date" 
+                    value={editingTask.task.realEndDate ? format(new Date(editingTask.task.realEndDate), 'yyyy-MM-dd') : ''} 
+                    onChange={e => setEditingTask({
+                      ...editingTask,
+                      task: { ...editingTask.task, realEndDate: e.target.value ? new Date(e.target.value) : null }
+                    })}
+                    style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+                  />
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Costo Estimado</label>
+                  <input 
+                    type="number" 
+                    value={editingTask.task.estimatedCost !== undefined && editingTask.task.estimatedCost !== null ? editingTask.task.estimatedCost : ''} 
+                    onChange={e => setEditingTask({
+                      ...editingTask,
+                      task: { ...editingTask.task, estimatedCost: e.target.value !== '' ? Number(e.target.value) : null }
+                    })}
+                    style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Costo Real</label>
+                  <input 
+                    type="number" 
+                    value={editingTask.task.realCost !== undefined && editingTask.task.realCost !== null ? editingTask.task.realCost : ''} 
+                    onChange={e => setEditingTask({
+                      ...editingTask,
+                      task: { ...editingTask.task, realCost: e.target.value !== '' ? Number(e.target.value) : null }
+                    })}
+                    style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Riesgo</label>
+                  <select 
+                    value={editingTask.task.risk || 'Bajo'}
+                    onChange={e => setEditingTask({
+                      ...editingTask,
+                      task: { ...editingTask.task, risk: e.target.value }
+                    })}
+                    style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+                  >
+                    <option value="Bajo">Bajo</option>
+                    <option value="Medio">Medio</option>
+                    <option value="Alto">Alto</option>
+                  </select>
                 </div>
               </div>
 

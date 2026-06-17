@@ -351,3 +351,26 @@ table textarea:focus {
     grid-template-columns: 1fr !important;
   }
 }
+
+/* Resizable Column Handles (Notion-style) */
+th {
+  position: relative;
+}
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 6px;
+  cursor: col-resize;
+  user-select: none;
+  z-index: 20;
+  transition: background-color 0.15s ease;
+}
+
+.resize-handle:hover,
+.resize-handle:active {
+  background-color: #0079C1; /* Bupa Corporate Sky Blue */
+}
+

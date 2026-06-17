@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { checkSession, unauthorizedResponse } from '@/lib/apiAuth';
 
 export async function PUT(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await checkSession();
+    if (!session) return unauthorizedResponse();
     const { id } = await params;
     const data = await req.json();
 
@@ -25,7 +28,16 @@ export async function PUT(
         jiraCode: data.jiraCode,
         phaseId: data.phaseId,
         parentId: data.parentId,
-        dependencies: data.dependencies ? JSON.stringify(data.dependencies) : undefined
+        dependencies: data.dependencies ? JSON.stringify(data.dependencies) : undefined,
+        realStartDate: data.realStartDate !== undefined ? (data.realStartDate ? new Date(data.realStartDate) : null) : undefined,
+        realEndDate: data.realEndDate !== undefined ? (data.realEndDate ? new Date(data.realEndDate) : null) : undefined,
+        expectedProgress: data.expectedProgress !== undefined ? (data.expectedProgress !== null ? Number(data.expectedProgress) : null) : undefined,
+        delayDays: data.delayDays !== undefined ? (data.delayDays !== null ? Number(data.delayDays) : null) : undefined,
+        semaphore: data.semaphore !== undefined ? data.semaphore : undefined,
+        estimatedCost: data.estimatedCost !== undefined ? (data.estimatedCost !== null ? Number(data.estimatedCost) : null) : undefined,
+        realCost: data.realCost !== undefined ? (data.realCost !== null ? Number(data.realCost) : null) : undefined,
+        risk: data.risk !== undefined ? data.risk : undefined,
+        customFields: data.customFields !== undefined ? (typeof data.customFields === 'string' ? data.customFields : JSON.stringify(data.customFields)) : undefined
       },
       include: {
         attachments: true
@@ -50,6 +62,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await checkSession();
+    if (!session) return unauthorizedResponse();
     const { id } = await params;
 
     await prisma.task.delete({

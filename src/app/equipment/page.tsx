@@ -2,10 +2,10 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
 import { useEquipmentStore, ClinicalEquipment, Recinto, EquipmentPhaseStatus, Analyte } from '@/store/equipmentStore';
-import { useProjectStore } from '@/store/projectStore';
+import { useProjectStore, Project, ParentProject } from '@/store/projectStore';
 import { useUserStore } from '@/store/userStore';
 import { useRouter } from 'next/navigation';
-import { Plus, Search, Trash2, Calendar, FileSpreadsheet, Building2, ShieldAlert, CheckCircle2, RefreshCw, Layers, X, UploadCloud, Loader2, Check, Edit2, Sliders, ChevronDown, MessageSquare, Database, Info, Save } from 'lucide-react';
+import { Plus, Search, Trash2, Calendar, FileSpreadsheet, Building2, ShieldAlert, CheckCircle2, RefreshCw, Layers, X, UploadCloud, Loader2, Check, Edit2, Sliders, ChevronDown, MessageSquare, Database, Info, Save, ArrowLeft, ChevronRight, User, FolderPlus, Folder } from 'lucide-react';
 import { format } from 'date-fns';
 import { InlineInput, InlineTextarea } from '@/components/InlineInput';
 import ReportViewer from '@/components/ReportViewer';
@@ -22,6 +22,21 @@ const STATUS_STYLE: Record<EquipmentPhaseStatus, { bg: string; color: string; bo
   'No iniciado': { bg: 'var(--bg-tertiary)', color: 'var(--text-secondary)', border: 'var(--border-light)' },
   'Descartado': { bg: 'rgba(239, 68, 68, 0.1)', color: '#ef4444', border: 'rgba(239, 68, 68, 0.2)' },
   'Desestimado': { bg: 'rgba(107, 114, 128, 0.1)', color: '#6b7280', border: 'rgba(107, 114, 128, 0.2)' }
+};
+
+type ProjectStatus = 'Planificación' | 'Ejecución' | 'Pausado' | 'Completado';
+
+const STATUS_CONFIG: Record<ProjectStatus, { color: string; bg: string; label: string }> = {
+  'Planificación': { color: '#f59e0b', bg: 'rgba(245,158,11,0.1)', label: 'Planificación' },
+  'Ejecución':     { color: '#0079C1', bg: 'rgba(0,121,193,0.1)',  label: 'En Ejecución' },
+  'Pausado':       { color: '#6b7280', bg: 'rgba(107,114,128,0.1)',label: 'Pausado' },
+  'Completado':    { color: '#10b981', bg: 'rgba(16,185,129,0.1)', label: 'Completado' },
+};
+
+const AREA_COLORS: Record<string, string> = {
+  'Tecnología': '#6366f1', 'Operaciones': '#f59e0b', 'Salud Digital': '#0079C1',
+  'Clínico': '#10b981', 'Administración': '#8b5cf6', 'Finanzas': '#ef4444',
+  'Marketing': '#ec4899', 'Legal': '#14b8a6',
 };
 
 const CustomSelect = ({ 
@@ -201,6 +216,7 @@ const AnalyteModal = ({
   editingAnalyte,
   recintos,
   analytes,
+  equipments = [],
   onSave
 }: {
   isOpen: boolean;
@@ -208,6 +224,7 @@ const AnalyteModal = ({
   editingAnalyte: Analyte | null;
   recintos: Recinto[];
   analytes: Analyte[];
+  equipments?: ClinicalEquipment[];
   onSave: (data: any) => Promise<void>;
 }) => {
   const [name, setName] = useState(editingAnalyte?.name || '');
@@ -222,11 +239,14 @@ const AnalyteModal = ({
   // Buscar instrumentos únicos para autocompletar
   const uniqueInstruments = useMemo(() => {
     const list = new Set<string>();
+    equipments.forEach(eq => {
+      if (eq.name) list.add(eq.name);
+    });
     analytes.forEach(a => {
       if (a.instrumentName) list.add(a.instrumentName);
     });
     return Array.from(list);
-  }, [analytes]);
+  }, [equipments, analytes]);
 
   // Buscar estados personalizados dinámicos para el dropdown
   const uniqueAnalyteStatuses = useMemo(() => {
@@ -424,6 +444,157 @@ const AnalyteModal = ({
   );
 };
 
+// Modal Administrador de Agrupadores
+const ParentProjectsModal = ({ 
+  onClose, 
+  parentProjects, 
+  onAdd, 
+  onUpdate, 
+  onDelete 
+}: { 
+  onClose: () => void; 
+  parentProjects: ParentProject[];
+  onAdd: (name: string, description?: string) => Promise<void>;
+  onUpdate: (id: string, name: string, description?: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
+}) => {
+  const [newName, setNewName] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const [editingDesc, setEditingDesc] = useState('');
+
+  const handleCreate = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    await onAdd(newName.trim(), newDesc.trim());
+    setNewName('');
+    setNewDesc('');
+  };
+
+  const handleStartEdit = (pp: ParentProject) => {
+    setEditingId(pp.id);
+    setEditingName(pp.name);
+    setEditingDesc(pp.description || '');
+  };
+
+  const handleSaveEdit = async (id: string) => {
+    if (!editingName.trim()) return;
+    await onUpdate(id, editingName.trim(), editingDesc.trim());
+    setEditingId(null);
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 200, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }}>
+      <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', width: '600px', maxWidth: '95vw', maxHeight: '85vh', overflow: 'hidden', boxShadow: '0 30px 60px rgba(0,0,0,0.3)', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', animation: 'scaleUp 0.2s ease' }}>
+        
+        {/* Header */}
+        <div style={{ padding: '24px 28px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div>
+            <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: '#003B64', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <FolderPlus size={20} color="#0079C1" />
+              Gestión de Agrupadores de Proyectos
+            </h2>
+            <p style={{ color: 'var(--text-secondary)', margin: '4px 0 0', fontSize: '0.85rem' }}>Crea carpetas maestras (Programas) para agrupar tus cronogramas clínicos</p>
+          </div>
+          <button className="icon-btn" onClick={onClose}><X size={20} /></button>
+        </div>
+
+        {/* Body */}
+        <div style={{ padding: '24px 28px', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          
+          {/* Form Nuevo */}
+          <form onSubmit={handleCreate} style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-light)', borderRadius: '8px', padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>+ Crear Agrupador Principal</span>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <input 
+                type="text" 
+                placeholder="Nombre del Agrupador (ej: Proyecto de Calidad)" 
+                value={newName} 
+                onChange={e => setNewName(e.target.value)}
+                style={{ padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', outline: 'none' }}
+                required
+              />
+              <input 
+                type="text" 
+                placeholder="Descripción corta (ej: Implementación de automatización LIS)" 
+                value={newDesc} 
+                onChange={e => setNewDesc(e.target.value)}
+                style={{ padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', outline: 'none' }}
+              />
+            </div>
+            <button type="submit" className="btn btn-primary" style={{ alignSelf: 'flex-end', padding: '8px 16px', fontSize: '0.82rem' }}>
+              Crear Agrupador
+            </button>
+          </form>
+
+          {/* Listado */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+            <span style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '6px' }}>
+              Agrupadores Creados ({parentProjects.length})
+            </span>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {parentProjects.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)', fontSize: '0.88rem', fontStyle: 'italic' }}>
+                  No hay agrupadores creados. Los proyectos se muestran de forma independiente.
+                </div>
+              ) : (
+                parentProjects.map(pp => (
+                  <div key={pp.id} style={{ border: '1px solid var(--border-subtle)', borderRadius: '8px', padding: '12px 16px', background: 'white', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+                    {editingId === pp.id ? (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', flex: 1 }}>
+                        <input 
+                          type="text" 
+                          value={editingName} 
+                          onChange={e => setEditingName(e.target.value)}
+                          style={{ padding: '6px 10px', border: '1px solid var(--accent-primary)', borderRadius: '4px', fontSize: '0.85rem', fontWeight: 'bold' }}
+                          required
+                        />
+                        <input 
+                          type="text" 
+                          value={editingDesc} 
+                          onChange={e => setEditingDesc(e.target.value)}
+                          style={{ padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', fontSize: '0.8rem' }}
+                        />
+                        <div style={{ display: 'flex', gap: '8px', alignSelf: 'flex-end' }}>
+                          <button type="button" onClick={() => setEditingId(null)} className="btn btn-secondary" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>Cancelar</button>
+                          <button type="button" onClick={() => handleSaveEdit(pp.id)} className="btn btn-primary" style={{ padding: '4px 10px', fontSize: '0.75rem' }}>Guardar</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontWeight: 700, color: '#003B64', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            📁 {pp.name}
+                          </div>
+                          {pp.description && <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '2px' }}>{pp.description}</div>}
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px' }}>
+                          <button type="button" onClick={() => handleStartEdit(pp)} className="icon-btn" title="Editar Nombre" style={{ color: 'var(--text-secondary)', background: 'none', border: 'none', cursor: 'pointer' }}>
+                            <Edit2 size={14} />
+                          </button>
+                          <button type="button" onClick={() => {
+                            if (confirm(`¿Está seguro de eliminar el agrupador "${pp.name}"? Los proyectos asociados quedarán huérfanos pero no se eliminarán.`)) {
+                              onDelete(pp.id);
+                            }
+                          }} className="icon-btn" title="Eliminar" style={{ color: 'var(--accent-danger)', background: 'none', border: 'none', cursor: 'pointer' }}>
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+  );
+};
+
 const getParentEquipment = (a: Analyte, equipments: ClinicalEquipment[]) => {
   if (a.equipmentId) {
     const eq = equipments.find(eq => eq.id === a.equipmentId);
@@ -447,6 +618,359 @@ const getEffectiveScope = (a: Analyte, equipments: ClinicalEquipment[]) => {
     : a.releasePhaseId;
     
   return { effectiveStatus, effectivePhaseId, parentEq };
+};
+
+const ProjectEditModal = ({ 
+  project, 
+  onClose, 
+  onSave 
+}: { 
+  project: Project; 
+  onClose: () => void; 
+  onSave: (id: string, updates: any) => Promise<void>;
+}) => {
+  const [name, setName] = useState(project.name);
+  const [manager, setManager] = useState(project.manager || '');
+  const [description, setDescription] = useState(project.description || '');
+  const [area, setArea] = useState(project.area || 'Tecnología');
+  const [status, setStatus] = useState(project.status || 'Planificación');
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    try {
+      await onSave(project.id, {
+        name: name.trim(),
+        manager: manager.trim(),
+        description: description.trim(),
+        area,
+        status
+      });
+      onClose();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={onClose}>
+      <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', width: '500px', maxWidth: '95vw', padding: '24px', boxShadow: '0 30px 60px rgba(0,0,0,0.3)', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '16px', animation: 'scaleUp 0.2s ease' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+          <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#003B64', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Edit2 size={18} color="#0079C1" />
+            Editar Proyecto
+          </h2>
+          <button className="icon-btn" onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={20} /></button>
+        </div>
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div>
+            <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Nombre del Proyecto</label>
+            <input 
+              type="text" 
+              value={name} 
+              onChange={e => setName(e.target.value)}
+              style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none' }}
+              required
+            />
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div>
+              <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>PM / Gerente</label>
+              <input 
+                type="text" 
+                value={manager} 
+                onChange={e => setManager(e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none' }}
+              />
+            </div>
+
+            <div>
+              <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Área</label>
+              <select 
+                value={area} 
+                onChange={e => setArea(e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+              >
+                {Object.keys(AREA_COLORS).map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div>
+              <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Estado de Proyecto</label>
+              <select 
+                value={status} 
+                onChange={e => setStatus(e.target.value as any)}
+                style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+              >
+                <option value="Planificación">Planificación</option>
+                <option value="Ejecución">En Ejecución</option>
+                <option value="Pausado">Pausado</option>
+                <option value="Completado">Completado</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Descripción</label>
+            <textarea 
+              value={description} 
+              onChange={e => setDescription(e.target.value)}
+              rows={3}
+              style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none', resize: 'vertical' }}
+            />
+          </div>
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px', borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
+            <button type="button" onClick={onClose} className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '0.82rem' }}>Cancelar</button>
+            <button type="submit" disabled={isSaving} className="btn btn-primary" style={{ padding: '8px 20px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {isSaving && <Loader2 className="animate-spin" size={14} />}
+              Guardar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+};
+
+const AssociateGlobalModal = ({ 
+  onClose, 
+  onSave 
+}: { 
+  onClose: () => void; 
+  onSave: (targetProjectId: string) => Promise<void>;
+}) => {
+  const projects = useProjectStore(state => state.projects);
+  const parentProjects = useProjectStore(state => state.parentProjects);
+  const addProject = useProjectStore(state => state.addProject);
+
+  const [mode, setMode] = useState<'existing' | 'new'>('existing');
+  const [selectedId, setSelectedId] = useState('');
+  
+  // Fields for new project
+  const [name, setName] = useState('');
+  const [manager, setManager] = useState('');
+  const [area, setArea] = useState('Tecnología');
+  const [status, setStatus] = useState('Planificación');
+  const [parentId, setParentId] = useState('');
+  
+  const [isSaving, setIsSaving] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSaving(true);
+    try {
+      if (mode === 'existing') {
+        if (!selectedId) {
+          alert('Por favor seleccione un proyecto.');
+          setIsSaving(false);
+          return;
+        }
+        await onSave(selectedId);
+      } else {
+        if (!name.trim()) {
+          alert('El nombre del proyecto es obligatorio.');
+          setIsSaving(false);
+          return;
+        }
+        const newProjectId = `proj-${Date.now()}`;
+        const newProjectObj: Project = {
+          id: newProjectId,
+          name: name.trim(),
+          description: '',
+          manager: manager.trim(),
+          sponsor: '',
+          responsible: '',
+          area,
+          status: status as any,
+          hasEquipment: true,
+          startDate: new Date(),
+          endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+          parentProjectId: parentId || null,
+          phases: []
+        };
+        await addProject(newProjectObj);
+        await onSave(newProjectId);
+      }
+      onClose();
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={onClose}>
+      <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', width: '500px', maxWidth: '95vw', padding: '24px', boxShadow: '0 30px 60px rgba(0,0,0,0.3)', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '16px', animation: 'scaleUp 0.2s ease' }} onClick={e => e.stopPropagation()}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+          <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#003B64', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <Sliders size={18} color="#0079C1" />
+            Asociar Equipos Clínicos Globales a Proyecto
+          </h2>
+          <button className="icon-btn" onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={20} /></button>
+        </div>
+
+        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
+          Puedes mover todos los equipos clínicos globales que no tienen proyecto a un proyecto nuevo o uno ya existente en el sistema.
+        </p>
+
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ 
+            display: 'flex', 
+            background: 'var(--bg-tertiary)', 
+            borderRadius: '8px', 
+            padding: '4px',
+            border: '1px solid var(--border-subtle)',
+            marginBottom: '4px'
+          }}>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setMode('existing');
+              }}
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                borderRadius: '6px',
+                border: 'none',
+                background: mode === 'existing' ? '#0079C1' : 'transparent',
+                color: mode === 'existing' ? '#FFFFFF' : 'var(--text-secondary)',
+                fontWeight: mode === 'existing' ? 700 : 500,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                textAlign: 'center'
+              }}
+            >
+              Asociar a Proyecto Existente
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                setMode('new');
+              }}
+              style={{
+                flex: 1,
+                padding: '8px 12px',
+                borderRadius: '6px',
+                border: 'none',
+                background: mode === 'new' ? '#0079C1' : 'transparent',
+                color: mode === 'new' ? '#FFFFFF' : 'var(--text-secondary)',
+                fontWeight: mode === 'new' ? 700 : 500,
+                fontSize: '0.8rem',
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+                textAlign: 'center'
+              }}
+            >
+              Crear Nuevo Proyecto y Asociar
+            </button>
+          </div>
+          {mode === 'existing' ? (
+            <div>
+              <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Seleccionar Proyecto Destino</label>
+              <select 
+                value={selectedId} 
+                onChange={e => setSelectedId(e.target.value)}
+                style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+                required
+              >
+                <option value="">-- Seleccione un proyecto --</option>
+                {projects.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Nombre del Proyecto</label>
+                <input 
+                  type="text" 
+                  value={name} 
+                  onChange={e => setName(e.target.value)}
+                  style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none' }}
+                  placeholder="Ej. Proyecto Calidad"
+                  required
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>PM / Gerente</label>
+                  <input 
+                    type="text" 
+                    value={manager} 
+                    onChange={e => setManager(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Área</label>
+                  <select 
+                    value={area} 
+                    onChange={e => setArea(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+                  >
+                    {Object.keys(AREA_COLORS).map(a => <option key={a} value={a}>{a}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Estado de Proyecto</label>
+                  <select 
+                    value={status} 
+                    onChange={e => setStatus(e.target.value as any)}
+                    style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+                  >
+                    <option value="Planificación">Planificación</option>
+                    <option value="Ejecución">En Ejecución</option>
+                    <option value="Pausado">Pausado</option>
+                    <option value="Completado">Completado</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Agrupador / Programa</label>
+                  <select 
+                    value={parentId} 
+                    onChange={e => setParentId(e.target.value)}
+                    style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+                  >
+                    <option value="">📁 Independiente</option>
+                    {parentProjects.map(pp => (
+                      <option key={pp.id} value={pp.id}>📁 {pp.name}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px', borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
+            <button type="button" onClick={onClose} className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '0.82rem' }}>Cancelar</button>
+            <button type="submit" disabled={isSaving} className="btn btn-primary" style={{ padding: '8px 20px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              {isSaving && <Loader2 className="animate-spin" size={14} />}
+              Asociar Todos
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
 };
 
 export default function EquipmentTrackerPage() {
@@ -500,7 +1024,16 @@ export default function EquipmentTrackerPage() {
 
   const projects = useProjectStore(state => state.projects);
   const fetchProjects = useProjectStore(state => state.fetchProjects);
+  const parentProjects = useProjectStore(state => state.parentProjects);
+  const fetchParentProjects = useProjectStore(state => state.fetchParentProjects);
+  const updateProject = useProjectStore(state => state.updateProject);
+  const addProject = useProjectStore(state => state.addProject);
+  const addParentProject = useProjectStore(state => state.addParentProject);
+  const updateParentProject = useProjectStore(state => state.updateParentProject);
+  const deleteParentProject = useProjectStore(state => state.deleteParentProject);
   const router = useRouter();
+
+  const [isParentModalOpen, setIsParentModalOpen] = useState(false);
 
   const users = useUserStore(state => state.users);
   const fetchUsers = useUserStore(state => state.fetchUsers);
@@ -596,9 +1129,78 @@ export default function EquipmentTrackerPage() {
     }
   };
 
+  const [search, setSearch] = useState('');
+  const [filterProject, setFilterProject] = useState<string>('all');
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'all' | 'clinical' | 'non-clinical'>('all');
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [isAssociateModalOpen, setIsAssociateModalOpen] = useState(false);
+
+  const [columnWidthsEquip, setColumnWidthsEquip] = useState<Record<string, number>>({});
+  const [columnWidthsAnalyte, setColumnWidthsAnalyte] = useState<Record<string, number>>({});
+
+  useEffect(() => {
+    const savedEquipWidths = localStorage.getItem('equipments_col_widths');
+    if (savedEquipWidths) {
+      try { setColumnWidthsEquip(JSON.parse(savedEquipWidths)); } catch (e) { console.error(e); }
+    }
+    const savedAnalyteWidths = localStorage.getItem('analytes_col_widths');
+    if (savedAnalyteWidths) {
+      try { setColumnWidthsAnalyte(JSON.parse(savedAnalyteWidths)); } catch (e) { console.error(e); }
+    }
+  }, []);
+
+  const handleResizeMouseDownEquip = (colKey: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.pageX;
+    const startWidth = e.currentTarget.parentElement?.getBoundingClientRect().width || 150;
+    
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const currentWidth = Math.max(50, startWidth + (moveEvent.pageX - startX));
+      setColumnWidthsEquip(prev => {
+        const updated = { ...prev, [colKey]: currentWidth };
+        localStorage.setItem('equipments_col_widths', JSON.stringify(updated));
+        return updated;
+      });
+    };
+    
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const handleResizeMouseDownAnalyte = (colKey: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    const startX = e.pageX;
+    const startWidth = e.currentTarget.parentElement?.getBoundingClientRect().width || 150;
+    
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const currentWidth = Math.max(50, startWidth + (moveEvent.pageX - startX));
+      setColumnWidthsAnalyte(prev => {
+        const updated = { ...prev, [colKey]: currentWidth };
+        localStorage.setItem('analytes_col_widths', JSON.stringify(updated));
+        return updated;
+      });
+    };
+    
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+    
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+
   useEffect(() => {
     fetchEquipmentData();
     fetchProjects();
+    fetchParentProjects();
     fetchUsers();
     fetchAnalytes();
     fetchReleasePhases();
@@ -608,6 +1210,11 @@ export default function EquipmentTrackerPage() {
       if (params.get('tab') === 'analytes') {
         setCurrentTab('analytes');
       }
+      const projId = params.get('projectId');
+      if (projId) {
+        setSelectedProjectId(projId);
+        setFilterProject(projId === 'independent' ? 'none' : projId);
+      }
     }
 
     // Sincronización proactiva multidispositivo (Sondeo activo cada 15 segundos si la pestaña está activa)
@@ -615,6 +1222,7 @@ export default function EquipmentTrackerPage() {
       if (document.visibilityState === 'visible') {
         fetchEquipmentData();
         fetchProjects();
+        fetchParentProjects();
         fetchUsers();
         fetchAnalytes();
         fetchReleasePhases();
@@ -624,9 +1232,17 @@ export default function EquipmentTrackerPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const [search, setSearch] = useState('');
-  const [filterProject, setFilterProject] = useState<string>('all');
-  const [activeTab, setActiveTab] = useState<'all' | 'clinical' | 'non-clinical'>('all');
+  // Sync state back when popping navigation history
+  useEffect(() => {
+    const handlePopState = () => {
+      const params = new URLSearchParams(window.location.search);
+      const projId = params.get('projectId');
+      setSelectedProjectId(projId || null);
+      setFilterProject(projId === 'independent' ? 'none' : (projId || 'all'));
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
   
   // Estados para Matriz de Analitos
   const [currentTab, setCurrentTab] = useState<'tracking' | 'analytes'>('tracking');
@@ -1078,9 +1694,16 @@ export default function EquipmentTrackerPage() {
         normState.toLowerCase() === statusFilter.toLowerCase();
 
       // Resolve parent equipment scope status and phase
-      const { effectiveStatus, effectivePhaseId } = getEffectiveScope(a, equipments);
+      const { parentEq, effectiveStatus, effectivePhaseId } = getEffectiveScope(a, equipments);
 
-            let matchScope = true;
+      const matchProject = 
+        filterProject === 'all' ||
+        (filterProject === 'none' && (!parentEq || !parentEq.projectId)) ||
+        (parentEq && parentEq.projectId === filterProject);
+
+      if (!matchProject) return false;
+
+      let matchScope = true;
       if (scopeFilter === 'OUT_OF_SCOPE') {
         matchScope = effectiveStatus === 'OUT_OF_SCOPE';
       } else if (scopeFilter !== 'all') {
@@ -1091,7 +1714,7 @@ export default function EquipmentTrackerPage() {
       
       return matchSearch && matchStatus && matchScope;
     });
-  }, [analytes, analyteSearch, recintos, statusFilter, scopeFilter, equipments]);
+  }, [analytes, analyteSearch, recintos, statusFilter, scopeFilter, equipments, filterProject]);
 
     const scopeFilteredEquipments = useMemo(() => {
     return equipments.filter(eq => {
@@ -1103,13 +1726,20 @@ export default function EquipmentTrackerPage() {
 
     const scopeFilteredAnalytes = useMemo(() => {
     return analytes.filter(a => {
-      const { effectiveStatus, effectivePhaseId } = getEffectiveScope(a, equipments);
+      const { parentEq, effectiveStatus, effectivePhaseId } = getEffectiveScope(a, equipments);
+
+      const matchProject = 
+        filterProject === 'all' ||
+        (filterProject === 'none' && (!parentEq || !parentEq.projectId)) ||
+        (parentEq && parentEq.projectId === filterProject);
+
+      if (!matchProject) return false;
 
       if (scopeFilter === 'all') return effectiveStatus !== 'OUT_OF_SCOPE';
       if (scopeFilter === 'OUT_OF_SCOPE') return effectiveStatus === 'OUT_OF_SCOPE';
       return effectivePhaseId === scopeFilter && effectiveStatus !== 'OUT_OF_SCOPE';
     });
-  }, [analytes, equipments, scopeFilter]);
+  }, [analytes, equipments, scopeFilter, filterProject]);
 
   const searchAndScopeFilteredAnalytes = useMemo(() => {
     return analytes.filter(a => {
@@ -1124,7 +1754,14 @@ export default function EquipmentTrackerPage() {
         a.instrumentName.toLowerCase().includes(analyteSearch.toLowerCase()) ||
         recintoName.toLowerCase().includes(analyteSearch.toLowerCase());
       
-      const { effectiveStatus, effectivePhaseId } = getEffectiveScope(a, equipments);
+      const { parentEq, effectiveStatus, effectivePhaseId } = getEffectiveScope(a, equipments);
+
+      const matchProject = 
+        filterProject === 'all' ||
+        (filterProject === 'none' && (!parentEq || !parentEq.projectId)) ||
+        (parentEq && parentEq.projectId === filterProject);
+
+      if (!matchProject) return false;
 
       let matchScope = true;
       if (scopeFilter === 'OUT_OF_SCOPE') {
@@ -1137,7 +1774,7 @@ export default function EquipmentTrackerPage() {
       
       return matchSearch && matchScope;
     });
-  }, [analytes, analyteSearch, recintos, scopeFilter, equipments]);
+  }, [analytes, analyteSearch, recintos, scopeFilter, equipments, filterProject]);
 
 
   const exportAnalytesToExcel = () => {
@@ -1292,23 +1929,643 @@ export default function EquipmentTrackerPage() {
       pendienteDe: '',
       scopeStatus: 'ACTIVE',
       releasePhaseId: null,
+      projectId: selectedProjectId && selectedProjectId !== 'independent' ? selectedProjectId : null,
       customFields: '{}'
     };
     addEquipment(newEq);
   };
 
+  // Navigation / Workspace helpers
+  const handleSelectProject = (projectId: string) => {
+    setSelectedProjectId(projectId);
+    setFilterProject(projectId === 'independent' ? 'none' : projectId);
+    const newUrl = `/equipment?projectId=${projectId}`;
+    window.history.pushState({ projectId }, '', newUrl);
+  };
+
+  const handleClearProject = () => {
+    setSelectedProjectId(null);
+    setFilterProject('all');
+    window.history.pushState(null, '', '/equipment');
+  };
+
+  const [landingSearch, setLandingSearch] = useState('');
+  const [landingAreaFilter, setLandingAreaFilter] = useState('Todos');
+  const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+
+  const toggleGroup = (groupId: string) => {
+    setCollapsedGroups(prev => ({ ...prev, [groupId]: !prev[groupId] }));
+  };
+
+  const filteredProjectsForLanding = useMemo(() => {
+    return projects.filter(p => {
+      const matchSearch = p.name.toLowerCase().includes(landingSearch.toLowerCase()) || 
+                          (p.manager || '').toLowerCase().includes(landingSearch.toLowerCase()) ||
+                          (p.sponsor || '').toLowerCase().includes(landingSearch.toLowerCase());
+      const matchArea = landingAreaFilter === 'Todos' || p.area === landingAreaFilter;
+      return matchSearch && matchArea;
+    });
+  }, [projects, landingSearch, landingAreaFilter]);
+
+  const groupedProjectsForLanding = useMemo(() => {
+    const groups: Record<string, { parent: ParentProject | null; projects: Project[] }> = {};
+    parentProjects.forEach(pp => {
+      groups[pp.id] = { parent: pp, projects: [] };
+    });
+    groups['independent'] = { parent: null, projects: [] };
+    filteredProjectsForLanding.forEach(p => {
+      if (p.parentProjectId && groups[p.parentProjectId]) {
+        groups[p.parentProjectId].projects.push(p);
+      } else {
+        groups['independent'].projects.push(p);
+      }
+    });
+    return groups;
+  }, [parentProjects, filteredProjectsForLanding]);
+
+  const getProjectStats = (projectId: string | null) => {
+    const projEquips = equipments.filter(eq => 
+      projectId === null ? !eq.projectId : eq.projectId === projectId
+    );
+    
+    let totalActivePhases = 0;
+    let weightedCompletionSum = 0;
+    projEquips.forEach(eq => {
+      const phasesList = [
+        eq.levantamiento, eq.parametrizacion, eq.pruebas, 
+        eq.capacitacion, eq.validacion, eq.golive
+      ];
+      phasesList.forEach(p => {
+        if (p === 'Descartado' || p === 'Desestimado') return;
+        totalActivePhases++;
+        if (p === 'Completado') {
+          weightedCompletionSum += 1.0;
+        } else if (p === 'En progreso') {
+          weightedCompletionSum += 0.5;
+        }
+      });
+    });
+    const clinicalProgress = totalActivePhases === 0 ? 0 : Math.round((weightedCompletionSum / totalActivePhases) * 100);
+    
+    const projEqIds = new Set(projEquips.map(eq => eq.id));
+    const projAnalytes = analytes.filter(a => {
+      if (a.equipmentId) {
+        return projEqIds.has(a.equipmentId);
+      }
+      const parent = getParentEquipment(a, equipments);
+      return parent && (projectId === null ? !parent.projectId : parent.projectId === projectId);
+    });
+    
+    const totalAnalytes = projAnalytes.length;
+    const noAplicaAnalytes = projAnalytes.filter(a => normalizeAnalyteState(a.state) === 'no aplica').length;
+    const applicableAnalytes = totalAnalytes - noAplicaAnalytes;
+    const transmittingAnalytes = projAnalytes.filter(a => normalizeAnalyteState(a.state) === 'transmitiendo').length;
+    
+    const lisProgress = applicableAnalytes > 0 ? Math.round((transmittingAnalytes / applicableAnalytes) * 100) : 0;
+    
+    return {
+      equipCount: projEquips.length,
+      clinicalProgress,
+      lisProgress,
+      lisCount: transmittingAnalytes,
+      lisTotal: applicableAnalytes
+    };
+  };
+
+  // Modals moved to outer scope
+
+  const renderLandingProjectCard = (project: Project) => {
+    const { equipCount, clinicalProgress, lisProgress, lisCount, lisTotal } = getProjectStats(project.id);
+    const status = project.status || 'Planificación';
+    const sc = STATUS_CONFIG[status as ProjectStatus] || STATUS_CONFIG['Planificación'];
+    const areaColor = AREA_COLORS[project.area || ''] || '#0079C1';
+    
+    const handleCardClick = async () => {
+      if (!project.hasEquipment) {
+        if (confirm(`El proyecto "${project.name}" no tiene activada la gestión de equipamiento. ¿Deseas activar la gestión de equipos para este proyecto?`)) {
+          await updateProject(project.id, { hasEquipment: true });
+        } else {
+          return;
+        }
+      }
+      handleSelectProject(project.id);
+    };
+
+    return (
+      <div 
+        key={project.id} 
+        className="glass-panel" 
+        style={{ 
+          padding: 0, 
+          overflow: 'hidden', 
+          cursor: 'pointer', 
+          transition: 'transform 0.2s, box-shadow 0.2s', 
+          display: 'flex', 
+          flexDirection: 'column',
+          border: project.hasEquipment ? '1px solid var(--border-light)' : '1px dashed var(--border-light)',
+          background: 'var(--bg-primary)',
+          opacity: project.hasEquipment ? 1 : 0.8
+        }}
+        onClick={handleCardClick}
+      >
+        <div style={{ height: '5px', background: `linear-gradient(90deg, ${areaColor}, ${areaColor}88)` }} />
+        
+        <div style={{ padding: '20px', flex: 1, display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: '0 0 6px', color: 'var(--text-primary)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', flex: 1 }} title={project.name}>
+                  {project.name}
+                </h3>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingProject(project);
+                  }}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    color: 'var(--text-muted)',
+                    padding: '2px',
+                    borderRadius: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'color 0.2s, background-color 0.2s'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.color = '#0079C1';
+                    e.currentTarget.style.backgroundColor = 'rgba(0,121,193,0.05)';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.color = 'var(--text-muted)';
+                    e.currentTarget.style.backgroundColor = 'transparent';
+                  }}
+                  title="Editar Información del Proyecto"
+                >
+                  <Edit2 size={14} />
+                </button>
+              </div>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', background: sc.bg, color: sc.color }}>
+                  {sc.label}
+                </span>
+                {project.area && (
+                  <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', background: `${areaColor}15`, color: areaColor }}>
+                    {project.area}
+                  </span>
+                )}
+                {!project.hasEquipment && (
+                  <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', background: 'rgba(107,114,128,0.1)', color: '#6b7280' }}>
+                    Sin Equipos
+                  </span>
+                )}
+              </div>
+            </div>
+            
+            {project.hasEquipment && (
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                <div style={{ position: 'relative', width: '45px', height: '45px' }}>
+                  <svg width="45" height="45" style={{ transform: 'rotate(-90deg)' }}>
+                    <circle cx="22.5" cy="22.5" r="18" fill="none" stroke="var(--border-light)" strokeWidth="4" />
+                    <circle cx="22.5" cy="22.5" r="18" fill="none" stroke="#10b981" strokeWidth="4"
+                      strokeDasharray={2 * Math.PI * 18}
+                      strokeDashoffset={2 * Math.PI * 18 - (clinicalProgress / 100) * (2 * Math.PI * 18)}
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: 800 }}>
+                    {clinicalProgress}%
+                  </span>
+                </div>
+                <span style={{ fontSize: '8px', color: 'var(--text-secondary)', fontWeight: 800, marginTop: '2px', textTransform: 'uppercase' }}>Avance</span>
+              </div>
+            )}
+          </div>
+
+          <p style={{ fontSize: '0.8rem', color: project.description ? 'var(--text-secondary)' : 'var(--text-muted)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', minHeight: '2.5em', fontStyle: project.description ? 'normal' : 'italic' }}>
+            {project.description || 'Sin descripción detallada disponible.'}
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid var(--border-subtle)', paddingTop: '10px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <User size={12} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+                <span style={{ fontWeight: 600, flexShrink: 0 }}>PM:</span>
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project.manager || 'No asignado'}</span>
+              </div>
+              <select
+                value={project.parentProjectId || ''}
+                onChange={async (e) => {
+                  e.stopPropagation();
+                  const newParentId = e.target.value || null;
+                  await updateProject(project.id, { parentProjectId: newParentId });
+                }}
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  padding: '2px 4px',
+                  borderRadius: '4px',
+                  border: '1px solid var(--border-light)',
+                  background: 'var(--bg-secondary)',
+                  fontSize: '0.7rem',
+                  fontWeight: 'bold',
+                  color: 'var(--text-secondary)',
+                  outline: 'none',
+                  cursor: 'pointer',
+                  maxWidth: '130px',
+                  flexShrink: 0
+                }}
+              >
+                <option value="">📁 Independiente</option>
+                {parentProjects.map(pp => (
+                  <option key={pp.id} value={pp.id}>📁 {pp.name}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {project.hasEquipment ? (
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', background: 'var(--bg-secondary)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-subtle)', marginTop: '4px' }}>
+              <div>
+                <span style={{ display: 'block', fontSize: '10px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Equipos</span>
+                <span style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-primary)' }}>{equipCount} biomédicos</span>
+              </div>
+              <div>
+                <span style={{ display: 'block', fontSize: '10px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Transmisión LIS</span>
+                <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#0079C1' }}>{lisProgress}% <span style={{ fontSize: '10px', fontWeight: 'normal', color: 'var(--text-secondary)' }}>({lisCount}/{lisTotal})</span></span>
+              </div>
+            </div>
+          ) : (
+            <div style={{ textAlign: 'center', background: 'rgba(0,121,193,0.02)', padding: '12px', borderRadius: '8px', border: '1px dashed rgba(0,121,193,0.15)', color: '#0079C1', fontSize: '0.78rem', fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', marginTop: '4px' }}>
+              🩺 Activar Seguimiento Clínico
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  const renderIndependentCard = () => {
+    const { equipCount, clinicalProgress, lisProgress, lisCount, lisTotal } = getProjectStats(null);
+    return (
+      <div 
+        className="glass-panel" 
+        style={{ 
+          padding: 0, 
+          overflow: 'hidden', 
+          cursor: 'pointer', 
+          transition: 'transform 0.2s, box-shadow 0.2s', 
+          display: 'flex', 
+          flexDirection: 'column',
+          border: '1px solid rgba(124, 58, 237, 0.25)', 
+          background: 'rgba(124, 58, 237, 0.02)'
+        }}
+        onClick={() => handleSelectProject('independent')}
+      >
+        <div style={{ height: '5px', background: 'linear-gradient(90deg, #7c3aed, #a78bfa)' }} />
+        
+        <div style={{ padding: '20px', flex: 1, display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
+            <div style={{ flex: 1 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: '0 0 6px', color: '#7c3aed' }}>
+                  Equipos sin Proyecto Asociado
+                </h3>
+                {equipCount > 0 && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setIsAssociateModalOpen(true);
+                    }}
+                    style={{
+                      background: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      color: '#7c3aed',
+                      padding: '4px',
+                      borderRadius: '4px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      transition: 'background-color 0.2s',
+                      marginTop: '-6px'
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(124, 58, 237, 0.08)'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                    title="Asociar equipos a un proyecto"
+                  >
+                    <Sliders size={16} />
+                  </button>
+                )}
+              </div>
+              <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', background: 'rgba(124, 58, 237, 0.1)', color: '#7c3aed' }}>
+                Global / Independiente
+              </span>
+            </div>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <div style={{ position: 'relative', width: '45px', height: '45px' }}>
+                <svg width="45" height="45" style={{ transform: 'rotate(-90deg)' }}>
+                  <circle cx="22.5" cy="22.5" r="18" fill="none" stroke="var(--border-light)" strokeWidth="4" />
+                  <circle cx="22.5" cy="22.5" r="18" fill="none" stroke="#7c3aed" strokeWidth="4"
+                    strokeDasharray={2 * Math.PI * 18}
+                    strokeDashoffset={2 * Math.PI * 18 - (clinicalProgress / 100) * (2 * Math.PI * 18)}
+                    strokeLinecap="round"
+                  />
+                </svg>
+                <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: 800, color: '#7c3aed' }}>
+                  {clinicalProgress}%
+                </span>
+              </div>
+              <span style={{ fontSize: '8px', color: '#7c3aed', fontWeight: 800, marginTop: '2px', textTransform: 'uppercase' }}>Avance</span>
+            </div>
+          </div>
+
+          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, minHeight: '2.5em' }}>
+            Mapeo y seguimiento de equipamientos clínicos y analitos globales que no pertenecen al portafolio de proyectos formales.
+          </p>
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderTop: '1px solid rgba(124, 58, 237, 0.15)', paddingTop: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
+              <Layers size={12} style={{ color: '#7c3aed' }} />
+              <span style={{ fontWeight: 600 }}>Estado:</span>
+              <span>Monitoreo Activo Permanente</span>
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', background: 'rgba(124, 58, 237, 0.04)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(124, 58, 237, 0.1)', marginTop: '4px' }}>
+            <div>
+              <span style={{ display: 'block', fontSize: '10px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Equipos</span>
+              <span style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-primary)' }}>{equipCount} biomédicos</span>
+            </div>
+            <div>
+              <span style={{ display: 'block', fontSize: '10px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Transmisión LIS</span>
+              <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#7c3aed' }}>{lisProgress}% <span style={{ fontSize: '10px', fontWeight: 'normal', color: 'var(--text-secondary)' }}>({lisCount}/{lisTotal})</span></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  if (selectedProjectId === null) {
+    const landingStats = {
+      totalEquips: equipments.length,
+      totalAnalytes: analytes.length,
+      activeProjectsCount: projects.filter(p => p.hasEquipment).length
+    };
+
+    const landingAreas = ['Todos', ...Array.from(new Set(projects.map(p => p.area).filter(Boolean) as string[]))];
+
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '24px', paddingBottom: '48px', animation: 'fadeIn 0.25s ease' }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '16px' }}>
+          <div>
+            <h1 style={{ fontSize: '2rem', margin: 0, fontWeight: 800 }}>Seguimiento de Equipamiento Clínico</h1>
+            <p style={{ color: 'var(--text-secondary)', margin: '4px 0 0' }}>Portafolio de Proyectos de Equipamiento Clínico y Matrices de Analitos</p>
+          </div>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <button 
+              className="btn btn-secondary shadow-sm"
+              onClick={() => router.push('/import?type=equipment')}
+              style={{ background: 'transparent', color: '#10b981', border: '1px dashed #10b981', padding: '10px 18px', fontSize: '0.88rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', borderRadius: 'var(--radius-md)', cursor: 'pointer' }}
+            >
+              <UploadCloud size={16} /> Importar Equipos
+            </button>
+            <button 
+              className="btn btn-secondary shadow-sm"
+              onClick={() => setIsParentModalOpen(true)}
+              style={{ background: 'transparent', color: '#0079C1', border: '1px solid #0079C1', padding: '10px 18px', fontSize: '0.88rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', borderRadius: 'var(--radius-md)', cursor: 'pointer' }}
+            >
+              <FolderPlus size={16} /> Gestionar Agrupadores
+            </button>
+            <button 
+              className="btn btn-primary shadow-sm"
+              onClick={() => router.push('/projects')}
+              style={{ padding: '10px 18px', fontSize: '0.88rem', fontWeight: 700, display: 'flex', alignItems: 'center', gap: '8px', borderRadius: 'var(--radius-md)', cursor: 'pointer' }}
+            >
+              <Plus size={16} /> Gestionar Proyectos (PMO)
+            </button>
+          </div>
+        </div>
+
+        {/* Stats Row */}
+        <div className="kpi-grid">
+          {[
+            { label: 'Proyectos con Equipamiento', value: landingStats.activeProjectsCount, color: '#0079C1', icon: <Layers size={22} /> },
+            { label: 'Equipos Biomédicos Totales', value: landingStats.totalEquips, color: '#10b981', icon: <Building2 size={22} /> },
+            { label: 'Analitos de Laboratorio', value: landingStats.totalAnalytes, color: '#7c3aed', icon: <Database size={22} /> }
+          ].map(kpi => (
+            <div key={kpi.label} className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px', background: 'var(--bg-primary)' }}>
+              <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: `${kpi.color}15`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: kpi.color, flexShrink: 0 }}>
+                {kpi.icon}
+              </div>
+              <div>
+                <div style={{ fontSize: '2rem', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1 }}>{kpi.value}</div>
+                <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', marginTop: '4px' }}>{kpi.label}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Filters */}
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div style={{ position: 'relative', flex: '1', minWidth: '260px' }}>
+            <Search size={16} style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+            <input 
+              type="text" 
+              placeholder="Buscar proyecto por nombre, PM o sponsor..." 
+              value={landingSearch} 
+              onChange={e => setLandingSearch(e.target.value)}
+              style={{ width: '100%', padding: '10px 10px 10px 42px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }} 
+            />
+          </div>
+          <select 
+            value={landingAreaFilter} 
+            onChange={e => setLandingAreaFilter(e.target.value)}
+            style={{ padding: '10px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+          >
+            {landingAreas.map(a => <option key={a}>{a}</option>)}
+          </select>
+        </div>
+
+        {/* Grid and Parent Groups */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '28px' }}>
+          
+          {/* Render Parent Project Groups */}
+          {parentProjects.map(pp => {
+            const groupData = groupedProjectsForLanding[pp.id];
+            const subProjects = groupData?.projects || [];
+            const isCollapsed = !!collapsedGroups[pp.id];
+            
+            if (subProjects.length === 0) return null;
+
+            return (
+              <div 
+                key={pp.id} 
+                style={{ 
+                  background: 'rgba(248, 250, 252, 0.4)', 
+                  border: '1px solid var(--border-light)', 
+                  borderRadius: '12px', 
+                  padding: '16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '16px'
+                }}
+              >
+                {/* Accordion Header */}
+                <div 
+                  onClick={() => toggleGroup(pp.id)}
+                  style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer', userSelect: 'none' }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '36px', height: '36px', background: 'rgba(0, 75, 135, 0.06)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#004B87' }}>
+                      <Layers size={18} />
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontWeight: 800, fontSize: '1.1rem', color: '#003B64' }}>{pp.name}</span>
+                        <span style={{ fontSize: '0.72rem', fontWeight: 700, padding: '2px 8px', borderRadius: '12px', background: 'rgba(0,75,135,0.06)', color: '#004B87' }}>
+                          {subProjects.length} Proyecto{subProjects.length !== 1 ? 's' : ''}
+                        </span>
+                      </div>
+                      {pp.description && <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>{pp.description}</span>}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', alignItems: 'center', color: 'var(--text-secondary)' }}>
+                    {isCollapsed ? <ChevronRight size={20} style={{ transform: 'rotate(90deg)', transition: 'transform 0.2s' }} /> : <ChevronDown size={20} />}
+                  </div>
+                </div>
+
+                {/* Subprojects cards */}
+                {!isCollapsed && (
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: '20px', animation: 'fadeIn 0.2s ease' }}>
+                    {subProjects.map(p => renderLandingProjectCard(p))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Render Independent Projects and Global/Independent Card */}
+          {(() => {
+            const independentData = groupedProjectsForLanding['independent'];
+            const subProjects = independentData?.projects || [];
+            
+            if (subProjects.length === 0 && (landingSearch || landingAreaFilter !== 'Todos')) return null;
+
+            return (
+              <div 
+                style={{ 
+                  background: 'rgba(241, 245, 249, 0.3)', 
+                  border: '1px solid var(--border-light)', 
+                  borderRadius: '12px', 
+                  padding: '16px',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '16px'
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                    <div style={{ width: '36px', height: '36px', background: 'rgba(100, 116, 139, 0.06)', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#475569' }}>
+                      <Building2 size={18} />
+                    </div>
+                    <div>
+                      <span style={{ fontWeight: 800, fontSize: '1.1rem', color: '#334155' }}>Proyectos y Equipamiento Independientes</span>
+                      <p style={{ margin: '2px 0 0', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>Cronogramas independientes no agrupados y equipos globales</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: '20px' }}>
+                  {!landingSearch && landingAreaFilter === 'Todos' && renderIndependentCard()}
+                  {subProjects.map(p => renderLandingProjectCard(p))}
+                </div>
+              </div>
+            );
+          })()}
+          {isParentModalOpen && (
+            <ParentProjectsModal
+              onClose={() => setIsParentModalOpen(false)}
+              parentProjects={parentProjects}
+              onAdd={addParentProject}
+              onUpdate={updateParentProject}
+              onDelete={deleteParentProject}
+            />
+          )}
+          {editingProject && (
+            <ProjectEditModal
+              project={editingProject}
+              onClose={() => setEditingProject(null)}
+              onSave={updateProject}
+            />
+          )}
+          {isAssociateModalOpen && (
+            <AssociateGlobalModal
+              onClose={() => setIsAssociateModalOpen(false)}
+              onSave={async (targetProjectId) => {
+                const response = await fetch('/api/equipments', {
+                  method: 'PUT',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ targetProjectId })
+                });
+                if (response.ok) {
+                  await fetchEquipmentData();
+                  await fetchProjects();
+                }
+              }}
+            />
+          )}
+
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '24px' }}>
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '16px' }}>
-        <div>
-          <h1 style={{ fontSize: '2rem', margin: 0 }}>Seguimiento de Equipamiento Clínico</h1>
-          <p style={{ color: 'var(--text-secondary)', margin: '4px 0 0' }}>Gestión de parametrización, pruebas, calibración y puesta en marcha por recinto</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.82rem', color: 'var(--text-secondary)', marginBottom: '4px' }}>
+            <span 
+              style={{ cursor: 'pointer', transition: 'color 0.2s', fontWeight: 600 }} 
+              onClick={handleClearProject}
+              onMouseEnter={e => e.currentTarget.style.color = '#0079C1'}
+              onMouseLeave={e => e.currentTarget.style.color = 'var(--text-secondary)'}
+            >
+              Equipos Clínicos
+            </span>
+            <ChevronRight size={12} style={{ color: 'var(--text-muted)' }} />
+            <span style={{ fontWeight: 700, color: 'var(--text-primary)' }}>
+              {selectedProjectId === 'independent' ? 'Equipos sin Proyecto' : (projects.find(p => p.id === selectedProjectId)?.name || 'Proyecto')}
+            </span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <button 
+              onClick={handleClearProject}
+              style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', cursor: 'pointer', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: 'var(--radius-sm)', fontSize: '0.8rem', fontWeight: 700 }}
+            >
+              <ArrowLeft size={14} /> Volver
+            </button>
+            <h1 style={{ fontSize: '1.8rem', margin: 0, fontWeight: 800 }}>
+              {selectedProjectId === 'independent' ? 'Equipos sin Proyecto' : (projects.find(p => p.id === selectedProjectId)?.name || 'Proyecto')}
+            </h1>
+          </div>
         </div>
         <div style={{ display: 'flex', gap: '12px' }}>
           <button 
             className="btn btn-secondary shadow-sm"
-            onClick={() => router.push('/import?type=equipment')}
+            onClick={() => {
+              const url = selectedProjectId && selectedProjectId !== 'independent'
+                ? `/import?type=equipment&projectId=${selectedProjectId}`
+                : '/import?type=equipment';
+              router.push(url);
+            }}
             style={{ 
               background: 'transparent', 
               color: '#10b981', 
@@ -2071,20 +3328,22 @@ export default function EquipmentTrackerPage() {
         )}
         
         {/* Filtro Proyecto */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', padding: '10px 14px', borderRadius: 'var(--radius-sm)' }}>
-          <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>Proyecto:</span>
-          <select 
-            value={filterProject} 
-            onChange={e => setFilterProject(e.target.value)}
-            style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', outline: 'none', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}
-          >
-            <option value="all" style={{ background: '#ffffff', color: '#0F172A' }}>Todos los Proyectos</option>
-            <option value="none" style={{ background: '#ffffff', color: '#0F172A' }}>Sin Proyecto Asociado</option>
-            {projects.map(p => (
-              <option key={p.id} value={p.id} style={{ background: '#ffffff', color: '#0F172A' }}>{p.name}</option>
-            ))}
-          </select>
-        </div>
+        {selectedProjectId === null && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', padding: '10px 14px', borderRadius: 'var(--radius-sm)' }}>
+            <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>Proyecto:</span>
+            <select 
+              value={filterProject} 
+              onChange={e => setFilterProject(e.target.value)}
+              style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', outline: 'none', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}
+            >
+              <option value="all" style={{ background: '#ffffff', color: '#0F172A' }}>Todos los Proyectos</option>
+              <option value="none" style={{ background: '#ffffff', color: '#0F172A' }}>Sin Proyecto Asociado</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id} style={{ background: '#ffffff', color: '#0F172A' }}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Mapeando {recintos.length} sedes prestadoras de servicios</span>
       </div>
@@ -2257,24 +3516,90 @@ export default function EquipmentTrackerPage() {
                   <thead>
                     <tr style={{ background: 'var(--bg-secondary)', borderBottom: '2px solid var(--border-light)', color: 'var(--text-secondary)', fontWeight: 700 }}>
                       <th style={{ padding: '12px 16px', width: '40px' }}>#</th>
-                      {!hiddenDefaultCols.includes('name') && <th style={{ padding: '12px 12px', width: '180px' }}>{defaultColNames.name}</th>}
-                      {!hiddenDefaultCols.includes('section') && <th style={{ padding: '12px 12px', width: '145px' }}>{defaultColNames.section}</th>}
-                      <th style={{ padding: '12px 12px', width: '195px' }}>Proyecto Asociado</th>
-                      <th style={{ padding: '12px 12px', width: '180px' }}>Fase de Lanzamiento</th>
-                      {!hiddenDefaultCols.includes('levantamiento') && <th style={{ padding: '12px 8px', width: '125px', minWidth: '140px', textAlign: 'center' }}>{defaultColNames.levantamiento}</th>}
-                      {!hiddenDefaultCols.includes('parametrizacion') && <th style={{ padding: '12px 8px', width: '125px', minWidth: '140px', textAlign: 'center' }}>{defaultColNames.parametrizacion}</th>}
-                      {!hiddenDefaultCols.includes('pruebas') && <th style={{ padding: '12px 8px', width: '125px', minWidth: '140px', textAlign: 'center' }}>{defaultColNames.pruebas}</th>}
-                      {!hiddenDefaultCols.includes('capacitacion') && <th style={{ padding: '12px 8px', width: '125px', minWidth: '140px', textAlign: 'center' }}>{defaultColNames.capacitacion}</th>}
-                      {!hiddenDefaultCols.includes('validacion') && <th style={{ padding: '12px 8px', width: '125px', minWidth: '140px', textAlign: 'center' }}>{defaultColNames.validacion}</th>}
-                      {!hiddenDefaultCols.includes('golive') && <th style={{ padding: '12px 8px', width: '125px', minWidth: '140px', textAlign: 'center' }}>{defaultColNames.golive}</th>}
-                      {!hiddenDefaultCols.includes('responsable') && <th style={{ padding: '12px 12px', width: '150px' }}>{defaultColNames.responsable}</th>}
-                      {!hiddenDefaultCols.includes('compromisoDate') && <th style={{ padding: '12px 12px', width: '130px' }}>{defaultColNames.compromisoDate}</th>}
-                      {!hiddenDefaultCols.includes('observaciones') && <th style={{ padding: '12px 12px', width: '220px' }}>{defaultColNames.observaciones}</th>}
-                      {!hiddenDefaultCols.includes('pendienteDe') && <th style={{ padding: '12px 12px', width: '140px' }}>{defaultColNames.pendienteDe}</th>}
+                      {!hiddenDefaultCols.includes('name') && (
+                        <th style={{ padding: '12px 12px', width: columnWidthsEquip['name'] ? `${columnWidthsEquip['name']}px` : '180px', position: 'relative' }}>
+                          {defaultColNames.name}
+                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownEquip('name', e)} />
+                        </th>
+                      )}
+                      {!hiddenDefaultCols.includes('section') && (
+                        <th style={{ padding: '12px 12px', width: columnWidthsEquip['section'] ? `${columnWidthsEquip['section']}px` : '145px', position: 'relative' }}>
+                          {defaultColNames.section}
+                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownEquip('section', e)} />
+                        </th>
+                      )}
+                      <th style={{ padding: '12px 12px', width: columnWidthsEquip['projectId'] ? `${columnWidthsEquip['projectId']}px` : '195px', position: 'relative' }}>
+                        Proyecto Asociado
+                        <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownEquip('projectId', e)} />
+                      </th>
+                      <th style={{ padding: '12px 12px', width: columnWidthsEquip['releasePhaseId'] ? `${columnWidthsEquip['releasePhaseId']}px` : '180px', position: 'relative' }}>
+                        Fase de Lanzamiento
+                        <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownEquip('releasePhaseId', e)} />
+                      </th>
+                      {!hiddenDefaultCols.includes('levantamiento') && (
+                        <th style={{ padding: '12px 8px', width: columnWidthsEquip['levantamiento'] ? `${columnWidthsEquip['levantamiento']}px` : '125px', minWidth: '140px', textAlign: 'center', position: 'relative' }}>
+                          {defaultColNames.levantamiento}
+                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownEquip('levantamiento', e)} />
+                        </th>
+                      )}
+                      {!hiddenDefaultCols.includes('parametrizacion') && (
+                        <th style={{ padding: '12px 8px', width: columnWidthsEquip['parametrizacion'] ? `${columnWidthsEquip['parametrizacion']}px` : '125px', minWidth: '140px', textAlign: 'center', position: 'relative' }}>
+                          {defaultColNames.parametrizacion}
+                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownEquip('parametrizacion', e)} />
+                        </th>
+                      )}
+                      {!hiddenDefaultCols.includes('pruebas') && (
+                        <th style={{ padding: '12px 8px', width: columnWidthsEquip['pruebas'] ? `${columnWidthsEquip['pruebas']}px` : '125px', minWidth: '140px', textAlign: 'center', position: 'relative' }}>
+                          {defaultColNames.pruebas}
+                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownEquip('pruebas', e)} />
+                        </th>
+                      )}
+                      {!hiddenDefaultCols.includes('capacitacion') && (
+                        <th style={{ padding: '12px 8px', width: columnWidthsEquip['capacitacion'] ? `${columnWidthsEquip['capacitacion']}px` : '125px', minWidth: '140px', textAlign: 'center', position: 'relative' }}>
+                          {defaultColNames.capacitacion}
+                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownEquip('capacitacion', e)} />
+                        </th>
+                      )}
+                      {!hiddenDefaultCols.includes('validacion') && (
+                        <th style={{ padding: '12px 8px', width: columnWidthsEquip['validacion'] ? `${columnWidthsEquip['validacion']}px` : '125px', minWidth: '140px', textAlign: 'center', position: 'relative' }}>
+                          {defaultColNames.validacion}
+                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownEquip('validacion', e)} />
+                        </th>
+                      )}
+                      {!hiddenDefaultCols.includes('golive') && (
+                        <th style={{ padding: '12px 8px', width: columnWidthsEquip['golive'] ? `${columnWidthsEquip['golive']}px` : '125px', minWidth: '140px', textAlign: 'center', position: 'relative' }}>
+                          {defaultColNames.golive}
+                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownEquip('golive', e)} />
+                        </th>
+                      )}
+                      {!hiddenDefaultCols.includes('responsable') && (
+                        <th style={{ padding: '12px 12px', width: columnWidthsEquip['responsable'] ? `${columnWidthsEquip['responsable']}px` : '150px', position: 'relative' }}>
+                          {defaultColNames.responsable}
+                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownEquip('responsable', e)} />
+                        </th>
+                      )}
+                      {!hiddenDefaultCols.includes('compromisoDate') && (
+                        <th style={{ padding: '12px 12px', width: columnWidthsEquip['compromisoDate'] ? `${columnWidthsEquip['compromisoDate']}px` : '130px', position: 'relative' }}>
+                          {defaultColNames.compromisoDate}
+                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownEquip('compromisoDate', e)} />
+                        </th>
+                      )}
+                      {!hiddenDefaultCols.includes('observaciones') && (
+                        <th style={{ padding: '12px 12px', width: columnWidthsEquip['observaciones'] ? `${columnWidthsEquip['observaciones']}px` : '220px', position: 'relative' }}>
+                          {defaultColNames.observaciones}
+                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownEquip('observaciones', e)} />
+                        </th>
+                      )}
+                      {!hiddenDefaultCols.includes('pendienteDe') && (
+                        <th style={{ padding: '12px 12px', width: columnWidthsEquip['pendienteDe'] ? `${columnWidthsEquip['pendienteDe']}px` : '140px', position: 'relative' }}>
+                          {defaultColNames.pendienteDe}
+                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownEquip('pendienteDe', e)} />
+                        </th>
+                      )}
                       
                       {/* Cabeceras de Columnas Dinámicas */}
                       {customColumns.map((col, idx) => (
-                        <th key={col} style={{ padding: '12px 12px', minWidth: '150px', position: 'relative' }} className="custom-th">
+                        <th key={col} style={{ padding: '12px 12px', width: columnWidthsEquip[col] ? `${columnWidthsEquip[col]}px` : '150px', position: 'relative' }} className="custom-th">
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
                             <span 
                               style={{ cursor: 'pointer' }} 
@@ -2308,6 +3633,7 @@ export default function EquipmentTrackerPage() {
                               </button>
                             </div>
                           </div>
+                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownEquip(col, e)} />
                         </th>
                       ))}
 
@@ -3354,14 +4680,40 @@ export default function EquipmentTrackerPage() {
                                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'left' }}>
                                   <thead>
                                     <tr style={{ background: 'rgba(0,0,0,0.01)', borderBottom: '1px solid var(--border-light)', color: 'var(--text-secondary)', fontWeight: 700 }}>
-                                      <th style={{ padding: '10px 16px' }}>#</th>
-                                      {!hiddenAnalyteCols.includes('transmissionCode') && <th style={{ padding: '10px 16px' }}>Cód. Transmisión</th>}
-                                      {!hiddenAnalyteCols.includes('testCode') && <th style={{ padding: '10px 12px' }}>Cód. Test / Código Analito</th>}
-                                      <th style={{ padding: '10px 12px' }}>Nombre del Analito</th>
-                                      {!hiddenAnalyteCols.includes('description') && <th style={{ padding: '10px 12px' }}>Descripción Extensa</th>}
-                                      {!hiddenAnalyteCols.includes('section') && <th style={{ padding: '10px 12px' }}>Sección / Lab</th>}
-                                      {customColumnsAnalytes.map(col => (
-                                        <th key={col} style={{ padding: '10px 12px', minWidth: '150px' }}>{col}</th>
+                                      <th style={{ padding: '10px 16px', width: '40px' }}>#</th>
+                                      {!hiddenAnalyteCols.includes('transmissionCode') && (
+                                        <th style={{ padding: '10px 16px', width: columnWidthsAnalyte['transmissionCode'] ? `${columnWidthsAnalyte['transmissionCode']}px` : '150px', position: 'relative' }}>
+                                          Cód. Transmisión
+                                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownAnalyte('transmissionCode', e)} />
+                                        </th>
+                                      )}
+                                      {!hiddenAnalyteCols.includes('testCode') && (
+                                        <th style={{ padding: '10px 12px', width: columnWidthsAnalyte['testCode'] ? `${columnWidthsAnalyte['testCode']}px` : '150px', position: 'relative' }}>
+                                          Cód. Test / Código Analito
+                                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownAnalyte('testCode', e)} />
+                                        </th>
+                                      )}
+                                      <th style={{ padding: '10px 12px', width: columnWidthsAnalyte['name'] ? `${columnWidthsAnalyte['name']}px` : '180px', position: 'relative' }}>
+                                        Nombre del Analito
+                                        <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownAnalyte('name', e)} />
+                                      </th>
+                                      {!hiddenAnalyteCols.includes('description') && (
+                                        <th style={{ padding: '10px 12px', width: columnWidthsAnalyte['description'] ? `${columnWidthsAnalyte['description']}px` : '220px', position: 'relative' }}>
+                                          Descripción Extensa
+                                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownAnalyte('description', e)} />
+                                        </th>
+                                      )}
+                                      {!hiddenAnalyteCols.includes('section') && (
+                                        <th style={{ padding: '10px 12px', width: columnWidthsAnalyte['section'] ? `${columnWidthsAnalyte['section']}px` : '140px', position: 'relative' }}>
+                                          Sección / Lab
+                                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownAnalyte('section', e)} />
+                                        </th>
+                                      )}
+                                      {customColumnsAnalytes.map((col, idx) => (
+                                        <th key={col} style={{ padding: '10px 12px', width: columnWidthsAnalyte[col] ? `${columnWidthsAnalyte[col]}px` : '150px', position: 'relative' }}>
+                                          {col}
+                                          <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownAnalyte(col, e)} />
+                                        </th>
                                       ))}
                                     </tr>
                                   </thead>
@@ -3806,18 +5158,49 @@ export default function EquipmentTrackerPage() {
                                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.78rem', textAlign: 'left' }}>
                                       <thead>
                                         <tr style={{ background: 'rgba(0,0,0,0.01)', borderBottom: '1px solid var(--border-light)', color: 'var(--text-secondary)', fontWeight: 700 }}>
-                                          <th style={{ padding: '10px 16px' }}>#</th>
-                                          {!hiddenAnalyteCols.includes('transmissionCode') && <th style={{ padding: '10px 16px' }}>Cód. Transmisión</th>}
-                                          {!hiddenAnalyteCols.includes('testCode') && <th style={{ padding: '10px 12px' }}>Cód. Test / Código Analito</th>}
-                                          <th style={{ padding: '10px 12px' }}>Nombre del Analito</th>
-                                          {!hiddenAnalyteCols.includes('description') && <th style={{ padding: '10px 12px' }}>Descripción</th>}
-                                          {!hiddenAnalyteCols.includes('section') && <th style={{ padding: '10px 12px' }}>Sección / Lab</th>}
-                                          {!hiddenAnalyteCols.includes('state') && <th style={{ padding: '10px 16px', width: '150px', textAlign: 'center' }}>Estado Transmisión</th>}
-                                          <th style={{ padding: '10px 12px', width: '170px' }}>Fase / Alcance</th>
+                                          <th style={{ padding: '10px 16px', width: '40px' }}>#</th>
+                                          {!hiddenAnalyteCols.includes('transmissionCode') && (
+                                            <th style={{ padding: '10px 16px', width: columnWidthsAnalyte['transmissionCode'] ? `${columnWidthsAnalyte['transmissionCode']}px` : '150px', position: 'relative' }}>
+                                              Cód. Transmisión
+                                              <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownAnalyte('transmissionCode', e)} />
+                                            </th>
+                                          )}
+                                          {!hiddenAnalyteCols.includes('testCode') && (
+                                            <th style={{ padding: '10px 12px', width: columnWidthsAnalyte['testCode'] ? `${columnWidthsAnalyte['testCode']}px` : '150px', position: 'relative' }}>
+                                              Cód. Test / Código Analito
+                                              <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownAnalyte('testCode', e)} />
+                                            </th>
+                                          )}
+                                          <th style={{ padding: '10px 12px', width: columnWidthsAnalyte['name'] ? `${columnWidthsAnalyte['name']}px` : '180px', position: 'relative' }}>
+                                            Nombre del Analito
+                                            <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownAnalyte('name', e)} />
+                                          </th>
+                                          {!hiddenAnalyteCols.includes('description') && (
+                                            <th style={{ padding: '10px 12px', width: columnWidthsAnalyte['description'] ? `${columnWidthsAnalyte['description']}px` : '220px', position: 'relative' }}>
+                                              Descripción
+                                              <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownAnalyte('description', e)} />
+                                            </th>
+                                          )}
+                                          {!hiddenAnalyteCols.includes('section') && (
+                                            <th style={{ padding: '10px 12px', width: columnWidthsAnalyte['section'] ? `${columnWidthsAnalyte['section']}px` : '140px', position: 'relative' }}>
+                                              Sección / Lab
+                                              <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownAnalyte('section', e)} />
+                                            </th>
+                                          )}
+                                          {!hiddenAnalyteCols.includes('state') && (
+                                            <th style={{ padding: '10px 16px', width: columnWidthsAnalyte['state'] ? `${columnWidthsAnalyte['state']}px` : '150px', textAlign: 'center', position: 'relative' }}>
+                                              Estado Transmisión
+                                              <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownAnalyte('state', e)} />
+                                            </th>
+                                          )}
+                                          <th style={{ padding: '10px 12px', width: columnWidthsAnalyte['scope'] ? `${columnWidthsAnalyte['scope']}px` : '170px', position: 'relative' }}>
+                                            Fase / Alcance
+                                            <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownAnalyte('scope', e)} />
+                                          </th>
                                           
                                           {/* Cabeceras de Columnas Dinámicas de Analitos */}
                                           {customColumnsAnalytes.map((col, cIdx) => (
-                                            <th key={col} style={{ padding: '10px 12px', minWidth: '150px', position: 'relative' }}>
+                                            <th key={col} style={{ padding: '10px 12px', width: columnWidthsAnalyte[col] ? `${columnWidthsAnalyte[col]}px` : '150px', position: 'relative' }}>
                                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
                                                 <span 
                                                   style={{ cursor: 'pointer' }}
@@ -3851,6 +5234,7 @@ export default function EquipmentTrackerPage() {
                                                   </button>
                                                 </div>
                                               </div>
+                                              <div className="resize-handle" onMouseDown={(e) => handleResizeMouseDownAnalyte(col, e)} />
                                             </th>
                                           ))}
 
@@ -4111,6 +5495,7 @@ export default function EquipmentTrackerPage() {
           editingAnalyte={editingAnalyte}
           recintos={recintos}
           analytes={analytes}
+          equipments={filteredEquipments}
           onSave={async (analyteData) => {
             setSaveStatus('saving');
             try {

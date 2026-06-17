@@ -1,11 +1,14 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { checkSession, unauthorizedResponse } from '@/lib/apiAuth';
 
 export async function PUT(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await checkSession();
+    if (!session) return unauthorizedResponse();
     const { id } = await params;
     const data = await req.json();
 
@@ -24,8 +27,10 @@ export async function PUT(
         planDeAccion: data.planDeAccion,
         fechaCierre: data.fechaCierre,
         projectId: data.projectId !== undefined ? data.projectId : undefined,
+        idTicket: data.idTicket !== undefined ? data.idTicket : undefined,
         customFields: data.customFields
-      }
+      },
+      include: { attachments: true }
     });
 
     return NextResponse.json(updatedIncident);
@@ -40,6 +45,8 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const session = await checkSession();
+    if (!session) return unauthorizedResponse();
     const { id } = await params;
 
     await prisma.incident.delete({

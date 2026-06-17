@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { checkSession, unauthorizedResponse } from '@/lib/apiAuth';
 
 export const dynamic = 'force-dynamic';
 
@@ -37,15 +38,12 @@ const initialIncidents = [
 
 export async function GET() {
   try {
-    const count = await prisma.incident.count();
-    if (count === 0) {
-      await prisma.incident.createMany({
-        data: initialIncidents
-      });
-    }
+    const session = await checkSession();
+    if (!session) return unauthorizedResponse();
 
     const incidents = await prisma.incident.findMany({
-      orderBy: { indexId: 'asc' }
+      orderBy: { indexId: 'desc' },
+      include: { attachments: true }
     });
     return NextResponse.json(incidents);
   } catch (error: any) {
@@ -56,6 +54,9 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
+    const session = await checkSession();
+    if (!session) return unauthorizedResponse();
+
     const data = await req.json();
     const newIncident = await prisma.incident.create({
       data: {
@@ -72,12 +73,41 @@ export async function POST(req: Request) {
         planDeAccion: data.planDeAccion,
         fechaCierre: data.fechaCierre,
         projectId: data.projectId,
+        idTicket: data.idTicket || null,
         customFields: data.customFields || '{}'
-      }
+      },
+      include: { attachments: true }
     });
     return NextResponse.json(newIncident, { status: 201 });
   } catch (error: any) {
     console.error('Error creating incident:', error);
     return NextResponse.json({ error: error.message || 'Error creating incident' }, { status: 500 });
+  }
+}
+
+export async function PUT(req: Request) {
+  try {
+    const session = await checkSession();
+    if (!session) return unauthorizedResponse();
+
+    const { targetProjectId } = await req.json();
+    const updateResult = await prisma.incident.updateMany({
+      where: {
+        projectId: null
+      },
+      data: {
+        projectId: targetProjectId
+      }
+    });
+    
+    const updatedIncidents = await prisma.incident.findMany({
+      orderBy: { indexId: 'desc' },
+      include: { attachments: true }
+    });
+    
+    return NextResponse.json({ count: updateResult.count, incidents: updatedIncidents });
+  } catch (error: any) {
+    console.error('Error updating incidents in bulk:', error);
+    return NextResponse.json({ error: error.message || 'Error updating incidents' }, { status: 500 });
   }
 }

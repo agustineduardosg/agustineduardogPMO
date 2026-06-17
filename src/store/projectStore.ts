@@ -51,7 +51,6 @@ const hasCircularDependency = (
 export type TaskStatus = 'Not Started' | 'In Progress' | 'Completed' | 'At Risk';
 export type TaskPriority = 'Baja' | 'Media' | 'Alta';
 
-
 export interface Task {
   id: string;
   wbsId?: string; 
@@ -69,6 +68,17 @@ export interface Task {
   attachments?: { id: string, name: string, type: string, url: string }[];
   phaseId?: string;
   dependencies?: string[];
+
+  // Nuevos Campos de Planificación y Control Bupa
+  realStartDate?: Date | null;
+  realEndDate?: Date | null;
+  expectedProgress?: number | null;
+  delayDays?: number | null;
+  semaphore?: string | null;
+  estimatedCost?: number | null;
+  realCost?: number | null;
+  risk?: string | null;
+  customFields?: string;
 }
 
 export interface Phase {
@@ -79,6 +89,44 @@ export interface Phase {
   startDate: Date;
   endDate: Date;
   progress: number;
+}
+
+export interface Risk {
+  id: string;
+  indexId: string;
+  description: string;
+  category?: string | null;
+  probability: number;
+  impact: number;
+  score: number;
+  level: string;
+  mitigationPlan?: string | null;
+  responsible?: string | null;
+  limitDate?: Date | null;
+  status: string;
+  associatedActivity?: string | null;
+  mitigationCost?: number | null;
+  observations?: string | null;
+  projectId: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface CostItem {
+  id: string;
+  indexId: string;
+  description: string;
+  category?: string | null;
+  provider?: string | null;
+  approvedBudget: number;
+  ocEmitted?: string | null;
+  ocNumber?: string | null;
+  realCost: number;
+  ocStatus: string;
+  observations?: string | null;
+  projectId: string;
+  createdAt: Date;
+  updatedAt: Date;
 }
 
 export interface Project {
@@ -95,6 +143,31 @@ export interface Project {
   startDate: Date;
   endDate: Date;
   parentProjectId?: string | null;
+  updatedAt?: Date | string | null;
+
+  // Nuevos Metadatos de Proyecto Bupa
+  type?: string | null;
+  methodology?: string | null;
+  pmo?: string | null;
+  budget?: number | null;
+  jiraId?: string | null;
+  cutoffDate?: Date | null;
+  goLiveDate?: Date | string | null;
+  statusTime?: string | null;
+  statusQuality?: string | null;
+  statusCost?: string | null;
+  nextMilestone?: string | null;
+  nextMilestoneDate?: Date | null;
+  achievements?: string | null;
+  nextSteps?: string | null;
+  blockers?: string | null;
+  expectedProgress?: number | null;
+  delayDays?: number | null;
+  consolidatedRisk?: string | null;
+  costStatusText?: string | null;
+
+  risks?: Risk[];
+  costItems?: CostItem[];
 }
 
 export interface ParentProject {
@@ -127,6 +200,16 @@ interface ProjectState {
   addParentProject: (name: string, description?: string) => Promise<void>;
   updateParentProject: (id: string, name: string, description?: string) => Promise<void>;
   deleteParentProject: (id: string) => Promise<void>;
+
+  // Acciones de Riesgo
+  addRisk: (projectId: string, risk: Omit<Risk, 'id' | 'createdAt' | 'updatedAt' | 'projectId' | 'score' | 'level'>) => Promise<void>;
+  updateRisk: (projectId: string, riskId: string, updates: Partial<Risk>) => Promise<void>;
+  deleteRisk: (projectId: string, riskId: string) => Promise<void>;
+
+  // Acciones de Costo
+  addCostItem: (projectId: string, item: Omit<CostItem, 'id' | 'createdAt' | 'updatedAt' | 'projectId'>) => Promise<void>;
+  updateCostItem: (projectId: string, itemId: string, updates: Partial<CostItem>) => Promise<void>;
+  deleteCostItem: (projectId: string, itemId: string) => Promise<void>;
 }
 
 const recalculatePhase = (phase: Phase): Phase => {
@@ -236,30 +319,85 @@ const recalculateProject = (project: Project): Project => {
   };
 };
 
+export const calculateDelayDays = (endDate: Date | null | undefined, realEndDate: Date | null | undefined): number | null => {
+  if (!endDate || !realEndDate) return null;
+  const planDate = new Date(endDate);
+  const realDate = new Date(realEndDate);
+  planDate.setHours(0, 0, 0, 0);
+  realDate.setHours(0, 0, 0, 0);
+
+  if (planDate.getTime() === realDate.getTime()) {
+    return 0;
+  }
+  const diff = differenceInBusinessDays(planDate, realDate);
+  const days = Math.max(0, diff - 1);
+  return realDate > planDate ? days : -days;
+};
+
+const isDatesEqual = (d1: any, d2: any): boolean => {
+  if (d1 === d2) return true;
+  if (!d1 || !d2) return false;
+  return new Date(d1).getTime() === new Date(d2).getTime();
+};
+
+const mapProjectFromApi = (p: any): Project => ({
+  ...p,
+  startDate: new Date(p.startDate),
+  endDate: new Date(p.endDate),
+  cutoffDate: p.cutoffDate ? new Date(p.cutoffDate) : null,
+  goLiveDate: p.goLiveDate ? new Date(p.goLiveDate) : null,
+  nextMilestoneDate: p.nextMilestoneDate ? new Date(p.nextMilestoneDate) : null,
+  risks: (p.risks || []).map((r: any) => ({
+    ...r,
+    limitDate: r.limitDate ? new Date(r.limitDate) : null,
+    createdAt: new Date(r.createdAt),
+    updatedAt: new Date(r.updatedAt)
+  })),
+  costItems: (p.costItems || []).map((c: any) => ({
+    ...c,
+    createdAt: new Date(c.createdAt),
+    updatedAt: new Date(c.updatedAt)
+  })),
+  phases: (p.phases || []).map((ph: any) => ({
+    ...ph,
+    startDate: new Date(ph.startDate),
+    endDate: new Date(ph.endDate),
+    tasks: (ph.tasks || []).map((t: any) => {
+      const taskObj = {
+        ...t,
+        startDate: new Date(t.startDate),
+        endDate: new Date(t.endDate),
+        realStartDate: t.realStartDate ? new Date(t.realStartDate) : null,
+        realEndDate: t.realEndDate ? new Date(t.realEndDate) : null,
+        dependencies: typeof t.dependencies === 'string' 
+          ? JSON.parse(t.dependencies) 
+          : (Array.isArray(t.dependencies) ? t.dependencies : [])
+      };
+      const refDate = taskObj.realEndDate || (taskObj.progress < 100 && new Date() > taskObj.endDate ? new Date() : null);
+      const delay = calculateDelayDays(taskObj.endDate, refDate);
+      taskObj.delayDays = delay;
+      if (delay === null || delay <= 0) {
+        taskObj.semaphore = 'Verde';
+      } else if (delay <= 5) {
+        taskObj.semaphore = 'Amarillo';
+      } else {
+        taskObj.semaphore = 'Rojo';
+      }
+      return taskObj;
+    })
+  }))
+});
+
+let syncTimeout: NodeJS.Timeout | null = null;
+let initialProjectState: Project | undefined = undefined;
+
 export const useProjectStore = create<ProjectState>()((set, get) => {
   const reloadProjects = async () => {
     try {
       const response = await fetch('/api/projects');
       if (response.ok) {
         const data = await response.json();
-        const projects = data.map((p: any) => ({
-          ...p,
-          startDate: new Date(p.startDate),
-          endDate: new Date(p.endDate),
-          phases: (p.phases || []).map((ph: any) => ({
-            ...ph,
-            startDate: new Date(ph.startDate),
-            endDate: new Date(ph.endDate),
-            tasks: (ph.tasks || []).map((t: any) => ({
-              ...t,
-              startDate: new Date(t.startDate),
-              endDate: new Date(t.endDate),
-              dependencies: typeof t.dependencies === 'string' 
-                ? JSON.parse(t.dependencies) 
-                : (Array.isArray(t.dependencies) ? t.dependencies : [])
-            }))
-          }))
-        }));
+        const projects = data.map(mapProjectFromApi);
         set({ projects });
       }
 
@@ -286,34 +424,88 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
   const syncProjectChanges = async (oldProject: Project | undefined, newProject: Project | undefined) => {
     if (!newProject || !oldProject) return;
 
-    try {
-      let projectPayload: any = null;
+    if (!initialProjectState) {
+      initialProjectState = oldProject;
+    }
+
+    if (syncTimeout) {
+      clearTimeout(syncTimeout);
+    }
+
+    syncTimeout = setTimeout(async () => {
+      const baseProject = initialProjectState;
+      initialProjectState = undefined;
+      syncTimeout = null;
+
+      const latestProject = get().projects.find(p => p.id === newProject.id);
+      if (!latestProject || !baseProject) return;
+
+      try {
+        const oldProject = baseProject;
+        const newProject = latestProject;
+        let projectPayload: any = null;
       const phasesPayload: any[] = [];
       const tasksPayload: any[] = [];
 
       // 1. Check if Project fields changed
       if (
         oldProject.name !== newProject.name ||
-        oldProject.startDate.getTime() !== newProject.startDate.getTime() ||
-        oldProject.endDate.getTime() !== newProject.endDate.getTime()
+        !isDatesEqual(oldProject.startDate, newProject.startDate) ||
+        !isDatesEqual(oldProject.endDate, newProject.endDate) ||
+        oldProject.type !== newProject.type ||
+        oldProject.methodology !== newProject.methodology ||
+        oldProject.pmo !== newProject.pmo ||
+        oldProject.budget !== newProject.budget ||
+        oldProject.jiraId !== newProject.jiraId ||
+        !isDatesEqual(oldProject.cutoffDate, newProject.cutoffDate) ||
+        oldProject.statusTime !== newProject.statusTime ||
+        oldProject.statusQuality !== newProject.statusQuality ||
+        oldProject.statusCost !== newProject.statusCost ||
+        oldProject.nextMilestone !== newProject.nextMilestone ||
+        !isDatesEqual(oldProject.nextMilestoneDate, newProject.nextMilestoneDate) ||
+        oldProject.achievements !== newProject.achievements ||
+        oldProject.nextSteps !== newProject.nextSteps ||
+        oldProject.blockers !== newProject.blockers ||
+        oldProject.expectedProgress !== newProject.expectedProgress ||
+        oldProject.delayDays !== newProject.delayDays ||
+        oldProject.consolidatedRisk !== newProject.consolidatedRisk ||
+        oldProject.costStatusText !== newProject.costStatusText
       ) {
         projectPayload = {
           name: newProject.name,
           startDate: newProject.startDate.toISOString(),
-          endDate: newProject.endDate.toISOString()
+          endDate: newProject.endDate.toISOString(),
+          type: newProject.type,
+          methodology: newProject.methodology,
+          pmo: newProject.pmo,
+          budget: newProject.budget,
+          jiraId: newProject.jiraId,
+          cutoffDate: newProject.cutoffDate ? newProject.cutoffDate.toISOString() : null,
+          statusTime: newProject.statusTime,
+          statusQuality: newProject.statusQuality,
+          statusCost: newProject.statusCost,
+          nextMilestone: newProject.nextMilestone,
+          nextMilestoneDate: newProject.nextMilestoneDate ? newProject.nextMilestoneDate.toISOString() : null,
+          achievements: newProject.achievements,
+          nextSteps: newProject.nextSteps,
+          blockers: newProject.blockers,
+          expectedProgress: newProject.expectedProgress,
+          delayDays: newProject.delayDays,
+          consolidatedRisk: newProject.consolidatedRisk,
+          costStatusText: newProject.costStatusText
         };
       }
 
       // 2. Check each Phase
       newProject.phases.forEach(newPh => {
         const oldPh = oldProject.phases.find(p => p.id === newPh.id);
-        if (!oldPh) return; // Skip if new (handled by addPhase)
+        if (!oldPh) return;
 
         if (
           oldPh.name !== newPh.name ||
           oldPh.progress !== newPh.progress ||
-          oldPh.startDate.getTime() !== newPh.startDate.getTime() ||
-          oldPh.endDate.getTime() !== newPh.endDate.getTime()
+          !isDatesEqual(oldPh.startDate, newPh.startDate) ||
+          !isDatesEqual(oldPh.endDate, newPh.endDate)
         ) {
           phasesPayload.push({
             id: newPh.id,
@@ -327,12 +519,12 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         // 3. Check each Task inside the Phase
         newPh.tasks.forEach(newT => {
           const oldT = oldPh.tasks.find(t => t.id === newT.id);
-          if (!oldT) return; // Skip if new (handled by addTask)
+          if (!oldT) return;
 
           if (
             oldT.name !== newT.name ||
-            oldT.startDate.getTime() !== newT.startDate.getTime() ||
-            oldT.endDate.getTime() !== newT.endDate.getTime() ||
+            !isDatesEqual(oldT.startDate, newT.startDate) ||
+            !isDatesEqual(oldT.endDate, newT.endDate) ||
             oldT.duration !== newT.duration ||
             oldT.progress !== newT.progress ||
             oldT.assignee !== newT.assignee ||
@@ -340,7 +532,16 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
             oldT.priority !== newT.priority ||
             oldT.notes !== newT.notes ||
             oldT.jiraCode !== newT.jiraCode ||
-            JSON.stringify(oldT.dependencies) !== JSON.stringify(newT.dependencies)
+            JSON.stringify(oldT.dependencies) !== JSON.stringify(newT.dependencies) ||
+            !isDatesEqual(oldT.realStartDate, newT.realStartDate) ||
+            !isDatesEqual(oldT.realEndDate, newT.realEndDate) ||
+            oldT.expectedProgress !== newT.expectedProgress ||
+            oldT.delayDays !== newT.delayDays ||
+            oldT.semaphore !== newT.semaphore ||
+            oldT.estimatedCost !== newT.estimatedCost ||
+            oldT.realCost !== newT.realCost ||
+            oldT.risk !== newT.risk ||
+            oldT.customFields !== newT.customFields
           ) {
             tasksPayload.push({
               id: newT.id,
@@ -355,13 +556,21 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
               notes: newT.notes,
               jiraCode: newT.jiraCode,
               parentId: newT.parentId,
-              dependencies: newT.dependencies
+              dependencies: newT.dependencies,
+              realStartDate: newT.realStartDate ? newT.realStartDate.toISOString() : null,
+              realEndDate: newT.realEndDate ? newT.realEndDate.toISOString() : null,
+              expectedProgress: newT.expectedProgress,
+              delayDays: newT.delayDays,
+              semaphore: newT.semaphore,
+              estimatedCost: newT.estimatedCost,
+              realCost: newT.realCost,
+              risk: newT.risk,
+              customFields: newT.customFields
             });
           }
         });
       });
 
-      // Si hay cambios detectados, enviarlos en una sola transacción masiva SQLite-safe
       if (projectPayload || phasesPayload.length > 0 || tasksPayload.length > 0) {
         set({ isLoading: true });
         const response = await fetch(`/api/projects/${newProject.id}/bulk-sync`, {
@@ -382,26 +591,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
 
         const data = await response.json();
         if (data && data.id) {
-          const updatedProject: Project = {
-            ...data,
-            startDate: new Date(data.startDate),
-            endDate: new Date(data.endDate),
-            phases: (data.phases || []).map((ph: any) => ({
-              ...ph,
-              startDate: new Date(ph.startDate),
-              endDate: new Date(ph.endDate),
-              tasks: (ph.tasks || []).map((t: any) => ({
-                ...t,
-                startDate: new Date(t.startDate),
-                endDate: new Date(t.endDate),
-                dependencies: typeof t.dependencies === 'string' 
-                  ? JSON.parse(t.dependencies) 
-                  : (Array.isArray(t.dependencies) ? t.dependencies : [])
-              }))
-            }))
-          };
-
-          // Hydrate the store state with fully synchronized and recalculated DB records
+          const updatedProject = mapProjectFromApi(data);
           set((state) => ({
             projects: state.projects.map(p => p.id === updatedProject.id ? updatedProject : p)
           }));
@@ -412,8 +602,8 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       console.error('Error syncing project changes to DB in bulk:', err);
       throw err;
     }
+    }, 1000);
   };
-
 
   return {
     projects: [],
@@ -428,24 +618,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         const response = await fetch('/api/projects');
         if (!response.ok) throw new Error('Failed to fetch projects');
         const data = await response.json();
-        const projects = data.map((p: any) => ({
-          ...p,
-          startDate: new Date(p.startDate),
-          endDate: new Date(p.endDate),
-          phases: (p.phases || []).map((ph: any) => ({
-            ...ph,
-            startDate: new Date(ph.startDate),
-            endDate: new Date(ph.endDate),
-            tasks: (ph.tasks || []).map((t: any) => ({
-              ...t,
-              startDate: new Date(t.startDate),
-              endDate: new Date(t.endDate),
-              dependencies: typeof t.dependencies === 'string' 
-                ? JSON.parse(t.dependencies) 
-                : (Array.isArray(t.dependencies) ? t.dependencies : [])
-            }))
-          }))
-        }));
+        const projects = data.map(mapProjectFromApi);
         
         set((state) => {
           const activeId = state.activeProjectId && projects.some((p: any) => p.id === state.activeProjectId)
@@ -473,6 +646,11 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
           body: JSON.stringify(project)
         });
         if (!response.ok) throw new Error('Failed to create project');
+        
+        const created = await response.json();
+        set((state) => ({
+          projects: state.projects.map(p => p.id === project.id ? mapProjectFromApi(created) : p)
+        }));
       } catch (err: any) {
         console.error(err);
         set({ error: err.message, activeProjectId: oldActiveId });
@@ -483,7 +661,6 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
     setActiveProject: (id) => set({ activeProjectId: id }),
 
     updateProject: async (projectId, updates) => {
-      const oldProjects = get().projects;
       set((state) => ({
         projects: state.projects.map(p => p.id === projectId ? { ...p, ...updates } : p)
       }));
@@ -495,6 +672,11 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
           body: JSON.stringify(updates)
         });
         if (!response.ok) throw new Error('Failed to update project');
+        
+        const updated = await response.json();
+        set((state) => ({
+          projects: state.projects.map(p => p.id === projectId ? mapProjectFromApi(updated) : p)
+        }));
       } catch (err: any) {
         console.error(err);
         set({ error: err.message });
@@ -529,7 +711,6 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       const oldProjects = get().projects;
       const oldProject = oldProjects.find(p => p.id === projectId);
       
-      // Validar dependencias circulares antes de proceder y prevenir lag
       if (updates.dependencies && oldProject) {
         const allTasks = oldProject.phases.flatMap(ph => ph.tasks) || [];
         if (hasCircularDependency(taskId, updates.dependencies, allTasks)) {
@@ -554,6 +735,8 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
               ...t, 
               startDate: new Date(t.startDate),
               endDate: new Date(t.endDate),
+              realStartDate: t.realStartDate ? new Date(t.realStartDate) : null,
+              realEndDate: t.realEndDate ? new Date(t.realEndDate) : null,
               dependencies: t.dependencies ? [...t.dependencies] : [] 
             }))
           }))
@@ -565,17 +748,75 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         if (taskIndex === -1) return p;
 
         const targetTask = phase.tasks[taskIndex];
+        
+        // --- VALIDATIONS ---
+        const mergedTask = { ...targetTask, ...updates };
+        const nextStart = mergedTask.startDate ? new Date(mergedTask.startDate) : null;
+        const nextEnd = mergedTask.endDate ? new Date(mergedTask.endDate) : null;
+        const nextRealStart = mergedTask.realStartDate ? new Date(mergedTask.realStartDate) : null;
+        const nextRealEnd = mergedTask.realEndDate ? new Date(mergedTask.realEndDate) : null;
+
+        if (nextStart && nextEnd && nextEnd < nextStart) {
+          const errMsg = "Error: La fecha de término planificada no puede ser anterior al inicio planificado.";
+          set({ error: errMsg });
+          if (typeof window !== "undefined") alert(errMsg);
+          throw new Error(errMsg);
+        }
+        if (nextRealStart && nextStart && nextRealStart < nextStart) {
+          const errMsg = "Error: La fecha de inicio real no puede ser anterior al inicio planificado.";
+          set({ error: errMsg });
+          if (typeof window !== "undefined") alert(errMsg);
+          throw new Error(errMsg);
+        }
+        if (nextRealStart && nextRealEnd && nextRealEnd < nextRealStart) {
+          const errMsg = "Error: La fecha de término real no puede ser anterior al inicio real.";
+          set({ error: errMsg });
+          if (typeof window !== "undefined") alert(errMsg);
+          throw new Error(errMsg);
+        }
+
         Object.assign(targetTask, updates);
 
-        // Auto-status and progress sync logic
-        if (updates.progress !== undefined && updates.status === undefined) {
-          if (targetTask.progress === 100) targetTask.status = 'Completed';
-          else if (targetTask.progress > 0 && targetTask.status === 'Not Started') targetTask.status = 'In Progress';
-          else if (targetTask.progress === 0 && targetTask.status === 'Completed') targetTask.status = 'Not Started';
-        } else if (updates.status !== undefined && updates.progress === undefined) {
-          if (targetTask.status === 'Completed') targetTask.progress = 100;
-          else if (targetTask.status === 'Not Started') targetTask.progress = 0;
-          else if (targetTask.status === 'In Progress' && targetTask.progress === 0) targetTask.progress = 10;
+        if (targetTask.startDate) targetTask.startDate = new Date(targetTask.startDate);
+        if (targetTask.endDate) targetTask.endDate = new Date(targetTask.endDate);
+        if (targetTask.realStartDate) targetTask.realStartDate = new Date(targetTask.realStartDate);
+        if (targetTask.realEndDate) targetTask.realEndDate = new Date(targetTask.realEndDate);
+
+        // Strict auto-status and progress sync logic
+        if (updates.progress !== undefined) {
+          if (updates.progress === 100) {
+            targetTask.status = 'Completed';
+          } else if (updates.progress > 0 && updates.progress < 100) {
+            if (targetTask.status === 'Completed' || targetTask.status === 'Not Started') {
+              targetTask.status = 'In Progress';
+            }
+          } else if (updates.progress === 0) {
+            targetTask.status = 'Not Started';
+          }
+        }
+
+        if (updates.status !== undefined) {
+          if (updates.status === 'Completed') {
+            targetTask.progress = 100;
+          } else if (updates.status === 'Not Started') {
+            targetTask.progress = 0;
+          } else if (updates.status === 'In Progress' && (targetTask.progress === 0 || targetTask.progress === 100)) {
+            targetTask.progress = 10;
+          } else if (updates.status === 'At Risk' && (targetTask.progress === 0 || targetTask.progress === 100)) {
+            targetTask.progress = 10;
+          }
+        }
+
+        // Calculate deviation and semaphore
+        const refDate = targetTask.realEndDate || (targetTask.progress < 100 && new Date() > targetTask.endDate ? new Date() : null);
+        const delay = calculateDelayDays(targetTask.endDate, refDate);
+        targetTask.delayDays = delay;
+        if (delay === null || delay <= 0) {
+          targetTask.semaphore = 'Verde';
+        } else if (delay <= 5) {
+          targetTask.semaphore = 'Amarillo';
+        } else {
+          targetTask.semaphore = 'Rojo';
         }
 
         if (updates.startDate || updates.endDate || updates.duration !== undefined) {
@@ -618,6 +859,31 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
     },
 
     addTask: async (projectId, phaseId, task) => {
+      // --- VALIDATIONS ---
+      const nextStart = task.startDate ? new Date(task.startDate) : null;
+      const nextEnd = task.endDate ? new Date(task.endDate) : null;
+      const nextRealStart = task.realStartDate ? new Date(task.realStartDate) : null;
+      const nextRealEnd = task.realEndDate ? new Date(task.realEndDate) : null;
+
+      if (nextStart && nextEnd && nextEnd < nextStart) {
+        const errMsg = "Error: La fecha de término planificada no puede ser anterior al inicio planificado.";
+        set({ error: errMsg });
+        if (typeof window !== "undefined") alert(errMsg);
+        throw new Error(errMsg);
+      }
+      if (nextRealStart && nextStart && nextRealStart < nextStart) {
+        const errMsg = "Error: La fecha de inicio real no puede ser anterior al inicio planificado.";
+        set({ error: errMsg });
+        if (typeof window !== "undefined") alert(errMsg);
+        throw new Error(errMsg);
+      }
+      if (nextRealStart && nextRealEnd && nextRealEnd < nextRealStart) {
+        const errMsg = "Error: La fecha de término real no puede ser anterior al inicio real.";
+        set({ error: errMsg });
+        if (typeof window !== "undefined") alert(errMsg);
+        throw new Error(errMsg);
+      }
+
       const oldProjects = get().projects;
       const oldProject = oldProjects.find(p => p.id === projectId);
 
@@ -638,7 +904,6 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
       set({ projects: newProjects });
 
       try {
-        // Create the task in DB
         const response = await fetch('/api/tasks', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -646,7 +911,6 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         });
         if (!response.ok) throw new Error('Failed to create task');
 
-        // Sync other elements (like the phase progress/dates recalculated)
         await syncProjectChanges(oldProject, newProject);
       } catch (err: any) {
         console.error(err);
@@ -853,6 +1117,188 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
         const getStore = get();
         await getStore.fetchParentProjects();
         await getStore.fetchProjects(); // Recargar proyectos por si se limpió la relación
+      } catch (err: any) {
+        console.error(err);
+        set({ error: err.message, isLoading: false });
+      }
+    },
+
+    addRisk: async (projectId, risk) => {
+      set({ isLoading: true, error: null });
+      try {
+        const response = await fetch(`/api/projects/${projectId}/risks`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(risk)
+        });
+        if (!response.ok) throw new Error('Failed to add risk');
+        const newRisk = await response.json();
+        
+        const parsedRisk: Risk = {
+          ...newRisk,
+          limitDate: newRisk.limitDate ? new Date(newRisk.limitDate) : null,
+          createdAt: new Date(newRisk.createdAt),
+          updatedAt: new Date(newRisk.updatedAt)
+        };
+
+        set((state) => ({
+          projects: state.projects.map(p => {
+            if (p.id !== projectId) return p;
+            return {
+              ...p,
+              risks: [...(p.risks || []), parsedRisk]
+            };
+          }),
+          isLoading: false
+        }));
+      } catch (err: any) {
+        console.error(err);
+        set({ error: err.message, isLoading: false });
+      }
+    },
+
+    updateRisk: async (projectId, riskId, updates) => {
+      set({ isLoading: true, error: null });
+      try {
+        const response = await fetch(`/api/projects/${projectId}/risks`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: riskId, ...updates })
+        });
+        if (!response.ok) throw new Error('Failed to update risk');
+        const updatedRisk = await response.json();
+        
+        const parsedRisk: Risk = {
+          ...updatedRisk,
+          limitDate: updatedRisk.limitDate ? new Date(updatedRisk.limitDate) : null,
+          createdAt: new Date(updatedRisk.createdAt),
+          updatedAt: new Date(updatedRisk.updatedAt)
+        };
+
+        set((state) => ({
+          projects: state.projects.map(p => {
+            if (p.id !== projectId) return p;
+            return {
+              ...p,
+              risks: (p.risks || []).map(r => r.id === riskId ? parsedRisk : r)
+            };
+          }),
+          isLoading: false
+        }));
+      } catch (err: any) {
+        console.error(err);
+        set({ error: err.message, isLoading: false });
+      }
+    },
+
+    deleteRisk: async (projectId, riskId) => {
+      set({ isLoading: true, error: null });
+      try {
+        const response = await fetch(`/api/projects/${projectId}/risks?id=${riskId}`, {
+          method: 'DELETE'
+        });
+        if (!response.ok) throw new Error('Failed to delete risk');
+
+        set((state) => ({
+          projects: state.projects.map(p => {
+            if (p.id !== projectId) return p;
+            return {
+              ...p,
+              risks: (p.risks || []).filter(r => r.id !== riskId)
+            };
+          }),
+          isLoading: false
+        }));
+      } catch (err: any) {
+        console.error(err);
+        set({ error: err.message, isLoading: false });
+      }
+    },
+
+    addCostItem: async (projectId, item) => {
+      set({ isLoading: true, error: null });
+      try {
+        const response = await fetch(`/api/projects/${projectId}/costs`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(item)
+        });
+        if (!response.ok) throw new Error('Failed to add cost item');
+        const newCost = await response.json();
+        
+        const parsedCost: CostItem = {
+          ...newCost,
+          createdAt: new Date(newCost.createdAt),
+          updatedAt: new Date(newCost.updatedAt)
+        };
+
+        set((state) => ({
+          projects: state.projects.map(p => {
+            if (p.id !== projectId) return p;
+            return {
+              ...p,
+              costItems: [...(p.costItems || []), parsedCost]
+            };
+          }),
+          isLoading: false
+        }));
+      } catch (err: any) {
+        console.error(err);
+        set({ error: err.message, isLoading: false });
+      }
+    },
+
+    updateCostItem: async (projectId, itemId, updates) => {
+      set({ isLoading: true, error: null });
+      try {
+        const response = await fetch(`/api/projects/${projectId}/costs`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: itemId, ...updates })
+        });
+        if (!response.ok) throw new Error('Failed to update cost item');
+        const updatedCost = await response.json();
+        
+        const parsedCost: CostItem = {
+          ...updatedCost,
+          createdAt: new Date(updatedCost.createdAt),
+          updatedAt: new Date(updatedCost.updatedAt)
+        };
+
+        set((state) => ({
+          projects: state.projects.map(p => {
+            if (p.id !== projectId) return p;
+            return {
+              ...p,
+              costItems: (p.costItems || []).map(c => c.id === itemId ? parsedCost : c)
+            };
+          }),
+          isLoading: false
+        }));
+      } catch (err: any) {
+        console.error(err);
+        set({ error: err.message, isLoading: false });
+      }
+    },
+
+    deleteCostItem: async (projectId, itemId) => {
+      set({ isLoading: true, error: null });
+      try {
+        const response = await fetch(`/api/projects/${projectId}/costs?id=${itemId}`, {
+          method: 'DELETE'
+        });
+        if (!response.ok) throw new Error('Failed to delete cost item');
+
+        set((state) => ({
+          projects: state.projects.map(p => {
+            if (p.id !== projectId) return p;
+            return {
+              ...p,
+              costItems: (p.costItems || []).filter(c => c.id !== itemId)
+            };
+          }),
+          isLoading: false
+        }));
       } catch (err: any) {
         console.error(err);
         set({ error: err.message, isLoading: false });

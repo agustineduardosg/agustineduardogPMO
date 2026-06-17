@@ -25,6 +25,22 @@ export async function POST(
             hasEquipment: project.hasEquipment !== undefined ? project.hasEquipment : undefined,
             startDate: project.startDate ? new Date(project.startDate) : undefined,
             endDate: project.endDate ? new Date(project.endDate) : undefined,
+            
+            // Nuevos Metadatos de Proyecto Bupa
+            type: project.type !== undefined ? project.type : undefined,
+            methodology: project.methodology !== undefined ? project.methodology : undefined,
+            pmo: project.pmo !== undefined ? project.pmo : undefined,
+            budget: project.budget !== undefined ? (project.budget !== null ? Number(project.budget) : null) : undefined,
+            jiraId: project.jiraId !== undefined ? project.jiraId : undefined,
+            cutoffDate: project.cutoffDate !== undefined ? (project.cutoffDate ? new Date(project.cutoffDate) : null) : undefined,
+            statusTime: project.statusTime !== undefined ? project.statusTime : undefined,
+            statusQuality: project.statusQuality !== undefined ? project.statusQuality : undefined,
+            statusCost: project.statusCost !== undefined ? project.statusCost : undefined,
+            nextMilestone: project.nextMilestone !== undefined ? project.nextMilestone : undefined,
+            nextMilestoneDate: project.nextMilestoneDate !== undefined ? (project.nextMilestoneDate ? new Date(project.nextMilestoneDate) : null) : undefined,
+            achievements: project.achievements !== undefined ? project.achievements : undefined,
+            nextSteps: project.nextSteps !== undefined ? project.nextSteps : undefined,
+            blockers: project.blockers !== undefined ? project.blockers : undefined,
           },
         });
       }
@@ -64,6 +80,17 @@ export async function POST(
               dependencies: task.dependencies 
                 ? (typeof task.dependencies === 'string' ? task.dependencies : JSON.stringify(task.dependencies))
                 : undefined,
+                
+              // Nuevos Campos de Planificación y Control
+              realStartDate: task.realStartDate !== undefined ? (task.realStartDate ? new Date(task.realStartDate) : null) : undefined,
+              realEndDate: task.realEndDate !== undefined ? (task.realEndDate ? new Date(task.realEndDate) : null) : undefined,
+              expectedProgress: task.expectedProgress !== undefined ? (task.expectedProgress !== null ? Number(task.expectedProgress) : null) : undefined,
+              delayDays: task.delayDays !== undefined ? (task.delayDays !== null ? Number(task.delayDays) : null) : undefined,
+              semaphore: task.semaphore !== undefined ? task.semaphore : undefined,
+              estimatedCost: task.estimatedCost !== undefined ? (task.estimatedCost !== null ? Number(task.estimatedCost) : null) : undefined,
+              realCost: task.realCost !== undefined ? (task.realCost !== null ? Number(task.realCost) : null) : undefined,
+              risk: task.risk !== undefined ? task.risk : undefined,
+              customFields: task.customFields !== undefined ? (typeof task.customFields === 'string' ? task.customFields : JSON.stringify(task.customFields)) : undefined,
             },
           });
         }
@@ -84,6 +111,8 @@ export async function POST(
             },
             orderBy: { createdAt: 'asc' },
           },
+          risks: true,
+          costItems: true
         },
       });
     });

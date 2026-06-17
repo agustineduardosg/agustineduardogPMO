@@ -17,7 +17,9 @@ export interface Incident {
   planDeAccion: string;
   fechaCierre: string;
   projectId?: string | null;
+  idTicket?: string | null;
   customFields?: string;
+  attachments?: { id: string; name: string; type: string; url: string; incidentId?: string | null; createdAt: string }[];
 }
 
 interface IncidentState {
@@ -28,6 +30,7 @@ interface IncidentState {
   addIncident: (incident: Incident) => Promise<void>;
   updateIncident: (id: string, updates: Partial<Incident>) => Promise<void>;
   deleteIncident: (id: string) => Promise<void>;
+  bulkImportIncidents: (data: { incidents: any[]; customColumns: string[]; defaultValues?: any }) => Promise<void>;
 }
 
 export const useIncidentStore = create<IncidentState>()((set) => ({
@@ -113,6 +116,27 @@ export const useIncidentStore = create<IncidentState>()((set) => ({
         const data = await response.json();
         set({ incidents: data });
       }
+    }
+  },
+
+  bulkImportIncidents: async (payload) => {
+    set({ isLoading: true, error: null });
+    try {
+      const response = await fetch('/api/incidents/bulk-import', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || 'Failed to bulk import incidents');
+      }
+      const data = await response.json();
+      set({ incidents: data, isLoading: false });
+    } catch (err: any) {
+      console.error(err);
+      set({ error: err.message, isLoading: false });
+      throw err;
     }
   }
 }));

@@ -24,13 +24,16 @@ import {
 } from 'lucide-react';
 import { useProjectStore, Task, Phase, Project, TaskStatus } from '@/store/projectStore';
 import { useEquipmentStore, ClinicalEquipment, Recinto, EquipmentPhaseStatus } from '@/store/equipmentStore';
+import { useIncidentStore } from '@/store/incidentStore';
 import { useRouter } from 'next/navigation';
 import { addBusinessDays } from '@/utils/dateUtils';
 import { format } from 'date-fns';
+import { predictMappings } from '@/utils/fuzzyMapper';
 
-type GanttMappingKeys = 'taskName' | 'phaseName' | 'startDate' | 'endDate' | 'duration' | 'assignee' | 'progress' | 'status' | 'priority' | 'notes';
+type GanttMappingKeys = 'taskName' | 'phaseName' | 'startDate' | 'endDate' | 'duration' | 'assignee' | 'progress' | 'status' | 'priority' | 'notes' | 'realStartDate' | 'realEndDate' | 'expectedProgress' | 'estimatedCost' | 'realCost' | 'risk' | 'wbsId';
 type EquipmentMappingKeys = 'name' | 'section' | 'recintoName' | 'responsable' | 'observaciones' | 'pendienteDe' | 'compromisoDate' | 'levantamiento' | 'parametrizacion' | 'pruebas' | 'capacitacion' | 'validacion' | 'golive';
 type AnalyteMappingKeys = 'instrumentName' | 'transmissionCode' | 'testCode' | 'name' | 'description' | 'section' | 'state';
+type IncidentMappingKeys = 'fecha' | 'recintoName' | 'equipmentName' | 'faseAfectada' | 'descripcion' | 'impacto' | 'responsable' | 'estado' | 'planDeAccion' | 'fechaCierre' | 'projectId' | 'idTicket' | 'ignore';
 
 interface ValidationError {
   row: number;
@@ -41,6 +44,7 @@ interface ValidationError {
 
 const GANTT_FIELD_OPTIONS = [
   { value: '', label: 'No usar esta columna' },
+  { value: 'wbsId', label: 'ID WBS (ej: 1, 1.1, 1.2)' },
   { value: 'taskName', label: '✅ Nombre de la Tarea (Requerido)' },
   { value: 'phaseName', label: 'Fase / Grupo' },
   { value: 'startDate', label: 'Fecha de Inicio' },
@@ -50,7 +54,13 @@ const GANTT_FIELD_OPTIONS = [
   { value: 'progress', label: 'Progreso (%)' },
   { value: 'status', label: 'Estado' },
   { value: 'priority', label: 'Prioridad' },
-  { value: 'notes', label: 'Notas' }
+  { value: 'notes', label: 'Notas' },
+  { value: 'realStartDate', label: 'Fecha Inicio Real' },
+  { value: 'realEndDate', label: 'Fecha Fin Real' },
+  { value: 'expectedProgress', label: 'Progreso Esperado (%)' },
+  { value: 'estimatedCost', label: 'Costo Estimado' },
+  { value: 'realCost', label: 'Costo Real' },
+  { value: 'risk', label: 'Riesgo (Bajo-Crítico)' }
 ];
 
 const EQUIP_FIELD_OPTIONS = [
@@ -81,10 +91,27 @@ const ANALYTE_FIELD_OPTIONS = [
   { value: 'state', label: 'Estado Actual' }
 ];
 
+const INCIDENT_FIELD_OPTIONS = [
+  { value: '', label: '⚙️ Columna Personalizada (Importación Automática)' },
+  { value: 'ignore', label: '❌ Ignorar esta columna (No importar)' },
+  { value: 'idTicket', label: 'ID del Ticket / Código' },
+  { value: 'fecha', label: '✅ Fecha del Incidente (Requerido)' },
+  { value: 'recintoName', label: 'Nombre de la Sede/Clínica' },
+  { value: 'equipmentName', label: 'Nombre del Equipo Afectado' },
+  { value: 'faseAfectada', label: 'Fase Afectada' },
+  { value: 'descripcion', label: '✅ Descripción del Incidente (Requerido)' },
+  { value: 'impacto', label: 'Impacto (Bajo, Medio, Crítico)' },
+  { value: 'responsable', label: 'Responsable' },
+  { value: 'estado', label: 'Estado (Abierto, En proceso, Cerrado)' },
+  { value: 'planDeAccion', label: 'Plan de Acción Inmediato' },
+  { value: 'fechaCierre', label: 'Fecha de Cierre' },
+  { value: 'projectId', label: 'Proyecto Asociado' }
+];
+
 export default function ImportPage() {
   // Stepper state: 1 = Config/Upload, 2 = Mapping, 3 = Validation, 4 = Syncing/Success
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
-  const [importType, setImportType] = useState<'gantt' | 'equipment' | 'analyte'>('gantt');
+  const [importType, setImportType] = useState<'gantt' | 'equipment' | 'analyte' | 'incident'>('gantt');
   const [isContextual, setIsContextual] = useState(false);
   
   const [file, setFile] = useState<File | null>(null);
@@ -104,6 +131,7 @@ export default function ImportPage() {
   const [ganttMapping, setGanttMapping] = useState<Record<string, GanttMappingKeys | ''>>({});
   const [equipMapping, setEquipMapping] = useState<Record<string, EquipmentMappingKeys | ''>>({});
   const [analyteMapping, setAnalyteMapping] = useState<Record<string, AnalyteMappingKeys | ''>>({});
+  const [incidentMapping, setIncidentMapping] = useState<Record<string, IncidentMappingKeys | ''>>({});
   
   // Asignación interactiva de sedes para analitos sin sigla visible
   const [instrumentSedeMap, setInstrumentSedeMap] = useState<Record<string, string>>({});
@@ -118,6 +146,10 @@ export default function ImportPage() {
   const [validationErrors, setValidationErrors] = useState<ValidationError[]>([]);
   const [criticalRows, setCriticalRows] = useState<Set<number>>(new Set());
   
+  // Incident Default Values
+  const [defaultEstado, setDefaultEstado] = useState<string>('Abierto');
+  const [defaultImpacto, setDefaultImpacto] = useState<string>('Bajo');
+
   // Import Progress States
   const [isImporting, setIsImporting] = useState(false);
   const [importProgress, setImportProgress] = useState(0);
@@ -146,9 +178,14 @@ export default function ImportPage() {
     if (typeof window !== 'undefined') {
       const params = new URLSearchParams(window.location.search);
       const typeParam = params.get('type');
-      if (typeParam === 'gantt' || typeParam === 'equipment' || typeParam === 'analyte') {
+      if (typeParam === 'gantt' || typeParam === 'equipment' || typeParam === 'analyte' || typeParam === 'incident') {
         setImportType(typeParam as any);
         setIsContextual(true);
+      }
+      const projParam = params.get('projectId');
+      if (projParam && projParam !== 'independent') {
+        setSelectedProjectId(projParam);
+        setLinkProjectOption('existing');
       }
     }
   }, []);
@@ -189,7 +226,7 @@ export default function ImportPage() {
       const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
       XLSX.utils.book_append_sheet(wb, ws, "Equipamiento Clínico");
       XLSX.writeFile(wb, "Plantilla_Equipos_Clinicos_SmartPM.xlsx");
-    } else {
+    } else if (importType === 'analyte') {
       const headers = ['Instrumento', 'Cod transmision', 'Cod Test', 'Nombre analito', 'Descripcion Extensa', 'Seccion', 'estado'];
       const rows = [
         ['A15', 'ADA', '302050', 'ADA', 'Adenosindeaminasa', 'TECNICAS ESPECIALES', 'No Iniciado'],
@@ -200,6 +237,16 @@ export default function ImportPage() {
       const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
       XLSX.utils.book_append_sheet(wb, ws, "Matriz de Analitos");
       XLSX.writeFile(wb, "Plantilla_Analitos_Bupa.xlsx");
+    } else if (importType === 'incident') {
+      const headers = ['Fecha', 'Sede / Clínica', 'Equipo Afectado', 'Fase Afectada', 'Descripción del Incidente', 'Impacto', 'Responsable', 'Estado', 'Plan de Acción', 'Fecha Cierre', 'Proyecto Asociado'];
+      const rows = [
+        ['2026-06-11', 'BUPA CLA', 'CA 600', 'Pruebas', 'Error en transmisión de resultados de glucosa', 'Crítico', 'Sistemas TI Bupa', 'Abierto', 'Revisar puertos del middleware y reiniciar servicio', '', 'Calidad Bupa'],
+        ['2026-06-12', 'BUPA CLR', '', 'General', 'Caída de enlace MPLS principal de la clínica', 'Crítico', 'Soporte Telecom', 'Abierto', 'Escalar con proveedor de telecomunicaciones', '', 'Calidad Bupa'],
+        ['2026-06-12', 'BUPA CLA', 'Advia 2120 Hematología', 'Capacitación', 'Dudas del personal con la visualización de alarmas', 'Bajo', 'Laboratorio', 'Cerrado', 'Capacitación reforzada realizada en terreno', '2026-06-12', '']
+      ];
+      const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
+      XLSX.utils.book_append_sheet(wb, ws, "Incidentes");
+      XLSX.writeFile(wb, "Plantilla_Incidentes_SmartPM.xlsx");
     }
   };
 
@@ -274,11 +321,17 @@ export default function ImportPage() {
 
       headers.forEach(col => {
         const norm = normalizeStr(col);
-        if (!foundTask && (norm.includes('tarea') || norm.includes('nombre') || norm.includes('actividad') || norm.includes('descripcion'))) {
+        if (norm === 'id' || norm === 'wbs' || norm === 'codigo' || norm.includes('wbs') || norm === 'wbsid' || norm === 'n°') {
+          initialGantt[col] = 'wbsId';
+        } else if (!foundTask && (norm.includes('tarea') || norm.includes('nombre') || norm.includes('actividad') || norm.includes('descripcion') || norm.includes('fase / actividad') || norm.includes('actividad (wbs)'))) {
           initialGantt[col] = 'taskName';
           foundTask = true;
-        } else if (!Object.values(initialGantt).includes('phaseName') && (norm.includes('fase') || norm.includes('etapa') || norm.includes('grupo') || norm.includes('wbs'))) {
+        } else if (!Object.values(initialGantt).includes('phaseName') && (norm.includes('fase') || norm.includes('etapa') || norm.includes('grupo'))) {
           initialGantt[col] = 'phaseName';
+        } else if (norm.includes('inicio') && norm.includes('real')) {
+          initialGantt[col] = 'realStartDate';
+        } else if ((norm.includes('fin') || norm.includes('termino')) && norm.includes('real')) {
+          initialGantt[col] = 'realEndDate';
         } else if (!foundStart && (norm.includes('inicio') || norm.includes('start') || norm.includes('desde'))) {
           initialGantt[col] = 'startDate';
           foundStart = true;
@@ -288,6 +341,8 @@ export default function ImportPage() {
           initialGantt[col] = 'duration';
         } else if (!Object.values(initialGantt).includes('assignee') && (norm.includes('responsable') || norm.includes('asignado') || norm.includes('recurso') || norm.includes('encargado'))) {
           initialGantt[col] = 'assignee';
+        } else if (norm.includes('esperado') || (norm.includes('planificado') && norm.includes('%'))) {
+          initialGantt[col] = 'expectedProgress';
         } else if (!Object.values(initialGantt).includes('progress') && (norm.includes('avance') || norm.includes('progreso') || norm.includes('%'))) {
           initialGantt[col] = 'progress';
         } else if (!Object.values(initialGantt).includes('status') && (norm.includes('estado') || norm.includes('status') || norm.includes('situacion'))) {
@@ -296,6 +351,12 @@ export default function ImportPage() {
           initialGantt[col] = 'priority';
         } else if (!Object.values(initialGantt).includes('notes') && (norm.includes('nota') || norm.includes('comentario') || norm.includes('observacion'))) {
           initialGantt[col] = 'notes';
+        } else if ((norm.includes('estimado') && norm.includes('costo')) || norm.includes('presupuesto')) {
+          initialGantt[col] = 'estimatedCost';
+        } else if (norm.includes('real') && norm.includes('costo')) {
+          initialGantt[col] = 'realCost';
+        } else if (norm.includes('riesgo') || norm.includes('criticidad')) {
+          initialGantt[col] = 'risk';
         }
       });
       setGanttMapping(initialGantt);
@@ -338,7 +399,7 @@ export default function ImportPage() {
         }
       });
       setEquipMapping(initialEquip);
-    } else {
+    } else if (importType === 'analyte') {
       const initialAnalyte: Record<string, AnalyteMappingKeys | ''> = {};
       headers.forEach(col => initialAnalyte[col] = '');
 
@@ -361,6 +422,36 @@ export default function ImportPage() {
         }
       });
       setAnalyteMapping(initialAnalyte);
+    } else if (importType === 'incident') {
+      const headersHash = headers.map(h => String(h).trim()).join('|');
+      
+      // Intentar cargar plantilla guardada desde el servidor
+      fetch(`/api/import-templates?headersHash=${encodeURIComponent(headersHash)}`, { cache: 'no-store' })
+        .then(res => {
+          if (res.ok) return res.json();
+          throw new Error('No template found');
+        })
+        .then(data => {
+          if (data && data.mapping) {
+            const parsedMapping = JSON.parse(data.mapping);
+            const resolvedMapping: Record<string, IncidentMappingKeys | ''> = {};
+            headers.forEach(col => {
+              resolvedMapping[col] = (parsedMapping[col] || '') as IncidentMappingKeys | '';
+            });
+            setIncidentMapping(resolvedMapping);
+            console.log('✅ Plantilla de importación auto-aplicada:', data.name);
+          }
+        })
+        .catch(() => {
+          // Si no existe, aplicar Fuzzy Matching predictivo inteligente
+          const predicted = predictMappings(headers);
+          const resolvedMapping: Record<string, IncidentMappingKeys | ''> = {};
+          headers.forEach(col => {
+            resolvedMapping[col] = (predicted[col] || '') as IncidentMappingKeys | '';
+          });
+          setIncidentMapping(resolvedMapping);
+          console.log('⚡ Fuzzy Matching inteligente aplicado.');
+        });
     }
   };
 
@@ -447,24 +538,11 @@ export default function ImportPage() {
       const msInDay = 24 * 60 * 60 * 1000;
       const d = new Date(excelEpoch.getTime() + val * msInDay);
       if (!isNaN(d.getTime())) {
-        if (d.getFullYear() < 2020) {
-          d.setFullYear(2026);
-        }
         return d;
       }
     }
     
-    const parsed = new Date(val);
-    if (!isNaN(parsed.getTime())) {
-      let yr = parsed.getFullYear();
-      if (yr < 100) {
-        parsed.setFullYear(2026);
-      } else if (yr < 2020) {
-        parsed.setFullYear(2026); // Forzar alineación a 2026
-      }
-      return parsed;
-    }
-    
+    // Si viene como string, priorizamos el formato DD-MM-YY / DD-MM-YYYY usual de Chile/España
     if (typeof val === 'string') {
       const parts = val.split(/[-/]/).map(p => p.trim());
       if (parts.length === 3) {
@@ -480,9 +558,7 @@ export default function ImportPage() {
           }
           
           if (year < 100) {
-            year = 2026;
-          } else if (year < 2020) {
-            year = 2026;
+            year = 2000 + year;
           }
           
           const d = new Date(year, month, day);
@@ -490,6 +566,16 @@ export default function ImportPage() {
         }
       }
     }
+    
+    const parsed = new Date(val);
+    if (!isNaN(parsed.getTime())) {
+      let yr = parsed.getFullYear();
+      if (yr < 100) {
+        parsed.setFullYear(2000 + yr);
+      }
+      return parsed;
+    }
+    
     return fallback;
   };
 
@@ -520,17 +606,64 @@ export default function ImportPage() {
       const colStart = Object.keys(ganttMapping).find(k => ganttMapping[k] === 'startDate');
       const colEnd = Object.keys(ganttMapping).find(k => ganttMapping[k] === 'endDate');
       const colProg = Object.keys(ganttMapping).find(k => ganttMapping[k] === 'progress');
+      const colPhase = Object.keys(ganttMapping).find(k => ganttMapping[k] === 'phaseName');
 
       if (!colTask) {
         alert("¡Falta Mapeo Crítico! Debes seleccionar cuál columna contiene el 'Nombre de la Tarea'.");
         return;
       }
 
+      const colWbs = Object.keys(ganttMapping).find(k => ganttMapping[k] === 'wbsId');
+      const colDur = Object.keys(ganttMapping).find(k => ganttMapping[k] === 'duration');
+
       parsedData.forEach((row, index) => {
         const rowNum = index + 1;
-        const taskVal = row[colTask];
+        const taskVal = row[colTask] ? String(row[colTask]).trim() : '';
+        const phaseVal = colPhase && row[colPhase] ? String(row[colPhase]).trim() : '';
+        const wbsIdVal = colWbs && row[colWbs] ? String(row[colWbs]).trim() : '';
 
-        if (!taskVal || String(taskVal).trim() === '') {
+        // 1. Detect inline WBS
+        let inlineWbs = '';
+        let cleanName = taskVal;
+        const inlineWbsMatch = taskVal.match(/^(\d+(\.\d+)*)\.?\s+(.+)$/);
+        if (inlineWbsMatch) {
+          inlineWbs = inlineWbsMatch[1];
+          cleanName = inlineWbsMatch[3].trim();
+        }
+
+        let wbsId = wbsIdVal;
+        if (!wbsId && inlineWbs) {
+          wbsId = inlineWbs;
+        }
+
+        // Normalizar WBS ID
+        if (wbsId.endsWith('.0')) {
+          wbsId = wbsId.slice(0, -2);
+        }
+        if (wbsId.endsWith('.')) {
+          wbsId = wbsId.slice(0, -1);
+        }
+
+        // 3. Detect if this is a Phase Header row
+        const colStartVal = colStart ? row[colStart] : '';
+        const colEndVal = colEnd ? row[colEnd] : '';
+        const colDurVal = colDur ? row[colDur] : '';
+        const hasNoDatesOrDuration = (!colStartVal || colStartVal === '') && (!colEndVal || colEndVal === '') && (!colDurVal || colDurVal === '');
+
+        const isExplicitWbsPhase = wbsId && (!wbsId.includes('.') || wbsId === '');
+        const isNoWbsPhaseHeader = !wbsId && taskVal !== '' && hasNoDatesOrDuration;
+        const isPhaseHeaderRow = taskVal === '' && phaseVal !== '';
+        const isPhaseKeyword = /^\s*(fase|etapa|módulo|modulo|phase|stage|grupo)\b/i.test(taskVal);
+
+        const isPhase = isExplicitWbsPhase || isNoWbsPhaseHeader || isPhaseHeaderRow || isPhaseKeyword;
+
+        if (isPhase) {
+          // La descartamos de la lista de tareas a crear sin generar error visual
+          criticalRowsSet.add(index);
+          return;
+        }
+
+        if (taskVal === '') {
           errors.push({
             row: rowNum,
             column: colTask,
@@ -538,6 +671,7 @@ export default function ImportPage() {
             message: 'Nombre de tarea vacío. Esta fila se descartará.'
           });
           criticalRowsSet.add(index);
+          return;
         }
 
         if (colStart && colEnd && row[colStart] && row[colEnd]) {
@@ -611,7 +745,7 @@ export default function ImportPage() {
           }
         }
       });
-    } else {
+    } else if (importType === 'analyte') {
       // Validar Analitos
       const colInst = Object.keys(analyteMapping).find(k => analyteMapping[k] === 'instrumentName');
       const colTrans = Object.keys(analyteMapping).find(k => analyteMapping[k] === 'transmissionCode');
@@ -714,6 +848,50 @@ export default function ImportPage() {
         map[name] = matchedRecId; // Si no hay sigla conocida, queda vacío '' para selección interactiva
       });
       setInstrumentSedeMap(map);
+    } else if (importType === 'incident') {
+      const colFecha = Object.keys(incidentMapping).find(k => incidentMapping[k] === 'fecha');
+      const colDesc = Object.keys(incidentMapping).find(k => incidentMapping[k] === 'descripcion');
+
+      if (!colFecha || !colDesc) {
+        alert("¡Falta Mapeo Crítico! Debes seleccionar las columnas de 'Fecha' y 'Descripción'.");
+        return;
+      }
+
+      parsedData.forEach((row, index) => {
+        const rowNum = index + 1;
+        const fechaVal = row[colFecha];
+        const descVal = row[colDesc];
+
+        if (!fechaVal || String(fechaVal).trim() === '') {
+          errors.push({
+            row: rowNum,
+            column: colFecha,
+            level: 'critical',
+            message: 'Fecha del incidente vacía. Fila descartada.'
+          });
+          criticalRowsSet.add(index);
+        } else {
+          const parsed = parseSafeDate(fechaVal, new Date(NaN));
+          if (isNaN(parsed.getTime())) {
+            errors.push({
+              row: rowNum,
+              column: colFecha,
+              level: 'warning',
+              message: `La fecha '${fechaVal}' no tiene un formato válido (se usará la fecha actual por defecto).`
+            });
+          }
+        }
+
+        if (!descVal || String(descVal).trim() === '') {
+          errors.push({
+            row: rowNum,
+            column: colDesc,
+            level: 'critical',
+            message: 'Descripción del incidente vacía. Fila descartada.'
+          });
+          criticalRowsSet.add(index);
+        }
+      });
     }
 
     setValidationErrors(errors);
@@ -741,14 +919,166 @@ export default function ImportPage() {
         const colStatus = Object.keys(ganttMapping).find(k => ganttMapping[k] === 'status');
         const colPrio = Object.keys(ganttMapping).find(k => ganttMapping[k] === 'priority');
         const colNotes = Object.keys(ganttMapping).find(k => ganttMapping[k] === 'notes');
-
-        const phasesMap = new Map<string, { name: string, tasks: Task[] }>();
         
-        validRows.forEach((row, index) => {
-          const taskName = row[colTask];
-          const rawPhaseName = colPhase && row[colPhase] ? row[colPhase] : 'Fase General';
-          const phaseKey = normalizePhaseName(String(rawPhaseName));
-          const assignee = colAssig && row[colAssig] ? row[colAssig] : 'Sin Asignar';
+        const colRealStart = Object.keys(ganttMapping).find(k => ganttMapping[k] === 'realStartDate');
+        const colRealEnd = Object.keys(ganttMapping).find(k => ganttMapping[k] === 'realEndDate');
+        const colExpProg = Object.keys(ganttMapping).find(k => ganttMapping[k] === 'expectedProgress');
+        const colEstCost = Object.keys(ganttMapping).find(k => ganttMapping[k] === 'estimatedCost');
+        const colRealCost = Object.keys(ganttMapping).find(k => ganttMapping[k] === 'realCost');
+        const colRisk = Object.keys(ganttMapping).find(k => ganttMapping[k] === 'risk');
+
+        const colWbs = Object.keys(ganttMapping).find(k => ganttMapping[k] === 'wbsId');
+
+        let newPhases: Phase[] = [];
+        const phasesList: Phase[] = [];
+        const phaseWbsMap = new Map<string, Phase>();
+        const taskWbsMap = new Map<string, Task>();
+        const tasksList: Task[] = [];
+        let currentPhase: Phase | null = null;
+        let autoPhaseCounter = 1;
+
+        parsedData.forEach((row, index) => {
+          const wbsIdVal = colWbs && row[colWbs] ? String(row[colWbs]).trim() : '';
+          const taskNameVal = row[colTask] ? String(row[colTask]).trim() : '';
+          const phaseVal = colPhase && row[colPhase] ? String(row[colPhase]).trim() : '';
+
+          if (!wbsIdVal && !taskNameVal) return;
+
+          // 1. Normalize WBS ID: e.g. "1.0" -> "1"
+          let wbsId = wbsIdVal;
+          if (wbsId.endsWith('.0')) {
+            wbsId = wbsId.slice(0, -2);
+          }
+          if (wbsId.endsWith('.')) {
+            wbsId = wbsId.slice(0, -1);
+          }
+
+          // 2. Detect inline WBS
+          let inlineWbs = '';
+          let cleanName = taskNameVal;
+          const inlineWbsMatch = taskNameVal.match(/^(\d+(\.\d+)*)\.?\s+(.+)$/);
+          if (inlineWbsMatch) {
+            inlineWbs = inlineWbsMatch[1];
+            cleanName = inlineWbsMatch[3].trim();
+          }
+
+          if (!wbsId && inlineWbs) {
+            wbsId = inlineWbs;
+          }
+
+          // 3. Detect if this is a Phase Header row
+          const colStartVal = colStart ? row[colStart] : '';
+          const colEndVal = colEnd ? row[colEnd] : '';
+          const colDurVal = colDur ? row[colDur] : '';
+          const hasNoDatesOrDuration = (!colStartVal || colStartVal === '') && (!colEndVal || colEndVal === '') && (!colDurVal || colDurVal === '');
+
+          const isExplicitWbsPhase = wbsId && (!wbsId.includes('.') || wbsId === '');
+          const isNoWbsPhaseHeader = !wbsId && taskNameVal !== '' && hasNoDatesOrDuration;
+          const isPhaseHeaderRow = taskNameVal === '' && phaseVal !== '';
+          const isPhaseKeyword = /^\s*(fase|etapa|módulo|modulo|phase|stage|grupo)\b/i.test(taskNameVal);
+
+          const isPhase = isExplicitWbsPhase || isNoWbsPhaseHeader || isPhaseHeaderRow || isPhaseKeyword;
+
+          if (isPhase) {
+            const phaseName = cleanName || phaseVal || `Fase ${wbsId || autoPhaseCounter}`;
+            const phaseKey = wbsId ? normalizePhaseName(wbsId) : normalizePhaseName(phaseName);
+            
+            const phaseObj: Phase = {
+              id: `ph-${Date.now()}-${index}`,
+              wbsId: wbsId || String(autoPhaseCounter++),
+              name: phaseName,
+              tasks: [],
+              startDate: new Date(),
+              endDate: new Date(),
+              progress: 0
+            };
+            phasesList.push(phaseObj);
+            phaseWbsMap.set(phaseKey, phaseObj);
+            currentPhase = phaseObj;
+            return;
+          }
+
+          if (criticalRows.has(index)) return;
+
+          // Resolve current phase contexts
+          if (!currentPhase) {
+            if (phaseVal) {
+              const phaseKey = normalizePhaseName(phaseVal);
+              let phaseObj = phaseWbsMap.get(phaseKey);
+              if (!phaseObj) {
+                phaseObj = {
+                  id: `ph-${Date.now()}-${index}-auto`,
+                  wbsId: String(autoPhaseCounter++),
+                  name: phaseVal,
+                  tasks: [],
+                  startDate: new Date(),
+                  endDate: new Date(),
+                  progress: 0
+                };
+                phasesList.push(phaseObj);
+                phaseWbsMap.set(phaseKey, phaseObj);
+              }
+              currentPhase = phaseObj;
+            } else {
+              const defaultPhaseName = 'Fase 1';
+              const phaseKey = normalizePhaseName(defaultPhaseName);
+              let phaseObj = phaseWbsMap.get(phaseKey);
+              if (!phaseObj) {
+                phaseObj = {
+                  id: `ph-${Date.now()}-${index}-auto`,
+                  wbsId: String(autoPhaseCounter++),
+                  name: defaultPhaseName,
+                  tasks: [],
+                  startDate: new Date(),
+                  endDate: new Date(),
+                  progress: 0
+                };
+                phasesList.push(phaseObj);
+                phaseWbsMap.set(phaseKey, phaseObj);
+              }
+              currentPhase = phaseObj;
+            }
+          }
+
+          if (wbsId && wbsId.includes('.')) {
+            const dotIdx = wbsId.indexOf('.');
+            const rootWbs = wbsId.substring(0, dotIdx);
+            const rootKey = normalizePhaseName(rootWbs);
+            let targetPhase = phaseWbsMap.get(rootKey);
+            if (!targetPhase) {
+              targetPhase = {
+                id: `ph-${Date.now()}-${index}-auto`,
+                wbsId: rootWbs,
+                name: phaseVal || `Fase ${rootWbs}`,
+                tasks: [],
+                startDate: new Date(),
+                endDate: new Date(),
+                progress: 0
+              };
+              phasesList.push(targetPhase);
+              phaseWbsMap.set(rootKey, targetPhase);
+            }
+            currentPhase = targetPhase;
+          } else if (phaseVal && normalizePhaseName(phaseVal) !== normalizePhaseName(currentPhase.name)) {
+            const phaseKey = normalizePhaseName(phaseVal);
+            let targetPhase = phaseWbsMap.get(phaseKey);
+            if (!targetPhase) {
+              targetPhase = {
+                id: `ph-${Date.now()}-${index}-auto`,
+                wbsId: String(autoPhaseCounter++),
+                name: phaseVal,
+                tasks: [],
+                startDate: new Date(),
+                endDate: new Date(),
+                progress: 0
+              };
+              phasesList.push(targetPhase);
+              phaseWbsMap.set(phaseKey, targetPhase);
+            }
+            currentPhase = targetPhase;
+          }
+
+          const assignee = colAssig && row[colAssig] ? String(row[colAssig]).trim() : 'Sin Asignar';
           
           let startDate = new Date();
           if (colStart) startDate = parseSafeDate(row[colStart], new Date());
@@ -760,9 +1090,7 @@ export default function ImportPage() {
           let endDate = addBusinessDays(startDate, duration);
           if (colEnd && row[colEnd]) {
             endDate = parseSafeDate(row[colEnd], addBusinessDays(startDate, duration));
-            if (endDate < startDate) {
-              endDate = addBusinessDays(startDate, duration);
-            }
+            if (endDate < startDate) endDate = addBusinessDays(startDate, duration);
           }
 
           let progress = 0;
@@ -770,7 +1098,7 @@ export default function ImportPage() {
             const val = String(row[colProg]).replace('%', '').trim();
             const p = parseFloat(val);
             if (!isNaN(p)) {
-              progress = p <= 1 && val.includes('.') ? p * 100 : p; 
+              progress = p <= 1 && val.includes('.') ? p * 100 : p;
             }
           }
           progress = Math.min(100, Math.max(0, progress));
@@ -792,9 +1120,46 @@ export default function ImportPage() {
 
           const notes = colNotes && row[colNotes] ? String(row[colNotes]).trim() : '';
 
+          let realStartDate = null;
+          if (colRealStart && row[colRealStart]) realStartDate = parseSafeDate(row[colRealStart], new Date());
+
+          let realEndDate = null;
+          if (colRealEnd && row[colRealEnd]) realEndDate = parseSafeDate(row[colRealEnd], new Date());
+
+          let expectedProgress = null;
+          if (colExpProg && row[colExpProg] !== undefined && row[colExpProg] !== '') {
+            const val = String(row[colExpProg]).replace('%', '').trim();
+            const p = parseFloat(val);
+            if (!isNaN(p)) {
+              expectedProgress = Math.min(100, Math.max(0, p <= 1 && val.includes('.') ? p * 100 : p));
+            }
+          }
+
+          let estimatedCost = null;
+          if (colEstCost && row[colEstCost] !== undefined && row[colEstCost] !== '') {
+            const val = Number(String(row[colEstCost]).replace(/[^0-9.-]/g, ''));
+            if (!isNaN(val)) estimatedCost = val;
+          }
+
+          let realCost = null;
+          if (colRealCost && row[colRealCost] !== undefined && row[colRealCost] !== '') {
+            const val = Number(String(row[colRealCost]).replace(/[^0-9.-]/g, ''));
+            if (!isNaN(val)) realCost = val;
+          }
+
+          let risk = 'Bajo';
+          if (colRisk && row[colRisk]) {
+            const val = String(row[colRisk]).toLowerCase().trim();
+            if (val.includes('crit') || val.includes('muy alt')) risk = 'Crítico';
+            else if (val.includes('alt')) risk = 'Alto';
+            else if (val.includes('med')) risk = 'Medio';
+            else risk = 'Bajo';
+          }
+
           const task: Task = {
             id: `t-${Date.now()}-${index}`,
-            name: String(taskName),
+            wbsId: wbsId || `${currentPhase.wbsId}.${currentPhase.tasks.length + 1}`,
+            name: String(cleanName),
             startDate,
             endDate,
             duration,
@@ -802,30 +1167,46 @@ export default function ImportPage() {
             assignee: String(assignee),
             status,
             priority,
-            notes
+            notes,
+            realStartDate,
+            realEndDate,
+            expectedProgress,
+            estimatedCost,
+            realCost,
+            risk,
+            parentId: undefined
           };
 
-          if (!phasesMap.has(phaseKey)) {
-            phasesMap.set(phaseKey, { name: String(rawPhaseName).trim(), tasks: [] });
-          }
-          phasesMap.get(phaseKey)!.tasks.push(task);
+          taskWbsMap.set(task.wbsId!, task);
+          currentPhase.tasks.push(task);
+          tasksList.push(task);
         });
 
-        setStatusMessage('Estructurando fases de la WBS...');
-        setImportProgress(40);
+        // Hierarchical nesting parentId linkage
+        tasksList.forEach(task => {
+          if (!task.wbsId) return;
+          const wbs = task.wbsId;
+          const lastDot = wbs.lastIndexOf('.');
+          if (lastDot !== -1) {
+            const parentWbs = wbs.substring(0, lastDot);
+            if (parentWbs.includes('.')) {
+              const parentTask = taskWbsMap.get(parentWbs);
+              if (parentTask) {
+                task.parentId = parentTask.id;
+              }
+            }
+          }
+        });
 
-        let phaseIndex = 1;
-        const newPhases: Phase[] = Array.from(phasesMap.values()).map((phData, i) => {
-          const minDate = new Date(Math.min(...phData.tasks.map(t => t.startDate.getTime())));
-          const maxDate = new Date(Math.max(...phData.tasks.map(t => t.endDate.getTime())));
+        // Recalculate phases summary
+        newPhases = phasesList.filter(ph => ph.tasks.length > 0).map(ph => {
+          const minDate = new Date(Math.min(...ph.tasks.map(t => t.startDate.getTime())));
+          const maxDate = new Date(Math.max(...ph.tasks.map(t => t.endDate.getTime())));
           
           let totalDuration = 0;
           let totalWeightedProgress = 0;
           
-          const wbsId = `${phaseIndex++}`;
-          
-          phData.tasks.forEach((t, tIndex) => {
-            t.wbsId = `${wbsId}.${tIndex + 1}`; 
+          ph.tasks.forEach(t => {
             totalDuration += t.duration;
             totalWeightedProgress += (t.progress * t.duration);
           });
@@ -833,10 +1214,7 @@ export default function ImportPage() {
           const phaseProgress = totalDuration > 0 ? Math.round(totalWeightedProgress / totalDuration) : 0;
 
           return {
-            id: `ph-${Date.now()}-${i}`,
-            wbsId,
-            name: phData.name, 
-            tasks: phData.tasks,
+            ...ph,
             startDate: minDate,
             endDate: maxDate,
             progress: phaseProgress
@@ -975,7 +1353,7 @@ export default function ImportPage() {
         setStep(3);
         setIsImporting(false);
       }
-    } else {
+    } else if (importType === 'analyte') {
       // Importar Analitos
       try {
         const colInst = Object.keys(analyteMapping).find(k => analyteMapping[k] === 'instrumentName')!;
@@ -1039,6 +1417,113 @@ export default function ImportPage() {
         setStep(3);
         setIsImporting(false);
       }
+    } else if (importType === 'incident') {
+      try {
+        const colFecha = Object.keys(incidentMapping).find(k => incidentMapping[k] === 'fecha')!;
+        const colRec = Object.keys(incidentMapping).find(k => incidentMapping[k] === 'recintoName');
+        const colEquip = Object.keys(incidentMapping).find(k => incidentMapping[k] === 'equipmentName');
+        const colFase = Object.keys(incidentMapping).find(k => incidentMapping[k] === 'faseAfectada');
+        const colDesc = Object.keys(incidentMapping).find(k => incidentMapping[k] === 'descripcion')!;
+        const colImp = Object.keys(incidentMapping).find(k => incidentMapping[k] === 'impacto');
+        const colResp = Object.keys(incidentMapping).find(k => incidentMapping[k] === 'responsable');
+        const colEst = Object.keys(incidentMapping).find(k => incidentMapping[k] === 'estado');
+        const colPlan = Object.keys(incidentMapping).find(k => incidentMapping[k] === 'planDeAccion');
+        const colCierre = Object.keys(incidentMapping).find(k => incidentMapping[k] === 'fechaCierre');
+        const colProj = Object.keys(incidentMapping).find(k => incidentMapping[k] === 'projectId');
+        const colIdTicket = Object.keys(incidentMapping).find(k => incidentMapping[k] === 'idTicket');
+
+        setStatusMessage('Estructurando incidentes y detectando campos personalizados...');
+        setImportProgress(30);
+
+        // Detectar las columnas personalizadas (las que no están mapeadas a campos estándar)
+        const mappedOriginalCols = new Set(
+          Object.keys(incidentMapping).filter(k => incidentMapping[k] !== '')
+        );
+        const customColumns = columns.filter(col => !mappedOriginalCols.has(col));
+
+        const defaultProjectId = linkProjectOption === 'existing' ? selectedProjectId : null;
+
+        const incidentsPayload = validRows.map(row => {
+          // Extraer campos estándar
+          const fechaRaw = row[colFecha];
+          const descRaw = row[colDesc];
+          
+          let fechaStr = '';
+          if (fechaRaw) {
+            try {
+              fechaStr = parseSafeDate(fechaRaw, new Date()).toISOString().split('T')[0];
+            } catch(e) {
+              fechaStr = String(fechaRaw);
+            }
+          } else {
+            fechaStr = new Date().toISOString().split('T')[0];
+          }
+
+          // Extraer campos personalizados
+          const customFields: Record<string, string> = {};
+          customColumns.forEach(col => {
+            const val = row[col];
+            customFields[col] = val !== undefined && val !== null ? String(val).trim() : '';
+          });
+
+          return {
+            id: `inc-${Date.now()}-${Math.floor(Math.random() * 1000000)}`,
+            fecha: fechaStr,
+            recintoName: colRec && row[colRec] ? String(row[colRec]).trim() : '',
+            equipmentName: colEquip && row[colEquip] ? String(row[colEquip]).trim() : '',
+            faseAfectada: colFase && row[colFase] ? String(row[colFase]).trim() : 'General',
+            descripcion: descRaw ? String(descRaw).trim() : '',
+            impacto: colImp && row[colImp] ? String(row[colImp]).trim() : '',
+            responsable: colResp && row[colResp] ? String(row[colResp]).trim() : '',
+            estado: colEst && row[colEst] ? String(row[colEst]).trim() : '',
+            planDeAccion: colPlan && row[colPlan] ? String(row[colPlan]).trim() : '',
+            fechaCierre: colCierre && row[colCierre] ? String(row[colCierre]).trim() : '',
+            projectId: colProj && row[colProj] ? String(row[colProj]).trim() : null,
+            idTicket: colIdTicket && row[colIdTicket] ? String(row[colIdTicket]).trim() : null,
+            defaultProjectId,
+            customFields
+          };
+        });
+
+        setStatusMessage('Enviando incidentes al servidor...');
+        setImportProgress(60);
+
+        // Llamar a bulkImportIncidents de nuestro store
+        await useIncidentStore.getState().bulkImportIncidents({
+          incidents: incidentsPayload,
+          customColumns,
+          defaultValues: {
+            estado: defaultEstado,
+            impacto: defaultImpacto
+          }
+        });
+
+        // Guardar la plantilla en el servidor para "Smart Learning"
+        const headersHash = columns.map(h => String(h).trim()).join('|');
+        fetch('/api/import-templates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: `Plantilla para formato ${columns.slice(0, 3).join(', ')}...`,
+            headersHash,
+            mapping: incidentMapping
+          })
+        }).catch(e => console.error('Error auto-saving import template:', e));
+
+        setImportSummary({ 
+          success: incidentsPayload.length, 
+          failed: criticalRows.size, 
+          recintosCreated: 0 
+        });
+        setImportProgress(100);
+        setStatusMessage(`¡Éxito! Se importaron ${incidentsPayload.length} incidentes correctamente.`);
+        setIsImporting(false);
+      } catch (err: any) {
+        console.error(err);
+        alert(`Error durante la importación de incidentes: ${err.message || 'Error desconocido'}`);
+        setStep(3);
+        setIsImporting(false);
+      }
     }
   };
 
@@ -1073,6 +1558,17 @@ export default function ImportPage() {
     }
     newMapping[colName] = value as AnalyteMappingKeys | '';
     setAnalyteMapping(newMapping);
+  };
+
+  const handleSelectIncidentChange = (colName: string, value: string) => {
+    const newMapping = { ...incidentMapping };
+    if (value !== '') {
+      Object.keys(newMapping).forEach(k => {
+        if (newMapping[k] === value) newMapping[k] = '';
+      });
+    }
+    newMapping[colName] = value as IncidentMappingKeys | '';
+    setIncidentMapping(newMapping);
   };
 
   return (
@@ -1146,7 +1642,7 @@ export default function ImportPage() {
               <div>
                 <h1 style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--text-primary)', margin: 0 }}>
                   {isContextual 
-                    ? (importType === 'gantt' ? 'Importación de Cronograma de Proyectos' : 'Importación de Equipamiento Clínico')
+                    ? (importType === 'gantt' ? 'Importación de Cronograma de Proyectos' : importType === 'incident' ? 'Importación de Registro de Incidentes' : 'Importación de Equipamiento Clínico')
                     : 'Importación de Archivos Corporativa'}
                 </h1>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.95rem', margin: '4px 0 0 0' }}>
@@ -1155,15 +1651,17 @@ export default function ImportPage() {
                         ? 'Carga el cronograma de tareas del proyecto para tu portafolio PMO.' 
                         : importType === 'analyte'
                           ? 'Carga la matriz de analitos para monitoreo de transmisión de laboratorio.'
-                          : 'Carga el inventario de activos biomédicos para monitoreo clínico.')
+                          : importType === 'incident'
+                            ? 'Carga el registro de incidentes, soporte y continuidad operacional para el proyecto.'
+                            : 'Carga el inventario de activos biomédicos para monitoreo clínico.')
                     : 'Tráete tus datos de forma segura desde hojas de cálculo locales o de la nube.'}
                 </p>
               </div>
             </div>
 
-            {/* Split Options Panel (Gantt vs Equipment vs Analyte) */}
+            {/* Split Options Panel (Gantt vs Equipment vs Analyte vs Incident) */}
             {!isContextual && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
                 
                 <div 
                   onClick={() => setImportType('gantt')}
@@ -1232,6 +1730,29 @@ export default function ImportPage() {
                   </div>
                   <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px 0' }}>🔬 Matriz de Analitos</h3>
                   <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0, lineHeight: 1.4 }}>Mapeo de códigos de transmisión, códigos de test, nombres de analitos y estados de transmisión.</p>
+                </div>
+
+                <div 
+                  onClick={() => setImportType('incident')}
+                  style={{
+                    padding: '24px',
+                    borderRadius: '12px',
+                    border: '2px solid',
+                    borderColor: importType === 'incident' ? 'var(--accent-primary)' : 'var(--border-subtle)',
+                    background: importType === 'incident' ? 'rgba(0, 121, 193, 0.04)' : 'var(--bg-secondary)',
+                    cursor: 'pointer',
+                    transition: 'all var(--transition-fast)'
+                  }}
+                  className="hover-card"
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                    <div style={{ width: '40px', height: '40px', borderRadius: '8px', background: 'rgba(225, 29, 72, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#e11d48' }}>
+                      <AlertTriangle size={20} />
+                    </div>
+                    {importType === 'incident' && <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--accent-primary)' }} />}
+                  </div>
+                  <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-primary)', margin: '0 0 4px 0' }}>⚠️ Incidentes y Desvíos</h3>
+                  <p style={{ color: 'var(--text-muted)', fontSize: '0.85rem', margin: 0, lineHeight: 1.4 }}>Puntos de alerta, continuidad operacional, incidentes de soporte o fallas técnicas.</p>
                 </div>
 
               </div>
@@ -1539,7 +2060,7 @@ export default function ImportPage() {
                     </div>
                   )}
                 </div>
-              ) : importType === 'equipment' ? (
+              ) : (importType === 'equipment' || importType === 'incident') ? (
                 <div style={{ display: 'flex', gap: '24px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
                   <div style={{ flex: 1, maxWidth: '280px', minWidth: '220px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                     <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 700 }}>Asociación de Proyecto</label>
@@ -1611,7 +2132,7 @@ export default function ImportPage() {
 
                   {sheetNames.length > 1 && (
                     <div style={{ width: '280px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      <label style={{ fontSize: '0.85rem', color: 'var(--accent-success)', fontWeight: 800 }}>📄 Pestaña de Excel a Importar</label>
+                      <label style={{ fontSize: '0.85rem', color: importType === 'equipment' ? 'var(--accent-success)' : 'var(--accent-primary)', fontWeight: 800 }}>📄 Pestaña de Excel a Importar</label>
                       <select 
                         value={selectedSheet}
                         onChange={e => {
@@ -1620,8 +2141,8 @@ export default function ImportPage() {
                         }}
                         style={{
                           padding: '10px 14px',
-                          background: 'rgba(16, 185, 129, 0.05)',
-                          border: '2px solid var(--accent-success)',
+                          background: importType === 'equipment' ? 'rgba(16, 185, 129, 0.05)' : 'rgba(0, 75, 135, 0.05)',
+                          border: `2px solid ${importType === 'equipment' ? 'var(--accent-success)' : 'var(--accent-primary)'}`,
                           borderRadius: 'var(--radius-md)',
                           color: 'var(--text-primary)',
                           fontWeight: 'bold',
@@ -1637,6 +2158,55 @@ export default function ImportPage() {
                         ))}
                       </select>
                     </div>
+                  )}
+
+                  {importType === 'incident' && (
+                    <>
+                      <div style={{ width: '180px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 700 }}>Estado por Defecto</label>
+                        <select
+                          value={defaultEstado}
+                          onChange={e => setDefaultEstado(e.target.value)}
+                          style={{
+                            padding: '10px',
+                            background: 'var(--bg-tertiary)',
+                            border: '1px solid var(--border-strong)',
+                            borderRadius: 'var(--radius-md)',
+                            color: 'var(--text-primary)',
+                            outline: 'none',
+                            cursor: 'pointer',
+                            fontSize: '0.9rem',
+                            width: '100%'
+                          }}
+                        >
+                          <option value="Abierto">Abierto</option>
+                          <option value="En proceso">En proceso</option>
+                          <option value="Cerrado">Cerrado</option>
+                        </select>
+                      </div>
+                      <div style={{ width: '180px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: 700 }}>Impacto por Defecto</label>
+                        <select
+                          value={defaultImpacto}
+                          onChange={e => setDefaultImpacto(e.target.value)}
+                          style={{
+                            padding: '10px',
+                            background: 'var(--bg-tertiary)',
+                            border: '1px solid var(--border-strong)',
+                            borderRadius: 'var(--radius-md)',
+                            color: 'var(--text-primary)',
+                            outline: 'none',
+                            cursor: 'pointer',
+                            fontSize: '0.9rem',
+                            width: '100%'
+                          }}
+                        >
+                          <option value="Bajo">Bajo</option>
+                          <option value="Medio">Medio</option>
+                          <option value="Crítico">Crítico</option>
+                        </select>
+                      </div>
+                    </>
                   )}
                 </div>
               ) : (
@@ -1702,13 +2272,17 @@ export default function ImportPage() {
                           ? ganttMapping[col] !== '' 
                           : importType === 'equipment' 
                             ? equipMapping[col] !== '' 
-                            : analyteMapping[col] !== '';
+                            : importType === 'analyte'
+                              ? analyteMapping[col] !== ''
+                              : incidentMapping[col] !== '';
                       const mapVal = 
                         importType === 'gantt' 
                           ? ganttMapping[col] 
                           : importType === 'equipment' 
                             ? equipMapping[col] 
-                            : analyteMapping[col];
+                            : importType === 'analyte'
+                              ? analyteMapping[col]
+                              : incidentMapping[col];
                       
                       return (
                         <th key={`mapth-${col}`} style={{ padding: '0 12px 16px 12px', minWidth: '220px', verticalAlign: 'top' }}>
@@ -1763,7 +2337,7 @@ export default function ImportPage() {
                                   </option>
                                 ))}
                               </select>
-                            ) : (
+                            ) : importType === 'analyte' ? (
                               <select 
                                 value={mapVal}
                                 onChange={(e) => handleSelectAnalyteChange(col, e.target.value)}
@@ -1781,6 +2355,29 @@ export default function ImportPage() {
                                 }}
                               >
                                 {ANALYTE_FIELD_OPTIONS.map(opt => (
+                                  <option key={opt.value} value={opt.value} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
+                                    {opt.label}
+                                  </option>
+                                ))}
+                              </select>
+                            ) : (
+                              <select 
+                                value={mapVal}
+                                onChange={(e) => handleSelectIncidentChange(col, e.target.value)}
+                                style={{
+                                  width: '100%',
+                                  padding: '10px',
+                                  background: isMapped ? 'rgba(0, 75, 135, 0.08)' : 'var(--bg-tertiary)',
+                                  border: `2px solid ${isMapped ? 'var(--accent-primary)' : 'var(--border-strong)'}`,
+                                  borderRadius: 'var(--radius-md)',
+                                  color: isMapped ? 'var(--accent-primary)' : 'var(--text-primary)',
+                                  outline: 'none',
+                                  fontWeight: isMapped ? 800 : 500,
+                                  fontSize: '0.85rem',
+                                  cursor: 'pointer'
+                                }}
+                              >
+                                {INCIDENT_FIELD_OPTIONS.map(opt => (
                                   <option key={opt.value} value={opt.value} style={{ background: 'var(--bg-secondary)', color: 'var(--text-primary)' }}>
                                     {opt.label}
                                   </option>

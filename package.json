@@ -5,11 +5,13 @@
   "scripts": {
     "dev": "next dev -p 3005",
     "build": "next build",
-    "start": "prisma db push && next start",
+    "start": "prisma migrate deploy && next start",
     "lint": "eslint",
     "postinstall": "prisma generate",
     "db:dump": "node scripts/db-dump-sqlite.js",
-    "db:load": "node scripts/db-load-pg.js"
+    "db:load": "node scripts/db-load-pg.js",
+    "db:dump-pg": "node scripts/db-dump-pg.js",
+    "db:load-sqlite": "node scripts/db-load-sqlite.js"
   },
   "dependencies": {
     "@prisma/client": "^6.2.1",
@@ -33,5 +35,8 @@
     "eslint": "^9",
     "eslint-config-next": "16.2.6",
     "typescript": "^5"
+  },
+  "prisma": {
+    "seed": "node prisma/seed.js"
   }
 }

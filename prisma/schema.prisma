@@ -24,6 +24,30 @@ model Project {
   parentProjectId String?
   parentProject   ParentProject? @relation(fields: [parentProjectId], references: [id], onDelete: SetNull)
 
+  // Nuevos Metadatos de Proyecto Bupa
+  type              String?   // Tipo (ej: Proyecto SCL)
+  methodology       String?   // Tradicional / Híbrido / Ágil
+  pmo               String?   // PMO / Scrum Master
+  budget            Float?    // Presupuesto Total Aprobado
+  jiraId            String?   // Jira / ID
+  cutoffDate        DateTime? // Fecha de Corte
+  goLiveDate        DateTime? // Fecha Go-Live
+  statusTime        String?   // Semáforo Tiempo (Verde, Amarillo, Rojo)
+  statusQuality     String?   // Semáforo Calidad (Verde, Amarillo, Rojo)
+  statusCost        String?   // Semáforo Costo (Verde, Amarillo, Rojo)
+  nextMilestone     String?   // Próximo Hito
+  nextMilestoneDate DateTime? // Fecha Próximo Hito
+  achievements      String?   // Logros del período (Markdown/Texto)
+  nextSteps         String?   // Próximos pasos (Markdown/Texto)
+  blockers          String?   // Bloqueadores / Riesgos activos (Markdown/Texto)
+  expectedProgress  Int?      // % Avance Esperado
+  delayDays         Int?      // Desviación Tiempo (días)
+  consolidatedRisk  String?   // Riesgo Consolidado
+  costStatusText    String?   // Estado de Costos (Texto)
+
+  risks             Risk[]
+  costItems         CostItem[]
+
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -80,6 +104,17 @@ model Task {
   // Dependencias (Cascada)
   dependencies String?      // Almacenado como JSON array string para compatibilidad simple
   
+  // Nuevos Campos de Planificación y Control
+  realStartDate     DateTime? // Inicio Real
+  realEndDate       DateTime? // Término Real
+  expectedProgress  Int?      // % Esperado (Hoy)
+  delayDays         Int?      // Desv. (días)
+  semaphore         String?   // Semáforo Tarea (Verde, Amarillo, Rojo, etc.)
+  estimatedCost     Float?    // Costo Estim.
+  realCost          Float?    // Costo Real
+  risk              String?   // Riesgo (Bajo, Medio, Alto, Crítico)
+  customFields      String    @default("{}")
+
   attachments  Attachment[]
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
@@ -89,15 +124,18 @@ model Task {
 }
 
 model Attachment {
-  id        String   @id @default(cuid())
-  name      String
-  type      String
-  url       String
-  taskId    String
-  task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  createdAt DateTime @default(now())
+  id         String    @id @default(cuid())
+  name       String
+  type       String
+  url        String
+  taskId     String?
+  task       Task?     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  incidentId String?
+  incident   Incident? @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  createdAt  DateTime  @default(now())
 
   @@index([taskId])
+  @@index([incidentId])
 }
 
 model Recinto {
@@ -167,7 +205,9 @@ model Incident {
   planDeAccion  String
   fechaCierre   String
   projectId     String?  // Asociación opcional a Proyecto
+  idTicket      String?  // ID del Ticket / Jira
   customFields  String   @default("{}")
+  attachments   Attachment[]
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -276,4 +316,61 @@ model SystemConfig {
   key       String   @id
   value     String
   updatedAt DateTime @updatedAt
+}
+
+model Risk {
+  id                 String    @id @default(cuid())
+  indexId            String    // R01, R02, etc.
+  description        String
+  category           String?   // Sistema LIS, Infraestructura, Comercial, etc.
+  probability        Int       @default(1) // 1-5
+  impact             Int       @default(1) // 1-5
+  score              Int       @default(1) // Calculado: prob * imp
+  level              String    // Bajo, Medio, Alto, Crítico
+  mitigationPlan     String?
+  responsible        String?
+  limitDate          DateTime?
+  status             String    @default("Activo") // Activo, Mitigado, Cerrado
+  associatedActivity String?   // Actividad asociada del WBS
+  mitigationCost     Float?
+  observations       String?
+  
+  projectId          String
+  project            Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@index([projectId])
+}
+
+model CostItem {
+  id             String   @id @default(cuid())
+  indexId        String   // C01, C02, etc.
+  description    String
+  category       String?  // Licencia Software, Hardware TI, Reserva, etc.
+  provider       String?  // Proveedor / Resp.
+  approvedBudget Float    @default(0) // Presupuesto Aprobado
+  ocEmitted      String?  // OC Emitida (Sí/No/Referencia)
+  ocNumber       String?  // N° OC / Referencia
+  realCost       Float    @default(0) // Costo Real Ejecutado
+  ocStatus       String   @default("Pendiente") // Vacío / Emitida / Facturada / Pagada
+  observations   String?
+  
+  projectId      String
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([projectId])
+}
+
+model ImportTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  headersHash String   @unique
+  mapping     String   // Almacena JSON string de la relación ColumnaOriginal -> CampoOficial
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }

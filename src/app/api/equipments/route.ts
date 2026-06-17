@@ -2,6 +2,7 @@ export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { checkSession, unauthorizedResponse } from '@/lib/apiAuth';
 
 
 // Equipos iniciales pre-cargados
@@ -85,28 +86,11 @@ const initialEquipments = [
 
 export async function GET(req: Request) {
   try {
+    const session = await checkSession();
+    if (!session) return unauthorizedResponse();
+
     const { searchParams } = new URL(req.url);
     const onlyDeleted = searchParams.get('deleted') === 'true';
-
-    const count = await prisma.clinicalEquipment.count();
-    if (count === 0) {
-      // Auto-sembrado inicial de equipos
-      // Para evitar errores de clave foránea si no hay recintos, nos aseguramos que existan
-      const recintoCount = await prisma.recinto.count();
-      if (recintoCount === 0) {
-        await prisma.recinto.createMany({
-          data: [
-            { id: 'rec-1', name: 'BUPA CLA', code: 'ID: 4057', isActive: true },
-            { id: 'rec-2', name: 'BUPA CLR', code: 'ID: 4528', isActive: true },
-            { id: 'rec-3', name: 'BUPA Stat Las Condes', code: 'ID: 4553', isActive: true }
-          ]
-        });
-      }
-
-      await prisma.clinicalEquipment.createMany({
-        data: initialEquipments
-      });
-    }
 
     const equipments = await prisma.clinicalEquipment.findMany({
       where: onlyDeleted ? { NOT: { deletedAt: null } } : { deletedAt: null },
@@ -121,6 +105,9 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
+    const session = await checkSession();
+    if (!session) return unauthorizedResponse();
+
     const data = await req.json();
     const newEquipment = await prisma.clinicalEquipment.create({
       data: {
@@ -146,5 +133,33 @@ export async function POST(req: Request) {
   } catch (error: any) {
     console.error('Error creating equipment:', error);
     return NextResponse.json({ error: error.message || 'Error creating equipment' }, { status: 500 });
+  }
+}
+
+export async function PUT(req: Request) {
+  try {
+    const session = await checkSession();
+    if (!session) return unauthorizedResponse();
+
+    const { targetProjectId } = await req.json();
+    const updateResult = await prisma.clinicalEquipment.updateMany({
+      where: {
+        projectId: null,
+        deletedAt: null
+      },
+      data: {
+        projectId: targetProjectId
+      }
+    });
+    
+    const updatedEquipments = await prisma.clinicalEquipment.findMany({
+      where: { deletedAt: null },
+      orderBy: { name: 'asc' }
+    });
+    
+    return NextResponse.json({ count: updateResult.count, equipments: updatedEquipments });
+  } catch (error: any) {
+    console.error('Error updating equipments in bulk:', error);
+    return NextResponse.json({ error: error.message || 'Error updating equipments' }, { status: 500 });
   }
 }

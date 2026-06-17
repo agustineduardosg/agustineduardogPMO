@@ -40,6 +40,7 @@ import {
   Briefcase,
   Layers,
   ChevronDown,
+  ChevronUp,
   ChevronRight,
   ArrowLeft,
   Edit2,
@@ -65,17 +66,54 @@ import {
   Check
 } from 'lucide-react';
 import { addBusinessDays, differenceInBusinessDays } from '@/utils/dateUtils';
-import { InlineInput, InlineTextarea } from '@/components/InlineInput';
+import { InlineInput, InlineTextarea, InlineNumberInput, InlineDateInput } from '@/components/InlineInput';
 import ReportViewer from '@/components/ReportViewer';
 import { EquipmentCommentsModal } from '@/components/EquipmentCommentsModal';
 import { parseComments } from '@/utils/commentUtils';
-import { MessageSquare } from 'lucide-react';
+import { MessageSquare, Flag } from 'lucide-react';
+import { motion, AnimatePresence } from 'framer-motion';
 
 
 type ViewMode = 'day' | 'week' | 'month';
-type TabType = 'dashboard' | 'gantt' | 'stakeholders' | 'incidents' | 'equipments';
+type TabType = 'summary' | 'dashboard' | 'gantt' | 'risks' | 'costs' | 'stakeholders' | 'incidents' | 'equipments';
 
 const PHASE_STATUSES: EquipmentPhaseStatus[] = ['No iniciado', 'En progreso', 'Completado', 'Descartado', 'Desestimado'];
+
+const RISK_CATEGORIES = ['Sistema LIS', 'Infraestructura', 'Comercial', 'Seguridad TI', 'Alcance', 'Otros'];
+const RISK_STATUSES = ['Activo', 'Mitigado', 'Cerrado'];
+
+const COST_CATEGORIES = ['Licencia Software', 'Hardware TI', 'Telecomunicaciones', 'Servicios Externos', 'Recursos Internos', 'Capacitación', 'Reserva', 'Otros'];
+const OC_STATUSES = ['Pendiente', 'Emitida', 'Facturada', 'Pagada', 'N/A'];
+
+export function getRiskLevel(probability: number, impact: number): 'Bajo' | 'Medio' | 'Alto' | 'Crítico' {
+  if (impact === 1) return 'Bajo';
+  if (impact === 2) {
+    if (probability <= 3) return 'Bajo';
+    return 'Medio';
+  }
+  if (impact === 3) {
+    if (probability === 1) return 'Bajo';
+    if (probability <= 4) return 'Medio';
+    return 'Alto';
+  }
+  if (impact === 4) {
+    if (probability === 1) return 'Medio';
+    if (probability === 2) return 'Alto';
+    return 'Crítico';
+  }
+  if (impact === 5) {
+    if (probability === 1) return 'Alto';
+    return 'Crítico';
+  }
+  return 'Bajo';
+}
+
+const RISK_LEVEL_COLORS: Record<'Bajo' | 'Medio' | 'Alto' | 'Crítico', { bg: string; text: string; border: string }> = {
+  'Bajo': { bg: '#10b981', text: '#ffffff', border: '#059669' },
+  'Medio': { bg: '#eab308', text: '#000000', border: '#ca8a04' },
+  'Alto': { bg: '#f59e0b', text: '#ffffff', border: '#d97706' },
+  'Crítico': { bg: '#ef4444', text: '#ffffff', border: '#dc2626' }
+};
 
 const EQUIP_STATUS_STYLE: Record<EquipmentPhaseStatus, { bg: string; color: string; border: string }> = {
   'Completado': { bg: 'rgba(16, 185, 129, 0.1)', color: '#10b981', border: 'rgba(16, 185, 129, 0.2)' },
@@ -169,6 +207,70 @@ const CircularProgressRing = ({ progress, size = 120, strokeWidth = 10, color = 
   );
 };
 
+const PeriodStatusTextarea = ({
+  initialValue,
+  placeholder,
+  onSave,
+  style
+}: {
+  initialValue: string | null | undefined;
+  placeholder: string;
+  onSave: (val: string) => void;
+  style?: React.CSSProperties;
+}) => {
+  const [val, setVal] = useState(initialValue || '');
+  
+  useEffect(() => {
+    setVal(initialValue || '');
+  }, [initialValue]);
+
+  return (
+    <textarea
+      value={val}
+      onChange={e => setVal(e.target.value)}
+      onBlur={() => {
+        if (val !== (initialValue || '')) {
+          onSave(val);
+        }
+      }}
+      placeholder={placeholder}
+      style={{
+        width: '100%',
+        minHeight: '120px',
+        padding: '10px 14px',
+        border: 'none',
+        background: 'transparent',
+        outline: 'none',
+        resize: 'vertical',
+        fontFamily: 'inherit',
+        fontSize: '0.85rem',
+        color: 'var(--text-primary)',
+        lineHeight: '1.6',
+        ...style
+      }}
+    />
+  );
+};
+
+const renderSemaphoreCircle = (status: string | null | undefined) => {
+  let color = '#9CA3AF'; // Gris por defecto
+  if (status === 'Verde') color = '#10B981';
+  if (status === 'Amarillo') color = '#F59E0B';
+  if (status === 'Rojo') color = '#EF4444';
+  return (
+    <span style={{
+      display: 'inline-block',
+      width: '12px',
+      height: '12px',
+      borderRadius: '50%',
+      backgroundColor: color,
+      marginRight: '8px',
+      verticalAlign: 'middle',
+      boxShadow: '0 0 4px rgba(0,0,0,0.1)'
+    }} />
+  );
+};
+
 // Status config for tasks
 const StatusBadge = ({ status }: { status: TaskStatus }) => {
   const colors = {
@@ -228,6 +330,12 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
   const fetchProjects = useProjectStore(state => state.fetchProjects);
   const setActiveProject = useProjectStore(state => state.setActiveProject);
   const isProjectLoading = useProjectStore(state => state.isLoading);
+  const addRisk = useProjectStore(state => state.addRisk);
+  const updateRisk = useProjectStore(state => state.updateRisk);
+  const deleteRisk = useProjectStore(state => state.deleteRisk);
+  const addCostItem = useProjectStore(state => state.addCostItem);
+  const updateCostItem = useProjectStore(state => state.updateCostItem);
+  const deleteCostItem = useProjectStore(state => state.deleteCostItem);
 
   const stakeholders = useStakeholderStore(state => state.stakeholders);
   const addStakeholder = useStakeholderStore(state => state.addStakeholder);
@@ -322,13 +430,12 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
   const project = useMemo(() => projects.find(p => p.id === id), [projects, id]);
 
   // UI state
-  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
+  const [activeTab, setActiveTab] = useState<TabType>('summary');
+  const [isHeaderCollapsed, setIsHeaderCollapsed] = useState(false);
 
   // Gantt Tab State
-  const [viewMode, setViewMode] = useState<ViewMode>('day');
   const [editingTask, setEditingTask] = useState<{task: Task, phaseId: string, isNew: boolean} | null>(null);
   const [editingPhase, setEditingPhase] = useState<{phase: Phase, isNew: boolean} | null>(null);
-  const [draggedTask, setDraggedTask] = useState<{ id: string, startOffsetDays: number } | null>(null);
   const [collapsedPhases, setCollapsedPhases] = useState<Record<string, boolean>>({});
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -347,6 +454,17 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
   const [customColsIncidents, setCustomColsIncidents] = useState<string[]>([]);
   const [newColIncident, setNewColIncident] = useState('');
   const [isAddingColIncident, setIsAddingColIncident] = useState(false);
+
+  // Risks Tab State
+  const [selectedRiskCell, setSelectedRiskCell] = useState<{ probability: number, impact: number } | null>(null);
+  const [searchTermRisks, setSearchTermRisks] = useState('');
+  const [filterLevelRisks, setFilterLevelRisks] = useState<string>('all');
+  const [filterStatusRisks, setFilterStatusRisks] = useState<string>('all');
+
+  // Costs Tab State
+  const [searchTermCosts, setSearchTermCosts] = useState('');
+  const [filterCategoryCosts, setFilterCategoryCosts] = useState<string>('all');
+  const [filterStatusCosts, setFilterStatusCosts] = useState<string>('all');
 
   // Equipments State
   const [searchTermEquipments, setSearchTermEquipments] = useState('');
@@ -383,6 +501,71 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
   const [filterGanttStatus, setFilterGanttStatus] = useState('all');
   const [filterGanttPriority, setFilterGanttPriority] = useState('all');
   const [showCriticalPath, setShowCriticalPath] = useState(false);
+
+  // Column Widths for WBS Gantt Table with LocalStorage cache
+  const [colWidths, setColWidths] = useState(() => {
+    const defaultWidths = {
+      id: 40,
+      name: 240,
+      startDate: 90,
+      endDate: 90,
+      realStartDate: 90,
+      realEndDate: 90,
+      assignee: 110,
+      progress: 60,
+      expectedProgress: 60,
+      delay: 50,
+      semaphore: 40,
+      status: 120,
+      estimatedCost: 95,
+      realCost: 95,
+      risk: 90,
+      notes: 180,
+      actions: 55
+    };
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('gantt_col_widths');
+      if (saved) {
+        try {
+          return { ...defaultWidths, ...JSON.parse(saved) };
+        } catch (e) {}
+      }
+    }
+    return defaultWidths;
+  });
+
+  // Save changes to localStorage
+  useEffect(() => {
+    localStorage.setItem('gantt_col_widths', JSON.stringify(colWidths));
+  }, [colWidths]);
+
+  // Handler to resize columns via mouse drag
+  const handleResizeMouseDown = (colKey: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startWidth = (colWidths as any)[colKey] || 80;
+
+    const handleMouseMove = (moveEvent: MouseEvent) => {
+      const deltaX = moveEvent.clientX - startX;
+      setColWidths((prev: any) => ({
+        ...prev,
+        [colKey]: Math.max(30, startWidth + deltaX)
+      }));
+    };
+
+    const handleMouseUp = () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  };
+
+  const totalWidth = useMemo<number>(() => {
+    return (Object.values(colWidths) as number[]).reduce((a, b) => a + b, 0);
+  }, [colWidths]);
 
   const openEditProjectModal = () => {
     if (project) {
@@ -798,6 +981,99 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
     };
   }, [projectEquipments, hiddenDefaultCols, defaultColNames]);
 
+  const projectRisks = useMemo(() => project?.risks || [], [project]);
+
+  const filteredRisks = useMemo(() => {
+    return projectRisks.filter(r => {
+      // 1. Heatmap cell filter
+      if (selectedRiskCell) {
+        if (r.probability !== selectedRiskCell.probability || r.impact !== selectedRiskCell.impact) {
+          return false;
+        }
+      }
+      // 2. Search term
+      const search = searchTermRisks.toLowerCase();
+      if (search) {
+        const descMatch = (r.description || '').toLowerCase().includes(search);
+        const respMatch = (r.responsible || '').toLowerCase().includes(search);
+        const obsMatch = (r.observations || '').toLowerCase().includes(search);
+        const mitMatch = (r.mitigationPlan || '').toLowerCase().includes(search);
+        if (!descMatch && !respMatch && !obsMatch && !mitMatch) {
+          return false;
+        }
+      }
+      // 3. Level filter
+      if (filterLevelRisks !== 'all') {
+        const level = getRiskLevel(r.probability, r.impact);
+        if (level !== filterLevelRisks) {
+          return false;
+        }
+      }
+      // 4. Status filter
+      if (filterStatusRisks !== 'all') {
+        if (r.status !== filterStatusRisks) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [projectRisks, selectedRiskCell, searchTermRisks, filterLevelRisks, filterStatusRisks]);
+
+  const projectCostItems = useMemo(() => project?.costItems || [], [project]);
+
+  const filteredCostItems = useMemo(() => {
+    return projectCostItems.filter(c => {
+      const search = searchTermCosts.toLowerCase();
+      if (search) {
+        const descMatch = (c.description || '').toLowerCase().includes(search);
+        const provMatch = (c.provider || '').toLowerCase().includes(search);
+        const refMatch = (c.ocNumber || '').toLowerCase().includes(search);
+        const obsMatch = (c.observations || '').toLowerCase().includes(search);
+        if (!descMatch && !provMatch && !refMatch && !obsMatch) {
+          return false;
+        }
+      }
+      if (filterCategoryCosts !== 'all') {
+        if (c.category !== filterCategoryCosts) {
+          return false;
+        }
+      }
+      if (filterStatusCosts !== 'all') {
+        if (c.ocStatus !== filterStatusCosts) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [projectCostItems, searchTermCosts, filterCategoryCosts, filterStatusCosts]);
+
+  const financialTotals = useMemo(() => {
+    const items = projectCostItems;
+    const budget = items.reduce((sum, c) => sum + (c.approvedBudget || 0), 0);
+    const committed = items.reduce((sum, c) => sum + (parseFloat(c.ocEmitted || '') || 0), 0);
+    const executed = items.reduce((sum, c) => sum + (c.realCost || 0), 0);
+    const balance = budget - executed;
+    const pct = budget > 0 ? (executed / budget) * 100 : 0;
+    return {
+      totalBudget: budget,
+      totalCommitted: committed,
+      totalExecuted: executed,
+      availableBalance: balance,
+      executionPercentage: pct
+    };
+  }, [projectCostItems]);
+
+  const filteredBudgetSum = useMemo(() => filteredCostItems.reduce((sum, c) => sum + (c.approvedBudget || 0), 0), [filteredCostItems]);
+  const filteredCommittedSum = useMemo(() => filteredCostItems.reduce((sum, c) => sum + (parseFloat(c.ocEmitted || '') || 0), 0), [filteredCostItems]);
+  const filteredExecutedSum = useMemo(() => filteredCostItems.reduce((sum, c) => sum + (c.realCost || 0), 0), [filteredCostItems]);
+
+  const formatDateForInput = (date: any) => {
+    if (!date) return '';
+    const d = new Date(date);
+    if (isNaN(d.getTime())) return '';
+    return format(d, 'yyyy-MM-dd');
+  };
+
   // Stakeholders Matrix filtered reactive view
   const filteredStakeholders = useMemo(() => {
     return projectStakeholders.filter(s => {
@@ -889,95 +1165,36 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
     return project?.phases.flatMap(ph => ph.tasks) || [];
   }, [project]);
 
-  const { startDate, endDate, periods, totalDays } = useMemo(() => {
-    if (!project) return { startDate: new Date(), endDate: new Date(), periods: [], totalDays: 0 };
+  const [predecessorSearch, setPredecessorSearch] = useState('');
+  const [predecessorDropdownOpen, setPredecessorDropdownOpen] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploading, setIsUploading] = useState(false);
+
+  const filteredPredecessorOptions = useMemo(() => {
+    if (!editingTask) return [];
+    const currentDeps = editingTask.task.dependencies || [];
     
-    let minDate = new Date(project.startDate);
-    let maxDate = new Date(project.endDate);
-
-    project.phases.forEach(ph => {
-      if (ph.startDate < minDate) minDate = ph.startDate;
-      if (ph.endDate > maxDate) maxDate = ph.endDate;
-    });
-
-    minDate = addDays(minDate, -5);
-    maxDate = addDays(maxDate, 30);
-    const totalDays = differenceInDays(maxDate, minDate);
-
-    let periods: { date: Date, labelTop: string, labelBottom: string, isToday?: boolean, isWeekend?: boolean }[] = [];
-
-    if (viewMode === 'day') {
-      const days = eachDayOfInterval({ start: minDate, end: maxDate });
-      periods = days.map(d => ({ 
-        date: d, 
-        labelTop: format(d, 'MMM', { locale: es }), 
-        labelBottom: format(d, 'dd'),
-        isToday: isToday(d),
-        isWeekend: d.getDay() === 0 || d.getDay() === 6
-      }));
-    } else if (viewMode === 'week') {
-      let curr = startOfWeek(minDate, { weekStartsOn: 1 });
-      while (curr <= maxDate) {
-        periods.push({
-          date: curr,
-          labelTop: format(curr, 'MMM', { locale: es }),
-          labelBottom: `Sem ${format(curr, 'w')}`,
-          isToday: isToday(curr) || (new Date() >= curr && new Date() < addWeeks(curr, 1))
-        });
-        curr = addWeeks(curr, 1);
+    return allTasks.filter(t => {
+      // Exclude self
+      if (t.id === editingTask.task.id) return false;
+      // Exclude existing dependencies
+      if (currentDeps.includes(t.id)) return false;
+      // Exclude child subtasks of current task to prevent hierarchy loops
+      if (t.parentId === editingTask.task.id) return false;
+      // Exclude tasks that already list the current task as a dependency to prevent circular references
+      if (t.dependencies && t.dependencies.includes(editingTask.task.id)) return false;
+      
+      if (predecessorSearch) {
+        const q = predecessorSearch.toLowerCase();
+        const matchesName = t.name.toLowerCase().includes(q);
+        const matchesWbs = t.wbsId ? t.wbsId.toLowerCase().includes(q) : false;
+        return matchesName || matchesWbs;
       }
-    } else if (viewMode === 'month') {
-      let curr = startOfMonth(minDate);
-      while (curr <= maxDate) {
-        periods.push({
-          date: curr,
-          labelTop: format(curr, 'yyyy'),
-          labelBottom: format(curr, 'MMMM', { locale: es }),
-          isToday: isToday(curr) || (new Date() >= curr && new Date() < addMonths(curr, 1))
-        });
-        curr = addMonths(curr, 1);
-      }
-    }
-
-    return { startDate: minDate, endDate: maxDate, periods, totalDays };
-  }, [project, viewMode]);
-
-  const colWidth = viewMode === 'day' ? 40 : viewMode === 'week' ? 80 : 120;
-  const gridWidth = periods.length * colWidth;
-
-  const scrollToToday = () => {
-    if (!scrollContainerRef.current) return;
-    const todayOffset = differenceInDays(new Date(), startDate) * (viewMode === 'day' ? 40 : viewMode === 'week' ? 80/7 : 120/30);
-    scrollContainerRef.current.scrollTo({
-      left: Math.max(0, todayOffset - 300),
-      behavior: 'smooth'
+      return true;
     });
-  };
+  }, [allTasks, editingTask, predecessorSearch]);
 
-  useEffect(() => {
-    if (activeTab === 'gantt') {
-      const timeout = setTimeout(scrollToToday, 500);
-      return () => clearTimeout(timeout);
-    }
-  }, [activeTab]);
-
-  const getOffsetAndWidth = (start: Date, end: Date) => {
-    let offset = 0;
-    let width = 0;
-    if (viewMode === 'day') {
-      offset = differenceInDays(start, startDate) * colWidth;
-      width = (differenceInDays(end, start) + 1) * colWidth;
-    } else if (viewMode === 'week') {
-      offset = (differenceInDays(start, startDate) / 7) * colWidth;
-      width = (differenceInDays(end, start) / 7) * colWidth;
-    } else {
-      offset = (differenceInDays(start, startDate) / 30) * colWidth;
-      width = (differenceInDays(end, start) / 30) * colWidth;
-    }
-    return { offset: Math.max(0, offset), width: Math.max(colWidth/4, width) };
-  };
-
-  const todayOffset = getOffsetAndWidth(new Date(), new Date()).offset;
+  // Obsolete Gantt specific calendar calculations removed since Tab 2 is now a pure data spreadsheet table
 
   // Actions Handlers
   const handleProjectStatusChange = (status: any) => {
@@ -1028,6 +1245,102 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
       customFields: '{}'
     };
     addIncident(newInc);
+  };
+
+  const handleCreateRisk = async () => {
+    if (!project) return;
+    const nextIndexId = `R${String((project.risks || []).length + 1).padStart(2, '0')}`;
+    const defaultUser = users.length > 0 ? users[0].name : 'PMO Admin';
+    const newRisk = {
+      indexId: nextIndexId,
+      description: '',
+      category: 'Sistema LIS',
+      probability: 3,
+      impact: 3,
+      mitigationPlan: '',
+      responsible: defaultUser,
+      status: 'Activo',
+      associatedActivity: '',
+      mitigationCost: 0,
+      observations: '',
+      limitDate: null
+    };
+    try {
+      await addRisk(project.id, newRisk);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleUpdateRisk = async (riskId: string, updates: any) => {
+    if (!project) return;
+    setSaveStatus('saving');
+    try {
+      await updateRisk(project.id, riskId, updates);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 1500);
+    } catch (e) {
+      console.error(e);
+      setSaveStatus('idle');
+    }
+  };
+
+  const handleDeleteRisk = async (riskId: string) => {
+    if (!project) return;
+    if (confirm('¿Está seguro de eliminar este riesgo?')) {
+      try {
+        await deleteRisk(project.id, riskId);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+  };
+
+  const handleCreateCostItem = async () => {
+    if (!project) return;
+    const nextIndexId = `C${String((project.costItems || []).length + 1).padStart(2, '0')}`;
+    const defaultUser = users.length > 0 ? users[0].name : 'PMO Admin';
+    const newCostItem = {
+      indexId: nextIndexId,
+      description: '',
+      category: 'Licencia Software',
+      provider: defaultUser,
+      approvedBudget: 0,
+      ocEmitted: '',
+      ocNumber: '',
+      realCost: 0,
+      ocStatus: 'Pendiente',
+      observations: ''
+    };
+    try {
+      await addCostItem(project.id, newCostItem);
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleUpdateCostItem = async (itemId: string, updates: any) => {
+    if (!project) return;
+    setSaveStatus('saving');
+    try {
+      await updateCostItem(project.id, itemId, updates);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus('idle'), 1500);
+    } catch (e) {
+      console.error(e);
+      setSaveStatus('idle');
+    }
+  };
+
+  const handleDeleteCostItem = async (itemId: string) => {
+    if (!project) return;
+    if (confirm('¿Está seguro de eliminar este ítem de costo?')) {
+      try {
+        await deleteCostItem(project.id, itemId);
+      } catch (e) {
+        console.error(e);
+      }
+    }
   };
 
   // Gantt actions
@@ -1134,6 +1447,93 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
     setEditingTask(null);
   };
 
+  const handleUploadFile = async (file: File) => {
+    if (!editingTask || editingTask.isNew) return;
+    setIsUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`/api/tasks/${editingTask.task.id}/attachments`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || 'Error al subir archivo');
+      }
+
+      const newAttachment = await response.json();
+
+      // Update local state
+      const updatedAttachments = [...(editingTask.task.attachments || []), newAttachment];
+      setEditingTask({
+        ...editingTask,
+        task: {
+          ...editingTask.task,
+          attachments: updatedAttachments
+        }
+      });
+
+      // Reload project store to keep in sync
+      await fetchProjects();
+    } catch (err: any) {
+      alert(`Error al subir el archivo: ${err.message}`);
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleUploadFile(e.target.files[0]);
+    }
+  };
+
+  const handleFileDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    if (editingTask?.isNew) return;
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleUploadFile(e.dataTransfer.files[0]);
+    }
+  };
+
+  const handleDeleteAttachment = async (e: React.MouseEvent, attachmentId: string) => {
+    e.stopPropagation();
+    if (!confirm('¿Estás seguro de eliminar este archivo adjunto?')) return;
+    
+    try {
+      const response = await fetch(`/api/attachments/${attachmentId}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || 'Error al eliminar archivo');
+      }
+
+      // Update local state
+      if (editingTask) {
+        const updatedAttachments = (editingTask.task.attachments || []).filter(
+          att => att.id !== attachmentId
+        );
+        setEditingTask({
+          ...editingTask,
+          task: {
+            ...editingTask.task,
+            attachments: updatedAttachments
+          }
+        });
+      }
+
+      // Reload project store to keep in sync
+      await fetchProjects();
+    } catch (err: any) {
+      alert(`Error al eliminar el archivo: ${err.message}`);
+    }
+  };
+
   const handleCreatePhase = () => {
     const wbsCount = project?.phases.length || 0;
     const newPhase: Phase = {
@@ -1172,38 +1572,7 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
     setEditingPhase(null);
   };
 
-  const handleTaskDragStart = (e: React.MouseEvent, task: Task, phaseId: string) => {
-    if (viewMode !== 'day') return;
-    e.stopPropagation();
-    
-    const startX = e.clientX;
-    const initialStart = new Date(task.startDate);
-    let currentDaysMoved = 0;
-
-    const onMouseMove = (moveEvent: MouseEvent) => {
-      const deltaX = moveEvent.clientX - startX;
-      currentDaysMoved = Math.round(deltaX / colWidth);
-      setDraggedTask({ id: task.id, startOffsetDays: currentDaysMoved });
-    };
-    
-    const onMouseUp = () => {
-      document.removeEventListener('mousemove', onMouseMove);
-      document.removeEventListener('mouseup', onMouseUp);
-      setDraggedTask(null);
-      
-      if (currentDaysMoved !== 0 && project) {
-        let newStart = addDays(initialStart, currentDaysMoved);
-        if (newStart.getDay() === 0) newStart = addDays(newStart, 1);
-        if (newStart.getDay() === 6) newStart = addDays(newStart, 2);
-        
-        const newEnd = addBusinessDays(newStart, task.duration);
-        updateTask(project.id, phaseId, task.id, { startDate: newStart, endDate: newEnd });
-      }
-    };
-    
-    document.addEventListener('mousemove', onMouseMove);
-    document.addEventListener('mouseup', onMouseUp);
-  };
+  // Obsolete handleTaskDragStart removed
 
   // Dynamic Column Addition Handlers
   const handleAddEquipmentCol = (e: React.FormEvent) => {
@@ -1406,6 +1775,77 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
     return differenceInDays(new Date(project.endDate), new Date());
   }, [project]);
 
+  const expectedProgressGlobal = useMemo(() => {
+    if (!project) return 0;
+    const rootTasks = project.phases.flatMap(ph => ph.tasks).filter(t => !t.parentId);
+    if (rootTasks.length === 0) return 0;
+    
+    let totalWeightedExpected = 0;
+    let totalDuration = 0;
+    
+    rootTasks.forEach(t => {
+      totalDuration += t.duration;
+      const tExp = (() => {
+        const today = new Date();
+        today.setHours(0,0,0,0);
+        const start = new Date(t.startDate);
+        start.setHours(0,0,0,0);
+        const end = new Date(t.endDate);
+        end.setHours(0,0,0,0);
+        if (today < start) return 0;
+        if (today > end) return 100;
+        const totalDays = differenceInDays(end, start);
+        if (totalDays <= 0) return 100;
+        const elapsed = differenceInDays(today, start);
+        return Math.min(100, Math.max(0, Math.round((elapsed / totalDays) * 100)));
+      })();
+      totalWeightedExpected += tExp * t.duration;
+    });
+    
+    return totalDuration > 0 ? Math.round(totalWeightedExpected / totalDuration) : 0;
+  }, [project]);
+
+  const projectDeviationDays = useMemo(() => {
+    if (!project) return 0;
+    const rootTasks = project.phases.flatMap(ph => ph.tasks).filter(t => !t.parentId);
+    if (rootTasks.length === 0) return 0;
+    return rootTasks.reduce((sum, t) => sum + (t.delayDays || 0), 0);
+  }, [project]);
+
+  const consolidatedRisk = useMemo(() => {
+    if (!project) return 'Bajo';
+    const tasks = project.phases.flatMap(ph => ph.tasks);
+    const risks = tasks.map(t => t.risk).filter(Boolean);
+    if (risks.includes('Alto')) return 'Alto';
+    if (risks.includes('Medio')) return 'Medio';
+    return 'Bajo';
+  }, [project]);
+
+  const totalBudget = useMemo(() => {
+    if (!project) return 0;
+    const rootTasks = project.phases.flatMap(ph => ph.tasks).filter(t => !t.parentId);
+    return rootTasks.reduce((sum, t) => sum + (t.estimatedCost || 0), 0);
+  }, [project]);
+
+  const totalRealCost = useMemo(() => {
+    if (!project) return 0;
+    const rootTasks = project.phases.flatMap(ph => ph.tasks).filter(t => !t.parentId);
+    return rootTasks.reduce((sum, t) => sum + (t.realCost || 0), 0);
+  }, [project]);
+
+  const projectSemaphore = useMemo(() => {
+    if (projectDeviationDays > 5) return { label: 'Rojo', color: '#EF4444', bg: '#FEE2E2', icon: '🔴' };
+    if (projectDeviationDays > 0) return { label: 'Amarillo', color: '#F59E0B', bg: '#FEF3C7', icon: '🟡' };
+    return { label: 'Verde', color: '#10B981', bg: '#D1FAE5', icon: '🟢' };
+  }, [projectDeviationDays]);
+
+  // Auto-populate or default statusTime to projectSemaphore.label
+  useEffect(() => {
+    if (project && projectSemaphore.label && project.statusTime !== projectSemaphore.label) {
+      updateProject(project.id, { statusTime: projectSemaphore.label });
+    }
+  }, [project?.id, projectSemaphore.label, project?.statusTime, updateProject]);
+
   if (!project) {
     return (
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100vh', gap: '16px', background: 'var(--bg-primary)' }}>
@@ -1421,9 +1861,8 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
   const sc = PROJECT_STATUS_CONFIG[projectStatus] || PROJECT_STATUS_CONFIG['Planificación'];
   const areaColor = AREA_COLORS[project.area || ''] || '#0079C1';
 
-  // WBS row renderer for Gantt tab
-  const renderTaskRow = (task: Task, phase: Phase, depth: number = 0) => {
-    // Filtros reactivos de Carta Gantt
+  // WBS row renderer for Gestor tab (pure table, no Gantt timeline)
+  const renderGestorTaskRow = (task: Task, phase: Phase, depth: number = 0) => {
     const matchesSearch = !searchGanttTask || 
       task.name.toLowerCase().includes(searchGanttTask.toLowerCase()) || 
       task.assignee.toLowerCase().includes(searchGanttTask.toLowerCase());
@@ -1436,20 +1875,33 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
     if (!isVisible) {
       return (
         <React.Fragment key={task.id}>
-          {!collapsedPhases[phase.id] && subtasks.map(sub => renderTaskRow(sub, phase, depth))}
+          {!collapsedPhases[phase.id] && subtasks.map(sub => renderGestorTaskRow(sub, phase, depth))}
         </React.Fragment>
       );
     }
 
     const isAtRisk = task.status === 'At Risk';
-    const isCompleted = task.status === 'Completed';
-    const isMilestone = task.duration === 0;
-    
     const isCritical = showCriticalPath && criticalTaskIds.has(task.id);
-    const barColor = isCritical ? '#ef4444' : (isAtRisk ? 'var(--accent-danger)' : isCompleted ? 'var(--accent-success)' : 'var(--accent-primary)');
-    
-    const isDragged = draggedTask?.id === task.id;
-    const dragOffsetPx = isDragged ? draggedTask.startOffsetDays * colWidth : 0;
+    const isMilestone = task.duration === 0;
+
+    // Calculate expected progress
+    const expectedProgress = (() => {
+      const today = new Date();
+      today.setHours(0,0,0,0);
+      const start = new Date(task.startDate);
+      start.setHours(0,0,0,0);
+      const end = new Date(task.endDate);
+      end.setHours(0,0,0,0);
+      if (today < start) return 0;
+      if (today > end) return 100;
+      const totalDays = differenceInDays(end, start);
+      if (totalDays <= 0) return 100;
+      const elapsed = differenceInDays(today, start);
+      return Math.min(100, Math.max(0, Math.round((elapsed / totalDays) * 100)));
+    })();
+
+    // Semaphore formatting
+    const semIcon = task.semaphore === 'Rojo' ? '🔴' : task.semaphore === 'Amarillo' ? '🟡' : '🟢';
 
     return (
       <React.Fragment key={task.id}>
@@ -1460,103 +1912,223 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
             borderBottom: '1px solid var(--border-subtle)', 
             cursor: 'pointer', 
             transition: 'background 0.2s', 
-            background: isDragged ? 'var(--bg-tertiary)' : 'var(--bg-secondary)',
-            borderLeft: isCritical ? '4px solid #ef4444' : 'none'
+            background: 'var(--bg-secondary)',
+            borderLeft: isCritical ? '4px solid #ef4444' : 'none',
+            alignItems: 'center',
+            height: '44px',
+            width: '100%',
+            minWidth: `${totalWidth}px`
           }} 
           onClick={() => handleTaskClick(task, phase.id)}
         >
-          <div style={{ width: '380px', flexShrink: 0, padding: `12px 16px 12px ${16 + (depth * 24)}px`, fontSize: '0.9rem', borderRight: '1px solid var(--border-light)', position: 'sticky', left: 0, background: isDragged ? 'var(--bg-tertiary)' : 'var(--bg-secondary)', zIndex: 5, borderLeft: depth > 0 && !isCritical ? '4px solid var(--border-light)' : 'none' }}>
-            <div style={{ fontWeight: depth === 0 ? '600' : '500', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-primary)' }}>
-              {isAtRisk && <AlertTriangle size={14} color="var(--accent-danger)" />}
-              {isCritical && <Flame size={14} color="#ef4444" style={{ animation: 'pulse 1.5s infinite', flexShrink: 0 }} />}
-              {task.wbsId && <span style={{ color: depth === 0 ? 'var(--text-secondary)' : 'var(--text-muted)', fontFamily: 'monospace', fontSize: '0.8rem' }}>{task.wbsId}</span>}
-              <span style={{ flex: 1, whiteSpace: 'normal', lineHeight: '1.2', fontWeight: isCritical ? 'bold' : 'normal' }}>{task.name}</span>
-              
-              <button 
-                className="icon-btn" 
-                style={{ width: '22px', height: '22px', border: 'none', background: 'var(--bg-tertiary)', borderRadius: '4px', display: 'flex', alignItems: 'center', justifyContent: 'center' }} 
-                title="Añadir Subtarea" 
-                onClick={(e) => handleCreateSubtask(e, task.id, phase.id)}
-              >
-                <Plus size={14} color="var(--accent-primary)" />
-              </button>
-            </div>
-            
-            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                <span>👤 {task.assignee}</span>
-                <StatusBadge status={task.status} />
-              </div>
-              <span style={{ fontFamily: 'monospace', fontSize: '0.7rem' }}>{format(task.startDate, 'dd/MM')} - {isMilestone ? 'Hito' : format(task.endDate, 'dd/MM')}</span>
-            </div>
+          {/* 1. ID */}
+          <div style={{ width: `${colWidths.id}px`, flexShrink: 0, padding: '0 8px', textAlign: 'center', fontWeight: 'bold', color: 'var(--text-muted)', fontSize: '0.78rem', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {task.wbsId || '-'}
           </div>
-          
-          <div style={{ position: 'relative', width: `${gridWidth}px` }}>
-            {(() => {
-              const { offset, width } = getOffsetAndWidth(task.startDate, task.endDate);
-              
-              if (isMilestone) {
-                return (
-                  <div 
-                    onMouseDown={(e) => handleTaskDragStart(e, task, phase.id)}
-                    style={{ 
-                      position: 'absolute', 
-                      top: '15px', 
-                      left: `${offset + dragOffsetPx - 10}px`, 
-                      width: '20px', 
-                      height: '20px', 
-                      background: barColor, 
-                      transform: 'rotate(45deg)', 
-                      boxShadow: isCritical ? '0 0 10px rgba(239, 68, 68, 0.8)' : '0 2px 4px rgba(0,0,0,0.2)',
-                      border: isCritical ? '1px solid #ff4d4d' : 'none',
-                      cursor: 'ew-resize',
-                      zIndex: isDragged ? 10 : 1,
-                      transition: isDragged ? 'none' : 'left 0.2s'
-                    }} 
-                  />
-                );
-              }
 
-              return (
-                <div 
-                  onMouseDown={(e) => handleTaskDragStart(e, task, phase.id)}
-                  style={{ 
-                    position: 'absolute', 
-                    top: '10px', 
-                    left: `${offset + dragOffsetPx}px`, 
-                    width: `${width}px`, 
-                    height: depth === 0 ? '26px' : '20px', 
-                    background: barColor, 
-                    borderRadius: '6px', 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    padding: '0 8px', 
-                    fontSize: '0.7rem', 
-                    fontWeight: 'bold', 
-                    color: 'white', 
-                    overflow: 'hidden', 
-                    boxShadow: isCritical ? '0 0 8px rgba(239, 68, 68, 0.6)' : '0 2px 4px rgba(0,0,0,0.1)',
-                    border: isCritical ? '1px solid #ff4d4d' : 'none',
-                    cursor: 'ew-resize',
-                    zIndex: isDragged ? 10 : 1,
-                    transition: isDragged ? 'none' : 'left 0.2s',
-                    marginTop: depth > 0 ? '3px' : '0'
-                  }}
-                >
-                  <div style={{ position: 'absolute', top: 0, left: 0, height: '100%', width: `${task.progress}%`, background: 'rgba(255,255,255,0.25)' }} />
-                  {width > 40 && <span style={{ position: 'relative', zIndex: 1, whiteSpace: 'nowrap', textShadow: '0 1px 2px rgba(0,0,0,0.2)' }}>{task.progress}%</span>}
-                </div>
-              );
-            })()}
+          {/* 2. Fase / Actividad */}
+          <div style={{ width: `${colWidths.name}px`, flexShrink: 0, paddingLeft: `${8 + (depth * 16)}px`, paddingRight: '8px', display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.85rem', fontWeight: depth === 0 ? '600' : 'normal', overflow: 'hidden', borderRight: '1px solid var(--border-subtle)', height: '100%' }}>
+            {isAtRisk && <AlertTriangle size={12} color="var(--accent-danger)" style={{ flexShrink: 0 }} />}
+            <span style={{ flex: 1, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }} onClick={(e) => { e.stopPropagation(); handleTaskClick(task, phase.id); }}>
+              <InlineInput value={task.name} onSave={(val) => updateTask(project.id, phase.id, task.id, { name: val })} />
+            </span>
           </div>
+
+          {/* 3. Inicio Plan */}
+          <div style={{ width: `${colWidths.startDate}px`, flexShrink: 0, padding: '0 4px', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+            <InlineDateInput value={task.startDate} onSave={(val) => val && updateTask(project.id, phase.id, task.id, { startDate: new Date(val) })} />
+          </div>
+
+          {/* 4. Término Plan */}
+          <div style={{ width: `${colWidths.endDate}px`, flexShrink: 0, padding: '0 4px', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+            <InlineDateInput value={task.endDate} onSave={(val) => val && updateTask(project.id, phase.id, task.id, { endDate: new Date(val) })} />
+          </div>
+
+          {/* 5. Inicio Real */}
+          <div style={{ width: `${colWidths.realStartDate}px`, flexShrink: 0, padding: '0 4px', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+            <InlineDateInput value={task.realStartDate} onSave={(val) => updateTask(project.id, phase.id, task.id, { realStartDate: val ? new Date(val) : null })} />
+          </div>
+
+          {/* 6. Término Real */}
+          <div style={{ width: `${colWidths.realEndDate}px`, flexShrink: 0, padding: '0 4px', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+            <InlineDateInput value={task.realEndDate} onSave={(val) => updateTask(project.id, phase.id, task.id, { realEndDate: val ? new Date(val) : null })} />
+          </div>
+
+          {/* 7. PM/Resp. */}
+          <div style={{ width: `${colWidths.assignee}px`, flexShrink: 0, padding: '0 6px', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+            <select
+              value={task.assignee}
+              onChange={(e) => updateTask(project.id, phase.id, task.id, { assignee: e.target.value })}
+              style={{
+                width: '100%',
+                fontSize: '0.72rem',
+                background: '#F1F5F9',
+                border: '1px solid var(--border-subtle)',
+                borderRadius: '12px',
+                padding: '3px 8px',
+                outline: 'none',
+                color: '#475569',
+                fontWeight: 'bold',
+                cursor: 'pointer',
+                appearance: 'none',
+                WebkitAppearance: 'none',
+                textAlign: 'center'
+              }}
+            >
+              <option value="Sin Asignar">Sin Asignar</option>
+              {users.map(u => (
+                <option key={u.id} value={u.name}>{u.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {/* 8. % Av. R. */}
+          <div style={{ width: `${colWidths.progress}px`, flexShrink: 0, padding: '0 4px', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={(e) => e.stopPropagation()}>
+            <InlineNumberInput value={task.progress} formatType="percent" min={0} max={100} onSave={(val) => updateTask(project.id, phase.id, task.id, { progress: val || 0 })} style={{ textAlign: 'center' }} />
+          </div>
+
+          {/* 9. % Esp. */}
+          <div style={{ width: `${colWidths.expectedProgress}px`, flexShrink: 0, padding: '0 4px', textAlign: 'center', fontSize: '0.78rem', fontWeight: 'bold', color: 'var(--text-secondary)', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {expectedProgress}%
+          </div>
+
+          {/* 10. Desv. */}
+          <div style={{ width: `${colWidths.delay}px`, flexShrink: 0, padding: '0 4px', textAlign: 'center', fontSize: '0.78rem', fontWeight: 'bold', color: (task.delayDays || 0) > 0 ? 'var(--accent-danger)' : 'var(--accent-success)', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            {(task.delayDays || 0) > 0 ? `+${task.delayDays}` : task.delayDays || 0}
+          </div>
+
+          {/* 11. Sem. */}
+          <div style={{ width: `${colWidths.semaphore}px`, flexShrink: 0, textAlign: 'center', fontSize: '0.85rem', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }} title={`Semáforo: ${task.semaphore}`}>
+            {semIcon}
+          </div>
+
+          {/* 12. Estado */}
+          <div style={{ width: `${colWidths.status}px`, flexShrink: 0, padding: '0 6px', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+            <select
+              value={task.status}
+              onChange={(e) => updateTask(project.id, phase.id, task.id, { status: e.target.value as TaskStatus })}
+              style={{
+                width: '100%',
+                fontSize: '0.72rem',
+                background: task.status === 'Completed' ? '#E6F4F1' : task.status === 'In Progress' ? '#E0F2FE' : task.status === 'At Risk' ? '#FFE4E6' : '#F1F5F9',
+                border: 'none',
+                borderRadius: '12px',
+                padding: '3px 8px',
+                textAlign: 'center',
+                outline: 'none',
+                fontWeight: 'bold',
+                color: task.status === 'Completed' ? '#0D9488' : task.status === 'In Progress' ? '#0284C7' : task.status === 'At Risk' ? '#E11D48' : '#64748B',
+                cursor: 'pointer',
+                appearance: 'none',
+                WebkitAppearance: 'none'
+              }}
+            >
+              <option value="Not Started">Sin Iniciar</option>
+              <option value="In Progress">En Progreso</option>
+              <option value="Completed">Completada</option>
+              <option value="At Risk">En Riesgo</option>
+            </select>
+          </div>
+
+          {/* 13. C. Est. */}
+          <div style={{ width: `${colWidths.estimatedCost}px`, flexShrink: 0, padding: '0 4px', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }} onClick={(e) => e.stopPropagation()}>
+            <InlineNumberInput value={task.estimatedCost} formatType="currency" onSave={(val) => updateTask(project.id, phase.id, task.id, { estimatedCost: val })} style={{ textAlign: 'right' }} />
+          </div>
+
+          {/* 14. C. Real. */}
+          <div style={{ width: `${colWidths.realCost}px`, flexShrink: 0, padding: '0 4px', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'flex-end' }} onClick={(e) => e.stopPropagation()}>
+            <InlineNumberInput value={task.realCost} formatType="currency" onSave={(val) => updateTask(project.id, phase.id, task.id, { realCost: val })} style={{ textAlign: 'right' }} />
+          </div>
+
+          {/* 15. Riesgo */}
+          <div style={{ width: `${colWidths.risk}px`, flexShrink: 0, padding: '0 6px', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+            <select
+              value={task.risk || 'Bajo'}
+              onChange={(e) => updateTask(project.id, phase.id, task.id, { risk: e.target.value })}
+              style={{
+                width: '100%',
+                fontSize: '0.72rem',
+                background: task.risk === 'Alto' ? '#FFE4E6' : task.risk === 'Medio' ? '#FEF3C7' : '#E6F4F1',
+                border: 'none',
+                borderRadius: '12px',
+                padding: '3px 8px',
+                textAlign: 'center',
+                outline: 'none',
+                fontWeight: 'bold',
+                color: task.risk === 'Alto' ? '#E11D48' : task.risk === 'Medio' ? '#D97706' : '#0D9488',
+                cursor: 'pointer',
+                appearance: 'none',
+                WebkitAppearance: 'none'
+              }}
+            >
+              <option value="Bajo">Bajo</option>
+              <option value="Medio">Medio</option>
+              <option value="Alto">Alto</option>
+            </select>
+          </div>
+
+          {/* 16. Observación */}
+          <div style={{ width: `${colWidths.notes}px`, flexShrink: 0, padding: '0 4px', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+            <InlineInput value={task.notes || ''} placeholder="Notas..." onSave={(val) => updateTask(project.id, phase.id, task.id, { notes: val })} />
+          </div>
+
+          {/* 17. Acc. */}
+          <div style={{ width: `${colWidths.actions}px`, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '4px', height: '100%' }} onClick={(e) => e.stopPropagation()}>
+            <button 
+              className="icon-btn" 
+              style={{ width: '22px', height: '22px', border: 'none', background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} 
+              title="Añadir Subtarea" 
+              onClick={(e) => handleCreateSubtask(e, task.id, phase.id)}
+            >
+              <Plus size={14} color="var(--accent-primary)" />
+            </button>
+            <button 
+              className="icon-btn" 
+              style={{ width: '22px', height: '22px', border: 'none', background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} 
+              title="Eliminar Tarea" 
+              onClick={() => { if (confirm('¿Estás seguro de eliminar esta tarea?')) deleteTask(project.id, phase.id, task.id); }}
+            >
+              <Trash2 size={13} color="var(--accent-danger)" />
+            </button>
+          </div>
+
         </div>
-        {!collapsedPhases[phase.id] && subtasks.map(sub => renderTaskRow(sub, phase, depth + 1))}
+        {!collapsedPhases[phase.id] && subtasks.map(sub => renderGestorTaskRow(sub, phase, depth + 1))}
       </React.Fragment>
     );
   };
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', gap: '20px', paddingBottom: '24px' }}>
+      <style dangerouslySetInnerHTML={{ __html: `
+        /* Hide HTML5 input type="number" spin buttons */
+        input::-webkit-outer-spin-button,
+        input::-webkit-inner-spin-button {
+          -webkit-appearance: none;
+          margin: 0;
+        }
+        input[type=number] {
+          -moz-appearance: textfield;
+        }
+
+        /* Resize handles hover effects */
+        .resize-handle {
+          background: transparent;
+          transition: background 0.15s ease, width 0.15s ease;
+        }
+        .resize-handle:hover {
+          background: var(--accent-primary) !important;
+          width: 4px !important;
+        }
+
+        /* Zebra striping for task rows to optimize visual tracking */
+        .gantt-task-row:nth-child(even) {
+          background: var(--bg-tertiary) !important;
+        }
+        .gantt-task-row:hover {
+          background: var(--bg-hover) !important;
+        }
+      `}} />
       
       {/* 1. Header Banner - Bupa High-end Corporate Console */}
       <div className="glass-panel" style={{ padding: '24px', borderTop: `6px solid ${areaColor}`, display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -1585,9 +2157,11 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
                   {sc.icon} {sc.label}
                 </span>
               </div>
-              <p style={{ color: 'var(--text-secondary)', margin: '6px 0 0', fontSize: '0.9rem', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={project.description}>
-                {project.description || 'Sin descripción detallada del alcance.'}
-              </p>
+              {!isHeaderCollapsed && (
+                <p style={{ color: 'var(--text-secondary)', margin: '6px 0 0', fontSize: '0.9rem', lineHeight: 1.4, display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical', overflow: 'hidden' }} title={project.description}>
+                  {project.description || 'Sin descripción detallada del alcance.'}
+                </p>
+              )}
             </div>
           </div>
 
@@ -1618,157 +2192,747 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
 
         </div>
 
-        {/* Project Metadata Mini Row */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)' }}>
-          <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
-              <User size={16} color="var(--text-muted)" />
-              <span style={{ color: 'var(--text-secondary)' }}>Director / PM:</span>
-              <strong style={{ color: 'var(--text-primary)' }}>{project.manager || 'No asignado'}</strong>
+        {/* Project Metadata Mini Row & KPI Boxes Grid */}
+        {!isHeaderCollapsed && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)' }}>
+            
+            {/* Top metadata info */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px', fontSize: '0.82rem' }}>
+              <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <User size={14} color="var(--text-muted)" />
+                  <span style={{ color: 'var(--text-secondary)' }}>Director / PM:</span>
+                  <strong style={{ color: 'var(--text-primary)' }}>{project.manager || 'No asignado'}</strong>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Calendar size={14} color="var(--text-muted)" />
+                  <span style={{ color: 'var(--text-secondary)' }}>Plazo:</span>
+                  <span style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{format(new Date(project.startDate), 'dd MMM yy')} — {format(new Date(project.endDate), 'dd MMM yy')}</span>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Clock size={14} color="var(--text-muted)" />
+                  <span style={{ color: 'var(--text-secondary)' }}>Plazo de Entrega:</span>
+                  <strong style={{ color: daysRemaining < 0 ? 'var(--accent-danger)' : daysRemaining < 7 ? 'var(--accent-warning)' : 'var(--accent-success)' }}>
+                    {daysRemaining < 0 ? `Vencido hace ${Math.abs(daysRemaining)} días` : daysRemaining === 0 ? 'Vence hoy' : `${daysRemaining} días restantes`}
+                  </strong>
+                </div>
+              </div>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
-              <Calendar size={16} color="var(--text-muted)" />
-              <span style={{ color: 'var(--text-secondary)' }}>Plazo:</span>
-              <span style={{ fontWeight: 600 }}>{format(new Date(project.startDate), 'dd MMM yy')} — {format(new Date(project.endDate), 'dd MMM yy')}</span>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
-              <Clock size={16} color="var(--text-muted)" />
-              <span style={{ color: 'var(--text-secondary)' }}>Término:</span>
-              <strong style={{ color: daysRemaining < 0 ? 'var(--accent-danger)' : daysRemaining < 7 ? 'var(--accent-warning)' : 'var(--accent-success)' }}>
-                {daysRemaining < 0 ? `Vencido hace ${Math.abs(daysRemaining)} días` : daysRemaining === 0 ? 'Vence hoy' : `${daysRemaining} días restantes`}
-              </strong>
-            </div>
-          </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', width: '220px' }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.75rem', marginBottom: '4px', fontWeight: 700 }}>
-                <span style={{ color: 'var(--text-muted)' }}>Avance General</span>
-                <span style={{ color: areaColor }}>{progress}%</span>
+            {/* KPI Boxes Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '10px' }}>
+              
+              {/* 1. % AVANCE GLOBAL */}
+              <div className="glass-panel" style={{ padding: '12px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '76px', background: 'var(--bg-tertiary)' }}>
+                <div style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>% Avance Global</div>
+                <div style={{ fontSize: '1.35rem', fontWeight: 900, color: 'var(--accent-primary)', fontFamily: 'monospace' }}>{progress}%</div>
               </div>
-              <div style={{ height: '6px', background: 'var(--border-subtle)', borderRadius: '99px', overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${progress}%`, background: `linear-gradient(90deg, ${areaColor}, ${areaColor}bb)`, borderRadius: '99px', transition: 'width 0.6s ease' }} />
+
+              {/* 2. % ESPERADO (HOY) */}
+              <div className="glass-panel" style={{ padding: '12px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '76px', background: 'var(--bg-tertiary)' }}>
+                <div style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>% Esperado (Hoy)</div>
+                <div style={{ fontSize: '1.35rem', fontWeight: 900, color: 'var(--text-primary)', fontFamily: 'monospace' }}>{expectedProgressGlobal}%</div>
               </div>
+
+              {/* 3. DESVIACIÓN (días) */}
+              <div className="glass-panel" style={{ padding: '12px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '76px', background: 'var(--bg-tertiary)' }}>
+                <div style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>Desviación (días)</div>
+                <div style={{ fontSize: '1.35rem', fontWeight: 900, color: projectDeviationDays > 0 ? 'var(--accent-danger)' : 'var(--accent-success)', fontFamily: 'monospace' }}>
+                  {projectDeviationDays > 0 ? `+${projectDeviationDays}` : projectDeviationDays}
+                </div>
+              </div>
+
+              {/* 4. RIESGO CONSOLID. */}
+              <div className="glass-panel" style={{ padding: '12px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '76px', background: 'var(--bg-tertiary)' }}>
+                <div style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.5px' }}>Riesgo Consolid.</div>
+                <span style={{ 
+                  fontSize: '0.75rem', 
+                  fontWeight: 900, 
+                  padding: '2px 8px', 
+                  borderRadius: '6px', 
+                  background: consolidatedRisk === 'Alto' ? 'rgba(239, 68, 68, 0.15)' : consolidatedRisk === 'Medio' ? 'rgba(245, 158, 11, 0.15)' : 'rgba(16, 185, 129, 0.15)',
+                  color: consolidatedRisk === 'Alto' ? '#EF4444' : consolidatedRisk === 'Medio' ? '#F59E0B' : '#10B981',
+                  textTransform: 'uppercase'
+                }}>
+                  {consolidatedRisk}
+                </span>
+              </div>
+
+              {/* 5. COSTO EJECUTADO */}
+              <div className="glass-panel" style={{ padding: '12px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '76px', background: 'var(--bg-tertiary)' }}>
+                <div style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>Costo Ejecutado</div>
+                <div style={{ fontSize: '0.98rem', fontWeight: 900, color: 'var(--text-primary)', textOverflow: 'ellipsis', overflow: 'hidden', width: '100%', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
+                  {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(totalRealCost)}
+                </div>
+              </div>
+
+              {/* 6. PRESUPUESTO APROBADO */}
+              <div className="glass-panel" style={{ padding: '12px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '76px', background: 'var(--bg-tertiary)' }}>
+                <div style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>Presupuesto Aprobado</div>
+                <div style={{ fontSize: '0.98rem', fontWeight: 900, color: 'var(--text-primary)', textOverflow: 'ellipsis', overflow: 'hidden', width: '100%', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
+                  {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(totalBudget)}
+                </div>
+              </div>
+
+              {/* 7. DÍAS RESTANTES */}
+              <div className="glass-panel" style={{ padding: '12px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '76px', background: 'var(--bg-tertiary)' }}>
+                <div style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>Días Restantes</div>
+                <div style={{ fontSize: '1.35rem', fontWeight: 900, color: daysRemaining < 0 ? 'var(--accent-danger)' : daysRemaining < 7 ? 'var(--accent-warning)' : 'var(--text-primary)', fontFamily: 'monospace' }}>
+                  {daysRemaining < 0 ? 0 : daysRemaining}
+                </div>
+              </div>
+
+              {/* 8. SEMÁFORO PROYECTO */}
+              <div className="glass-panel" style={{ padding: '12px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '76px', background: 'var(--bg-tertiary)' }}>
+                <div style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '6px', letterSpacing: '0.5px' }}>Semáforo Proyecto</div>
+                <span style={{ 
+                  fontSize: '0.72rem', 
+                  fontWeight: 900, 
+                  padding: '2px 8px', 
+                  borderRadius: '6px', 
+                  background: projectSemaphore.bg,
+                  color: projectSemaphore.color,
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  textTransform: 'uppercase'
+                }}>
+                  <span>{projectSemaphore.icon}</span>
+                  <span>{projectSemaphore.label}</span>
+                </span>
+              </div>
+
             </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* 2. Tabs Enterprise Switcher */}
-      <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '1px' }}>
-        {(() => {
-          const tabs = [
-            { id: 'dashboard', label: '🏠 Cuadro de Mando (Dashboard)' },
-            { id: 'gantt', label: '📅 Carta Gantt Interactiva' },
-            { id: 'stakeholders', label: `👥 Matriz Stakeholders (${projectStakeholders.length})` },
-            { id: 'incidents', label: `⚠️ Log de Incidentes y Riesgos (${projectIncidents.length})` },
-          ];
-          if (project.hasEquipment) {
-            tabs.push({ id: 'equipments', label: `🩺 Equipos Clínicos (${projectEquipments.length})` });
-          }
-          return tabs.map(tab => {
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as TabType)}
-                style={{
-                  padding: '12px 20px',
-                  border: 'none',
-                  background: isActive ? 'var(--bg-secondary)' : 'transparent',
-                  color: isActive ? 'var(--accent-primary)' : 'var(--text-secondary)',
-                  fontWeight: isActive ? 800 : 600,
-                  fontSize: '0.9rem',
-                  borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
-                  borderTop: isActive ? `3px solid var(--accent-primary)` : '3px solid transparent',
-                  borderLeft: isActive ? '1px solid var(--border-subtle)' : '1px solid transparent',
-                  borderRight: isActive ? '1px solid var(--border-subtle)' : '1px solid transparent',
-                  cursor: 'pointer',
-                  transition: 'all var(--transition-fast)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px'
-                }}
-              >
-                {tab.label}
-              </button>
-            );
-          });
-        })()}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '1px', gap: '16px' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {(() => {
+            const tabs = [
+              { id: 'summary', label: '📄 Ficha Resumen' },
+              { id: 'dashboard', label: '📊 Cuadro de Mando (Dashboard)' },
+              { id: 'gantt', label: '📋 Gestor de Datos (Tabla)' },
+              { id: 'risks', label: `⚡ Registro de Riesgos (${(project?.risks || []).length})` },
+              { id: 'costs', label: `💰 Control de Costos (${(project?.costItems || []).length})` },
+              { id: 'stakeholders', label: `👥 Matriz Stakeholders (${projectStakeholders.length})` },
+              { id: 'incidents', label: `⚠️ Log de Incidentes (${projectIncidents.length})` },
+            ];
+            if (project.hasEquipment) {
+              tabs.push({ id: 'equipments', label: `🩺 Equipos Clínicos (${projectEquipments.length})` });
+            }
+            return tabs.map(tab => {
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id as TabType)}
+                  style={{
+                    padding: '12px 20px',
+                    border: 'none',
+                    background: isActive ? 'var(--bg-secondary)' : 'transparent',
+                    color: isActive ? 'var(--accent-primary)' : 'var(--text-secondary)',
+                    fontWeight: isActive ? 800 : 600,
+                    fontSize: '0.9rem',
+                    borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
+                    borderTop: isActive ? `3px solid var(--accent-primary)` : '3px solid transparent',
+                    borderLeft: isActive ? '1px solid var(--border-subtle)' : '1px solid transparent',
+                    borderRight: isActive ? '1px solid var(--border-subtle)' : '1px solid transparent',
+                    cursor: 'pointer',
+                    transition: 'all var(--transition-fast)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px'
+                  }}
+                >
+                  {tab.label}
+                </button>
+              );
+            });
+          })()}
+        </div>
+
+        {/* Toggle Header Button */}
+        <button
+          onClick={() => setIsHeaderCollapsed(!isHeaderCollapsed)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            padding: '8px 14px',
+            background: 'var(--bg-tertiary)',
+            color: 'var(--accent-primary)',
+            border: '1px solid var(--border-subtle)',
+            borderBottom: 'none',
+            borderRadius: 'var(--radius-md) var(--radius-md) 0 0',
+            cursor: 'pointer',
+            fontSize: '0.8rem',
+            fontWeight: 800,
+            transition: 'all 0.2s',
+            marginBottom: '-1px',
+            boxShadow: '0 -2px 4px rgba(0,0,0,0.02)'
+          }}
+          title={isHeaderCollapsed ? "Expandir información del proyecto" : "Colapsar cabecera para maximizar el área de trabajo"}
+        >
+          {isHeaderCollapsed ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+          <span>{isHeaderCollapsed ? "Mostrar Resumen" : "Maximizar Tabla"}</span>
+        </button>
       </div>
 
       {/* 3. Dynamic Tab Content View */}
       <div style={{ flex: 1, overflow: 'visible' }}>
         
-        {/* TAB 1: DASHBOARD */}
+        {/* TAB 0: FICHA RESUMEN */}
+        {activeTab === 'summary' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', animation: 'fadeIn 0.3s' }}>
+            {/* Header / Title block */}
+            <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: 'var(--radius-sm)' }}>
+              <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#FFFFFF' }}>FICHA RESUMEN DEL PROYECTO</h2>
+            </div>
+
+            <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '10px 16px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              Metadatos del estándar Bupa Chile y Resumen Ejecutivo del Comité SCL
+            </div>
+
+            {/* METADATOS ESTÁNDAR BUPA CHILE (12 CAMPOS) */}
+            <div style={{ borderRadius: 'var(--radius-sm)', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
+              {/* Blue Header */}
+              <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 800 }}>
+                <span>📄</span> METADATOS GENERALES DEL PROYECTO (ESTÁNDAR BUPA CHILE)
+              </div>
+              
+              {/* 4-column Grid styled like an Excel sheet */}
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', background: 'var(--bg-secondary)' }}>
+                <tbody>
+                  {/* Row 1: Nombre del Proyecto & Fecha Inicio */}
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ width: '15%', padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Nombre del Proyecto</td>
+                    <td style={{ width: '35%', padding: '8px 12px', borderRight: '1px solid var(--border-subtle)' }}>
+                      <input
+                        type="text"
+                        value={project.name || ''}
+                        onChange={e => updateProject(project.id, { name: e.target.value })}
+                        placeholder="Nombre del proyecto..."
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600 }}
+                      />
+                    </td>
+                    <td style={{ width: '15%', padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Fecha Inicio</td>
+                    <td style={{ width: '35%', padding: '8px 12px' }}>
+                      <input
+                        type="date"
+                        value={project.startDate ? new Date(project.startDate).toISOString().split('T')[0] : ''}
+                        onChange={e => updateProject(project.id, { startDate: e.target.value ? new Date(e.target.value) : new Date() })}
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600 }}
+                      />
+                    </td>
+                  </tr>
+
+                  {/* Row 2: Tipo & Fecha Término Plan */}
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Tipo</td>
+                    <td style={{ padding: '8px 12px', borderRight: '1px solid var(--border-subtle)' }}>
+                      <select
+                        value={project.type || ''}
+                        onChange={e => updateProject(project.id, { type: e.target.value })}
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        <option value="">Seleccionar...</option>
+                        <option value="Proyecto Estratégico">Proyecto Estratégico</option>
+                        <option value="Proyecto Habilitante">Proyecto Habilitante</option>
+                        <option value="Proyecto de Continuidad Operativa">Proyecto de Continuativa</option>
+                        <option value="Proyecto SCL">Proyecto SCL</option>
+                        <option value="Inversión">Inversión</option>
+                        <option value="Operaciones">Operaciones</option>
+                        <option value="Iniciativa/Otros">Iniciativa/Otros</option>
+                      </select>
+                    </td>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Fecha Término Plan</td>
+                    <td style={{ padding: '8px 12px' }}>
+                      <input
+                        type="date"
+                        value={project.endDate ? new Date(project.endDate).toISOString().split('T')[0] : ''}
+                        onChange={e => updateProject(project.id, { endDate: e.target.value ? new Date(e.target.value) : new Date() })}
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600 }}
+                      />
+                    </td>
+                  </tr>
+
+                  {/* Row 3: Metodología & Fecha Go-Live */}
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Metodología</td>
+                    <td style={{ padding: '8px 12px', borderRight: '1px solid var(--border-subtle)' }}>
+                      <select
+                        value={project.methodology || ''}
+                        onChange={e => updateProject(project.id, { methodology: e.target.value })}
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        <option value="">Seleccionar...</option>
+                        <option value="Tradicional">Tradicional</option>
+                        <option value="Ágil">Ágil</option>
+                        <option value="Híbrido">Híbrido</option>
+                        <option value="Híbrida">Híbrida</option>
+                      </select>
+                    </td>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Fecha Go-Live</td>
+                    <td style={{ padding: '8px 12px' }}>
+                      <input
+                        type="date"
+                        value={project.goLiveDate ? new Date(project.goLiveDate).toISOString().split('T')[0] : ''}
+                        onChange={e => updateProject(project.id, { goLiveDate: e.target.value ? new Date(e.target.value) : null })}
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600 }}
+                      />
+                    </td>
+                  </tr>
+
+                  {/* Row 4: Sponsor & Jira / ID */}
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Sponsor</td>
+                    <td style={{ padding: '8px 12px', borderRight: '1px solid var(--border-subtle)' }}>
+                      <input
+                        type="text"
+                        value={project.sponsor || ''}
+                        onChange={e => updateProject(project.id, { sponsor: e.target.value })}
+                        placeholder="Sponsor del proyecto..."
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600 }}
+                      />
+                    </td>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Jira / ID</td>
+                    <td style={{ padding: '8px 12px' }}>
+                      <input
+                        type="text"
+                        value={project.jiraId || ''}
+                        onChange={e => updateProject(project.id, { jiraId: e.target.value })}
+                        placeholder="Ej: PRSCL-62"
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600 }}
+                      />
+                    </td>
+                  </tr>
+
+                  {/* Row 5: Líder & Estado */}
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Líder</td>
+                    <td style={{ padding: '8px 12px', borderRight: '1px solid var(--border-subtle)' }}>
+                      <input
+                        type="text"
+                        value={project.manager || ''}
+                        onChange={e => updateProject(project.id, { manager: e.target.value })}
+                        placeholder="PM/Líder responsable..."
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600 }}
+                      />
+                    </td>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Estado</td>
+                    <td style={{ padding: '8px 12px' }}>
+                      <select
+                        value={project.status || 'Planificación'}
+                        onChange={e => updateProject(project.id, { status: e.target.value as any })}
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}
+                      >
+                        <option value="Planificación">Planificación</option>
+                        <option value="Ejecución">Ejecución</option>
+                        <option value="Pausado">Pausado</option>
+                        <option value="Completado">Completado</option>
+                      </select>
+                    </td>
+                  </tr>
+
+                  {/* Row 6: PMO & Última Actualización */}
+                  <tr style={{ borderBottom: 'none' }}>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>PMO</td>
+                    <td style={{ padding: '8px 12px', borderRight: '1px solid var(--border-subtle)' }}>
+                      <input
+                        type="text"
+                        value={project.pmo || ''}
+                        onChange={e => updateProject(project.id, { pmo: e.target.value })}
+                        placeholder="PMO responsable..."
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600 }}
+                      />
+                    </td>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Última Actualización</td>
+                    <td style={{ padding: '8px 12px' }}>
+                      <input
+                        type="date"
+                        value={project.cutoffDate ? new Date(project.cutoffDate).toISOString().split('T')[0] : ''}
+                        onChange={e => updateProject(project.id, { cutoffDate: e.target.value ? new Date(e.target.value) : null })}
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600 }}
+                      />
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* RESUMEN EJECUTIVO DEL PROYECTO (Teal Section - COMITÉ SCL) */}
+            <div style={{ borderRadius: 'var(--radius-sm)', overflow: 'hidden', border: '1px solid var(--border-subtle)' }}>
+              {/* Teal Section Header */}
+              <div style={{ background: '#008489', color: '#FFFFFF', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 800 }}>
+                <span>▶</span> RESUMEN EJECUTIVO DEL PROYECTO (COMITÉ SCL)
+              </div>
+              
+              {/* Excel-like grid for metadata */}
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', background: 'var(--bg-secondary)' }}>
+                <tbody>
+                  {/* Row 1: Nombre del Proyecto & Última Actualización */}
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ width: '20%', padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Nombre del Proyecto</td>
+                    <td style={{ width: '30%', padding: '8px 12px', borderRight: '1px solid var(--border-subtle)' }}>
+                      <input
+                        type="text"
+                        value={project.name}
+                        onChange={e => updateProject(project.id, { name: e.target.value })}
+                        placeholder="Nombre del proyecto..."
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600 }}
+                      />
+                    </td>
+                    <td style={{ width: '20%', padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Última Actualización</td>
+                    <td style={{ width: '30%', padding: '8px 12px' }}>
+                      <input
+                        type="date"
+                        value={project.cutoffDate ? new Date(project.cutoffDate).toISOString().split('T')[0] : ''}
+                        onChange={e => updateProject(project.id, { cutoffDate: e.target.value ? new Date(e.target.value) : null })}
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600 }}
+                      />
+                    </td>
+                  </tr>
+
+                  {/* Row 2: Estado General & Semáforo Tiempo */}
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Estado General</td>
+                    <td style={{ padding: '8px 12px', borderRight: '1px solid var(--border-subtle)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        <span style={{
+                          display: 'inline-block',
+                          width: '10px',
+                          height: '10px',
+                          borderRadius: '50%',
+                          backgroundColor: project.status === 'Completado' ? '#10B981' : project.status === 'Pausado' ? '#F59E0B' : '#008489',
+                          marginRight: '8px'
+                        }} />
+                        <select
+                          value={project.status || 'Planificación'}
+                          onChange={e => updateProject(project.id, { status: e.target.value as any })}
+                          style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          <option value="Planificación">Planificación</option>
+                          <option value="Ejecución">En Ejecución</option>
+                          <option value="Pausado">Pausado</option>
+                          <option value="Completado">Completado</option>
+                        </select>
+                      </div>
+                    </td>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Semáforo Tiempo</td>
+                    <td style={{ padding: '8px 12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderSemaphoreCircle(project.statusTime)}
+                        <select
+                          value={project.statusTime || ''}
+                          onChange={e => updateProject(project.id, { statusTime: e.target.value || null })}
+                          style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          <option value="">Seleccionar...</option>
+                          <option value="Verde">Verde</option>
+                          <option value="Amarillo">Amarillo</option>
+                          <option value="Rojo">Rojo</option>
+                        </select>
+                      </div>
+                    </td>
+                  </tr>
+
+                  {/* Row 3: % Avance Real & Semáforo Calidad */}
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>% Avance Real</td>
+                    <td style={{ padding: '10px 24px', borderRight: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.9rem', fontFamily: 'monospace' }}>
+                      {progress}%
+                    </td>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Semáforo Calidad</td>
+                    <td style={{ padding: '8px 12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderSemaphoreCircle(project.statusQuality)}
+                        <select
+                          value={project.statusQuality || ''}
+                          onChange={e => updateProject(project.id, { statusQuality: e.target.value || null })}
+                          style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          <option value="">Seleccionar...</option>
+                          <option value="Verde">Verde</option>
+                          <option value="Amarillo">Amarillo</option>
+                          <option value="Rojo">Rojo</option>
+                        </select>
+                      </div>
+                    </td>
+                  </tr>
+
+                  {/* Row 4: % Avance Esperado & Semáforo Costo */}
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>% Avance Esperado</td>
+                    <td style={{ padding: '10px 24px', borderRight: '1px solid var(--border-subtle)', color: 'var(--text-primary)', fontWeight: 700, fontSize: '0.9rem', fontFamily: 'monospace' }}>
+                      {expectedProgressGlobal}%
+                    </td>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Semáforo Costo</td>
+                    <td style={{ padding: '8px 12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center' }}>
+                        {renderSemaphoreCircle(project.statusCost)}
+                        <select
+                          value={project.statusCost || ''}
+                          onChange={e => updateProject(project.id, { statusCost: e.target.value || null })}
+                          style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer' }}
+                        >
+                          <option value="">Seleccionar...</option>
+                          <option value="Verde">Verde</option>
+                          <option value="Amarillo">Amarillo</option>
+                          <option value="Rojo">Rojo</option>
+                        </select>
+                      </div>
+                    </td>
+                  </tr>
+
+                  {/* Row 5: Desviación Tiempo & Próximo Hito */}
+                  <tr style={{ borderBottom: '1px solid var(--border-subtle)' }}>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Desviación Tiempo</td>
+                    <td style={{ padding: '10px 24px', borderRight: '1px solid var(--border-subtle)', color: projectDeviationDays > 0 ? 'var(--accent-danger)' : 'var(--accent-success)', fontWeight: 700, fontSize: '0.9rem', fontFamily: 'monospace' }}>
+                      {projectDeviationDays > 0 ? `+${projectDeviationDays}` : projectDeviationDays} días
+                    </td>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Próximo Hito</td>
+                    <td style={{ padding: '8px 12px' }}>
+                      <input
+                        type="text"
+                        value={project.nextMilestone || ''}
+                        onChange={e => updateProject(project.id, { nextMilestone: e.target.value || null })}
+                        placeholder="Describir próximo hito relevante..."
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600 }}
+                      />
+                    </td>
+                  </tr>
+
+                  {/* Row 6: Riesgo Consolidado & Fecha Próximo Hito */}
+                  <tr style={{ borderBottom: 'none' }}>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Riesgo Consolidado</td>
+                    <td style={{ padding: '8px 12px', borderRight: '1px solid var(--border-subtle)' }}>
+                      <select
+                        value={project.consolidatedRisk || 'Medio'}
+                        onChange={e => updateProject(project.id, { consolidatedRisk: e.target.value || null })}
+                        style={{
+                          width: '100%',
+                          padding: '6px 10px',
+                          border: '1px solid var(--border-light)',
+                          borderRadius: '4px',
+                          background: '#FFFFFF',
+                          color: project.consolidatedRisk === 'Crítico' || project.consolidatedRisk === 'Alto' ? 'var(--accent-danger)' : project.consolidatedRisk === 'Medio' ? 'var(--accent-warning)' : 'var(--accent-success)',
+                          outline: 'none',
+                          fontSize: '0.85rem',
+                          fontWeight: 800,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <option value="Bajo" style={{ color: 'var(--accent-success)', fontWeight: 'bold' }}>Bajo</option>
+                        <option value="Medio" style={{ color: 'var(--accent-warning)', fontWeight: 'bold' }}>Medio</option>
+                        <option value="Alto" style={{ color: 'var(--accent-danger)', fontWeight: 'bold' }}>Alto</option>
+                        <option value="Crítico" style={{ color: 'var(--accent-danger)', fontWeight: 'bold' }}>Crítico</option>
+                      </select>
+                    </td>
+                    <td style={{ padding: '10px 16px', background: 'var(--bg-tertiary)', color: 'var(--text-primary)', fontWeight: 'bold', borderRight: '1px solid var(--border-subtle)' }}>Fecha Próximo Hito</td>
+                    <td style={{ padding: '8px 12px' }}>
+                      <input
+                        type="date"
+                        value={project.nextMilestoneDate ? new Date(project.nextMilestoneDate).toISOString().split('T')[0] : ''}
+                        onChange={e => updateProject(project.id, { nextMilestoneDate: e.target.value ? new Date(e.target.value) : null })}
+                        style={{ width: '100%', padding: '6px 10px', border: '1px solid var(--border-light)', borderRadius: '4px', background: '#FFFFFF', color: '#0F172A', outline: 'none', fontSize: '0.85rem', fontWeight: 600 }}
+                      />
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {/* ESTADO PERIODO */}
+            <div style={{ borderRadius: 'var(--radius-sm)', overflow: 'hidden', border: '1px solid var(--border-subtle)', marginTop: '8px' }}>
+              {/* Teal Section Header */}
+              <div style={{ background: '#008489', color: '#FFFFFF', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 800 }}>
+                <span>▶</span> ESTADO PERIODO
+              </div>
+            </div>
+
+            {/* Vertically Stacked Cards for Period Status */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              
+              {/* 1. LOGROS DEL PERÍODO */}
+              <div style={{ border: '1px solid #C5E0B4', borderRadius: 'var(--radius-md)', overflow: 'hidden', background: '#F2F9EE' }}>
+                <div style={{ background: '#E2F0D9', padding: '10px 16px', borderBottom: '1px solid #C5E0B4', display: 'flex', alignItems: 'center', gap: '8px', color: '#385723', fontWeight: 800, fontSize: '0.85rem' }}>
+                  <span>☑</span> LOGROS DEL PERÍODO
+                </div>
+                <PeriodStatusTextarea
+                  initialValue={project.achievements}
+                  placeholder="Detallar logros e hitos alcanzados en este período..."
+                  onSave={val => updateProject(project.id, { achievements: val })}
+                  style={{ color: '#385723' }}
+                />
+              </div>
+
+              {/* 2. PRÓXIMOS PASOS */}
+              <div style={{ border: '1px solid #B4C6E7', borderRadius: 'var(--radius-md)', overflow: 'hidden', background: '#F2F7FC' }}>
+                <div style={{ background: '#DDEBF7', padding: '10px 16px', borderBottom: '1px solid #B4C6E7', display: 'flex', alignItems: 'center', gap: '8px', color: '#1F4E79', fontWeight: 800, fontSize: '0.85rem' }}>
+                  <span>⇄</span> PRÓXIMOS PASOS
+                </div>
+                <PeriodStatusTextarea
+                  initialValue={project.nextSteps}
+                  placeholder="Detallar los siguientes pasos prioritarios para el proyecto..."
+                  onSave={val => updateProject(project.id, { nextSteps: val })}
+                  style={{ color: '#1F4E79' }}
+                />
+              </div>
+
+              {/* 3. BLOQUEADORES / RIESGOS ACTIVOS */}
+              <div style={{ border: '1px solid #F8CBAD', borderRadius: 'var(--radius-md)', overflow: 'hidden', background: '#FDF5F0' }}>
+                <div style={{ background: '#FCE4D6', padding: '10px 16px', borderBottom: '1px solid #F8CBAD', display: 'flex', alignItems: 'center', gap: '8px', color: '#C65911', fontWeight: 800, fontSize: '0.85rem' }}>
+                  <span>●</span> BLOQUEADORES / RIESGOS ACTIVOS
+                </div>
+                <PeriodStatusTextarea
+                  initialValue={project.blockers}
+                  placeholder="Detallar riesgos críticos, impedimentos o bloqueadores del proyecto..."
+                  onSave={val => updateProject(project.id, { blockers: val })}
+                  style={{ color: '#C65911' }}
+                />
+              </div>
+
+              {/* 4. ESTADO DE COSTOS */}
+              <div style={{ border: '1px solid #FFE699', borderRadius: 'var(--radius-md)', overflow: 'hidden', background: '#FFFDF5' }}>
+                <div style={{ background: '#FFF2CC', padding: '10px 16px', borderBottom: '1px solid #FFE699', display: 'flex', alignItems: 'center', gap: '8px', color: '#7F6000', fontWeight: 800, fontSize: '0.85rem' }}>
+                  <span>⛃</span> ESTADO DE COSTOS
+                </div>
+                <PeriodStatusTextarea
+                  initialValue={project.costStatusText}
+                  placeholder="Describir breve resumen del control financiero y desviaciones de costos..."
+                  onSave={val => updateProject(project.id, { costStatusText: val })}
+                  style={{ color: '#7F6000' }}
+                />
+              </div>
+
+            </div>
+          </div>
+        )}
+
+        {/* TAB 1: EXECUTIVE DASHBOARD */}
         {activeTab === 'dashboard' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '24px', animation: 'fadeIn 0.3s' }}>
             
-            {/* KPI Cards Row */}
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+            {/* Header / Title block */}
+            <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: 'var(--radius-sm)' }}>
+              <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#FFFFFF' }}>CUADRO DE MANDO (DASHBOARD)</h2>
+            </div>
+            
+            <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '10px 16px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              Visualización rápida del estado general, KPIs clave de control de proyecto y alertas
+            </div>
+
+            {/* Fila Principal de KPIs (6 Tarjetas Premium) */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
               
-              {/* Progreso */}
-              <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '16px' }}>
+              {/* Card 1: Avance Consolidado */}
+              <div className="glass-panel" style={{ padding: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', minHeight: '100px' }}>
                 <div>
-                  <div style={{ fontSize: '0.8rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Avance Consolidado</div>
-                  <div style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--text-primary)', marginTop: '4px' }}>{progress}%</div>
-                  <div style={{ fontSize: '0.75rem', color: 'var(--accent-success)', marginTop: '6px', fontWeight: 600 }}>PMBOK WBS Weighted</div>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Avance Consolidado</div>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 900, color: 'var(--text-primary)', marginTop: '4px' }}>{progress}%</div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--accent-success)', marginTop: '4px', fontWeight: 600 }}>PMBOK WBS Weighted</div>
                 </div>
-                <CircularProgressRing progress={progress} size={70} strokeWidth={6} color={areaColor} />
+                <CircularProgressRing progress={progress} size={60} strokeWidth={5} color={areaColor} />
               </div>
 
-              {/* Tareas */}
-              <div className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px' }}>
-                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(2, 132, 199, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-primary)', flexShrink: 0 }}>
-                  <CheckSquare size={22} />
+              {/* Card 2: Tareas WBS */}
+              <div className="glass-panel" style={{ padding: '16px', display: 'flex', alignItems: 'center', gap: '12px', minHeight: '100px' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(2, 132, 199, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-primary)', flexShrink: 0 }}>
+                  <CheckSquare size={20} />
                 </div>
                 <div>
-                  <div style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1 }}>{dashboardStats.completedTasks} / {dashboardStats.totalTasks}</div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px', fontWeight: 600 }}>Tareas Completadas</div>
-                  <div style={{ display: 'flex', gap: '8px', fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1 }}>{dashboardStats.completedTasks} / {dashboardStats.totalTasks}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', fontWeight: 600 }}>Tareas Completadas</div>
+                  <div style={{ display: 'flex', gap: '6px', fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
                     <span>{dashboardStats.inProgressTasks} en curso</span>
                     <span style={{ color: 'var(--accent-danger)' }}>{dashboardStats.atRiskTasks} riesgo</span>
                   </div>
                 </div>
               </div>
 
-              {/* Stakeholders Link Card */}
-              <div 
-                className="glass-panel hover-card" 
-                onClick={() => setActiveTab('stakeholders')}
-                style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px', cursor: 'pointer' }}
-              >
-                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(79, 70, 229, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4f46e5', flexShrink: 0 }}>
-                  <Users size={22} />
+              {/* Card 3: Hito Siguiente */}
+              <div className="glass-panel" style={{ padding: '16px', display: 'flex', alignItems: 'center', gap: '12px', minHeight: '100px' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(245, 158, 11, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-warning)', flexShrink: 0 }}>
+                  <Flag size={20} />
                 </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1 }}>{projectStakeholders.length}</div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px', fontWeight: 600 }}>Stakeholders Clave</div>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                    Ver matriz de involucrados ➜
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Hito Siguiente</div>
+                  <div style={{ fontSize: '0.85rem', fontWeight: 800, color: 'var(--text-primary)', marginTop: '2px', textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }} title={project.nextMilestone || 'No definido'}>
+                    {project.nextMilestone || 'No definido'}
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    {project.nextMilestoneDate ? format(new Date(project.nextMilestoneDate), 'dd MMM yyyy') : 'Sin fecha'}
                   </div>
                 </div>
               </div>
 
-              {/* Incidentes Link Card */}
+              {/* Card 4: Fecha Go-Live */}
+              <div className="glass-panel" style={{ padding: '16px', display: 'flex', alignItems: 'center', gap: '12px', minHeight: '100px' }}>
+                <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(16, 185, 129, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-success)', flexShrink: 0 }}>
+                  <Calendar size={20} />
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>Fecha Go-Live</div>
+                  <div style={{ fontSize: '1.15rem', fontWeight: 900, color: 'var(--text-primary)', marginTop: '2px' }}>
+                    {project.goLiveDate ? format(new Date(project.goLiveDate), 'dd MMM yyyy') : 'No definido'}
+                  </div>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    Planificado
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 5: Stakeholders Clave */}
+              <div 
+                className="glass-panel hover-card" 
+                onClick={() => setActiveTab('stakeholders')}
+                style={{ padding: '16px', display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', minHeight: '100px' }}
+              >
+                <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(79, 70, 229, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#4f46e5', flexShrink: 0 }}>
+                  <Users size={20} />
+                </div>
+                <div>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1 }}>{projectStakeholders.length}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', fontWeight: 600 }}>Stakeholders Clave</div>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    Ver matriz ➜
+                  </div>
+                </div>
+              </div>
+
+              {/* Card 6: Incidentes Activos */}
               <div 
                 className="glass-panel hover-card" 
                 onClick={() => setActiveTab('incidents')}
-                style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px', cursor: 'pointer' }}
+                style={{ padding: '16px', display: 'flex', alignItems: 'center', gap: '12px', cursor: 'pointer', minHeight: '100px' }}
               >
-                <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(225, 29, 72, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-danger)', flexShrink: 0 }}>
-                  <AlertOctagon size={22} className={projectIncidents.some(i => i.estado !== 'Cerrado') ? "animate-pulse" : ""} />
+                <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'rgba(225, 29, 72, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent-danger)', flexShrink: 0 }}>
+                  <AlertOctagon size={20} className={projectIncidents.some(i => i.estado !== 'Cerrado') ? "animate-pulse" : ""} />
                 </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '1.8rem', fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1 }}>{projectIncidents.filter(i => i.estado !== 'Cerrado').length}</div>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px', fontWeight: 600 }}>Incidentes Activos</div>
-                  <div style={{ fontSize: '0.7rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-                    Trazabilidad de riesgos ➜
+                <div>
+                  <div style={{ fontSize: '1.6rem', fontWeight: 900, color: 'var(--text-primary)', lineHeight: 1 }}>{projectIncidents.filter(i => i.estado !== 'Cerrado').length}</div>
+                  <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', marginTop: '4px', fontWeight: 600 }}>Incidentes Activos</div>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginTop: '2px' }}>
+                    Ver log ➜
                   </div>
                 </div>
               </div>
 
             </div>
+
+
+
+            {/* METRICAS DE GESTION Y WBS (RESTORED) */}
+            <div style={{ borderRadius: 'var(--radius-sm)', overflow: 'hidden', border: '1px solid var(--border-subtle)', marginTop: '12px' }}>
+              <div style={{ background: '#008489', color: '#FFFFFF', padding: '10px 16px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 800 }}>
+                <span>▶</span> MONITOREO WBS Y MÉTRICAS COMPLEMENTARIAS
+              </div>
+            </div>
+
+
 
             {/* Split layout: Phases listing and High alert items */}
             <div style={{ display: 'grid', gridTemplateColumns: '3fr 2fr', gap: '20px' }}>
@@ -1950,23 +3114,13 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
           </div>
         )}
 
-        {/* TAB 2: GANTT CHART */}
+        {/* TAB 2: GESTOR DE DATOS (TABLA) */}
         {activeTab === 'gantt' && (
           <div style={{ display: 'flex', flexDirection: 'column', height: '100%', position: 'relative', animation: 'fadeIn 0.3s' }}>
             
-            {/* Gantt Header Control panel */}
-            {/* Gantt Header Control panel */}
+            {/* Header Control panel */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
-                {/* Modos y Hoy */}
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <button className="btn btn-secondary" onClick={() => setViewMode('day')} style={{ opacity: viewMode === 'day' ? 1 : 0.5, padding: '6px 12px', fontSize: '0.8rem' }}>Días</button>
-                  <button className="btn btn-secondary" onClick={() => setViewMode('week')} style={{ opacity: viewMode === 'week' ? 1 : 0.5, padding: '6px 12px', fontSize: '0.8rem' }}>Semanas</button>
-                  <button className="btn btn-secondary" onClick={() => setViewMode('month')} style={{ opacity: viewMode === 'month' ? 1 : 0.5, padding: '6px 12px', fontSize: '0.8rem' }}>Meses</button>
-                  <button className="btn btn-secondary" onClick={scrollToToday} style={{ padding: '6px 12px', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Calendar size={14} /> Hoy
-                  </button>
-                </div>
                 
                 {/* WBS Accordion Controller & CPM Toggle */}
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
@@ -2040,33 +3194,153 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
               </div>
             </div>
 
-            {/* Gantt Grid Panel */}
-            <div className="glass-panel" style={{ overflow: 'auto', padding: '0', position: 'relative', background: 'var(--bg-secondary)', maxHeight: '600px' }} ref={scrollContainerRef}>
+            {/* Gestor Grid Panel */}
+            <div 
+              className="glass-panel" 
+              style={{ 
+                overflow: 'auto', 
+                padding: '0', 
+                position: 'relative', 
+                background: 'var(--bg-secondary)', 
+                maxHeight: isHeaderCollapsed ? 'calc(100vh - 250px)' : 'calc(100vh - 440px)',
+                borderBottomLeftRadius: 0,
+                borderBottomRightRadius: 0
+              }} 
+              ref={scrollContainerRef}
+            >
               <div style={{ minWidth: '100%', width: 'max-content', position: 'relative' }}>
                 
                 {/* WBS Columns Header */}
-                <div style={{ display: 'flex', borderBottom: '1px solid var(--border-light)', position: 'sticky', top: 0, background: 'var(--bg-primary)', zIndex: 10 }}>
-                  <div style={{ width: '380px', flexShrink: 0, padding: '16px', fontWeight: 'bold', borderRight: '1px solid var(--border-light)', position: 'sticky', left: 0, background: 'var(--bg-primary)', zIndex: 11, color: 'var(--text-primary)' }}>
-                    Estructura del Proyecto (WBS)
+                <div style={{ display: 'flex', borderBottom: '2px solid var(--border-light)', position: 'sticky', top: 0, background: 'var(--bg-primary)', zIndex: 10, width: '100%', minWidth: `${totalWidth}px`, height: '44px', alignItems: 'center', fontWeight: 'bold', fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                  <div style={{ width: `${colWidths.id}px`, flexShrink: 0, textAlign: 'center', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                    ID
+                    <div 
+                      onMouseDown={(e) => handleResizeMouseDown('id', e)}
+                      style={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: '6px', cursor: 'col-resize', zIndex: 11 }}
+                      className="resize-handle"
+                    />
                   </div>
-                  <div style={{ display: 'flex', width: `${gridWidth}px` }}>
-                    {periods.map((p, i) => (
-                      <div key={i} style={{ width: `${colWidth}px`, flexShrink: 0, padding: '8px 0', textAlign: 'center', borderRight: '1px solid var(--border-subtle)', fontSize: '0.8rem', color: p.isToday ? 'var(--accent-primary)' : 'var(--text-secondary)', background: p.isWeekend && viewMode === 'day' ? 'rgba(0,0,0,0.02)' : 'transparent' }}>
-                        <div style={{ textTransform: 'capitalize' }}>{p.labelTop}</div>
-                        <div style={{ fontWeight: p.isToday ? 'bold' : 'normal', color: p.isToday ? 'var(--accent-primary)' : 'var(--text-primary)', textTransform: 'capitalize' }}>{p.labelBottom}</div>
-                      </div>
-                    ))}
+                  <div style={{ width: `${colWidths.name}px`, flexShrink: 0, borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', paddingLeft: '8px', position: 'relative' }}>
+                    Fase / Actividad
+                    <div 
+                      onMouseDown={(e) => handleResizeMouseDown('name', e)}
+                      style={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: '6px', cursor: 'col-resize', zIndex: 11 }}
+                      className="resize-handle"
+                    />
                   </div>
-                </div>
-
-                {/* Grid guidelines */}
-                <div style={{ position: 'absolute', top: '64px', bottom: 0, left: '380px', width: `${gridWidth}px`, backgroundImage: `repeating-linear-gradient(to right, transparent, transparent ${colWidth - 1}px, var(--border-subtle) ${colWidth - 1}px, var(--border-subtle) ${colWidth}px)`, pointerEvents: 'none', zIndex: 0 }} />
-                
-                {/* Today line (renders on top of task bars but clips to prevent WBS overlapping) */}
-                <div style={{ position: 'absolute', top: '64px', bottom: 0, left: '380px', width: `${gridWidth}px`, pointerEvents: 'none', zIndex: 2, overflow: 'hidden' }}>
-                  {todayOffset > 0 && todayOffset < gridWidth && (
-                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: `${todayOffset + (colWidth/2)}px`, width: '2px', background: 'rgba(239, 68, 68, 0.4)', pointerEvents: 'none' }} />
-                  )}
+                  <div style={{ width: `${colWidths.startDate}px`, flexShrink: 0, textAlign: 'center', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                    Ini. Plan
+                    <div 
+                      onMouseDown={(e) => handleResizeMouseDown('startDate', e)}
+                      style={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: '6px', cursor: 'col-resize', zIndex: 11 }}
+                      className="resize-handle"
+                    />
+                  </div>
+                  <div style={{ width: `${colWidths.endDate}px`, flexShrink: 0, textAlign: 'center', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                    Fin Plan
+                    <div 
+                      onMouseDown={(e) => handleResizeMouseDown('endDate', e)}
+                      style={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: '6px', cursor: 'col-resize', zIndex: 11 }}
+                      className="resize-handle"
+                    />
+                  </div>
+                  <div style={{ width: `${colWidths.realStartDate}px`, flexShrink: 0, textAlign: 'center', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                    Ini. Real
+                    <div 
+                      onMouseDown={(e) => handleResizeMouseDown('realStartDate', e)}
+                      style={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: '6px', cursor: 'col-resize', zIndex: 11 }}
+                      className="resize-handle"
+                    />
+                  </div>
+                  <div style={{ width: `${colWidths.realEndDate}px`, flexShrink: 0, textAlign: 'center', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                    Fin Real
+                    <div 
+                      onMouseDown={(e) => handleResizeMouseDown('realEndDate', e)}
+                      style={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: '6px', cursor: 'col-resize', zIndex: 11 }}
+                      className="resize-handle"
+                    />
+                  </div>
+                  <div style={{ width: `${colWidths.assignee}px`, flexShrink: 0, borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', paddingLeft: '4px', position: 'relative' }}>
+                    PM/Resp
+                    <div 
+                      onMouseDown={(e) => handleResizeMouseDown('assignee', e)}
+                      style={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: '6px', cursor: 'col-resize', zIndex: 11 }}
+                      className="resize-handle"
+                    />
+                  </div>
+                  <div style={{ width: `${colWidths.progress}px`, flexShrink: 0, textAlign: 'center', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                    % Av.
+                    <div 
+                      onMouseDown={(e) => handleResizeMouseDown('progress', e)}
+                      style={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: '6px', cursor: 'col-resize', zIndex: 11 }}
+                      className="resize-handle"
+                    />
+                  </div>
+                  <div style={{ width: `${colWidths.expectedProgress}px`, flexShrink: 0, textAlign: 'center', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                    % Esp
+                    <div 
+                      onMouseDown={(e) => handleResizeMouseDown('expectedProgress', e)}
+                      style={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: '6px', cursor: 'col-resize', zIndex: 11 }}
+                      className="resize-handle"
+                    />
+                  </div>
+                  <div style={{ width: `${colWidths.delay}px`, flexShrink: 0, textAlign: 'center', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                    Desv
+                    <div 
+                      onMouseDown={(e) => handleResizeMouseDown('delay', e)}
+                      style={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: '6px', cursor: 'col-resize', zIndex: 11 }}
+                      className="resize-handle"
+                    />
+                  </div>
+                  <div style={{ width: `${colWidths.semaphore}px`, flexShrink: 0, textAlign: 'center', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
+                    Sem
+                    <div 
+                      onMouseDown={(e) => handleResizeMouseDown('semaphore', e)}
+                      style={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: '6px', cursor: 'col-resize', zIndex: 11 }}
+                      className="resize-handle"
+                    />
+                  </div>
+                  <div style={{ width: `${colWidths.status}px`, flexShrink: 0, borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', paddingLeft: '4px', position: 'relative' }}>
+                    Estado
+                    <div 
+                      onMouseDown={(e) => handleResizeMouseDown('status', e)}
+                      style={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: '6px', cursor: 'col-resize', zIndex: 11 }}
+                      className="resize-handle"
+                    />
+                  </div>
+                  <div style={{ width: `${colWidths.estimatedCost}px`, flexShrink: 0, borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '4px', position: 'relative' }}>
+                    C. Est
+                    <div 
+                      onMouseDown={(e) => handleResizeMouseDown('estimatedCost', e)}
+                      style={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: '6px', cursor: 'col-resize', zIndex: 11 }}
+                      className="resize-handle"
+                    />
+                  </div>
+                  <div style={{ width: `${colWidths.realCost}px`, flexShrink: 0, borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '4px', position: 'relative' }}>
+                    C. Real
+                    <div 
+                      onMouseDown={(e) => handleResizeMouseDown('realCost', e)}
+                      style={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: '6px', cursor: 'col-resize', zIndex: 11 }}
+                      className="resize-handle"
+                    />
+                  </div>
+                  <div style={{ width: `${colWidths.risk}px`, flexShrink: 0, borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', paddingLeft: '4px', position: 'relative' }}>
+                    Riesgo
+                    <div 
+                      onMouseDown={(e) => handleResizeMouseDown('risk', e)}
+                      style={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: '6px', cursor: 'col-resize', zIndex: 11 }}
+                      className="resize-handle"
+                    />
+                  </div>
+                  <div style={{ width: `${colWidths.notes}px`, flexShrink: 0, borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center', paddingLeft: '4px', position: 'relative' }}>
+                    Observación
+                    <div 
+                      onMouseDown={(e) => handleResizeMouseDown('notes', e)}
+                      style={{ position: 'absolute', right: -3, top: 0, bottom: 0, width: '6px', cursor: 'col-resize', zIndex: 11 }}
+                      className="resize-handle"
+                    />
+                  </div>
+                  <div style={{ width: `${colWidths.actions}px`, flexShrink: 0, textAlign: 'center', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>Acc</div>
                 </div>
 
                 {/* Phases and Tasks renderer */}
@@ -2080,33 +3354,28 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
                       const isCollapsed = collapsedPhases[phase.id];
                       return (
                         <React.Fragment key={phase.id}>
-                          <div style={{ display: 'flex', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-tertiary)' }}>
-                            
-                            <div style={{ width: '380px', flexShrink: 0, padding: '12px 16px', fontWeight: 'bold', color: 'var(--text-primary)', borderRight: '1px solid var(--border-light)', position: 'sticky', left: 0, background: 'var(--bg-tertiary)', zIndex: 5, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <div style={{ display: 'flex', borderBottom: '1px solid var(--border-subtle)', background: 'var(--bg-tertiary)', width: '100%', minWidth: `${totalWidth}px`, height: '44px', alignItems: 'center' }}>
+                            {/* Left content (spanning all except Actions) */}
+                            <div style={{ flex: 1, minWidth: `${totalWidth - colWidths.actions}px`, padding: '0 16px', fontWeight: 'bold', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px', overflow: 'hidden' }}>
                               <div style={{ display: 'flex', alignItems: 'center', cursor: 'pointer', width: '20px' }} onClick={() => setCollapsedPhases(prev => ({ ...prev, [phase.id]: !prev[phase.id] }))}>
                                 {isCollapsed ? <ChevronRight size={18} color="var(--text-secondary)" /> : <ChevronDown size={18} color="var(--text-secondary)" />}
                               </div>
                               {phase.wbsId && <span style={{ color: 'var(--text-muted)', fontFamily: 'monospace', minWidth: '24px' }}>{phase.wbsId}.</span>}
-                              <span style={{ flex: 1, cursor: 'pointer' }} onClick={() => setCollapsedPhases(prev => ({ ...prev, [phase.id]: !prev[phase.id] }))}>{phase.name}</span>
-                              <span style={{ fontSize: '0.8rem', color: 'var(--accent-primary)', marginRight: '8px', minWidth: '40px', textAlign: 'right' }}>{phase.progress}%</span>
-                              <button className="icon-btn" style={{ width: '28px', height: '28px', border: 'none', background: 'transparent' }} title="Editar Fase" onClick={() => handleEditPhase(phase)}>
-                                <Edit2 size={14} />
-                              </button>
-                              <button className="icon-btn" style={{ width: '28px', height: '28px', border: 'none', background: 'transparent' }} title="Añadir tarea a esta fase" onClick={() => handleCreateTask(phase.id)}>
-                                <Plus size={16} color="var(--accent-primary)" />
-                              </button>
+                              <span style={{ cursor: 'pointer', fontWeight: 800, textOverflow: 'ellipsis', overflow: 'hidden', whiteSpace: 'nowrap' }} onClick={() => setCollapsedPhases(prev => ({ ...prev, [phase.id]: !prev[phase.id] }))}>{phase.name}</span>
+                              <span style={{ fontSize: '0.8rem', color: 'var(--accent-primary)', marginLeft: '12px', minWidth: '40px' }}>{phase.progress}%</span>
                             </div>
-
-                            <div style={{ position: 'relative', width: `${gridWidth}px` }}>
-                              {(() => {
-                                if (phase.tasks.length === 0) return null;
-                                const { offset, width } = getOffsetAndWidth(phase.startDate, phase.endDate);
-                                return <div style={{ position: 'absolute', top: '16px', left: `${offset}px`, width: `${width}px`, height: '10px', background: 'var(--text-muted)', borderRadius: '4px', opacity: 0.8 }} />
-                              })()}
+                            {/* Right Actions column (aligned under ACC) */}
+                            <div style={{ width: `${colWidths.actions}px`, flexShrink: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
+                              <button className="icon-btn" style={{ width: '22px', height: '22px', border: 'none', background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} title="Editar Fase" onClick={() => handleEditPhase(phase)}>
+                                <Edit2 size={13} />
+                              </button>
+                              <button className="icon-btn" style={{ width: '22px', height: '22px', border: 'none', background: 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }} title="Añadir tarea a esta fase" onClick={() => handleCreateTask(phase.id)}>
+                                <Plus size={15} color="var(--accent-primary)" />
+                              </button>
                             </div>
                           </div>
 
-                          {!isCollapsed && phase.tasks.filter(t => !t.parentId).map(task => renderTaskRow(task, phase, 0))}
+                          {!isCollapsed && phase.tasks.filter(t => !t.parentId).map(task => renderGestorTaskRow(task, phase, 0))}
                         </React.Fragment>
                       );
                     })
@@ -2116,180 +3385,590 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
               </div>
             </div>
 
-            {/* Task Edit Drawer */}
-            {editingTask && (
-              <div className="gantt-drawer" style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: '450px', background: 'var(--bg-secondary)', borderLeft: '1px solid var(--border-light)', boxShadow: '-10px 0 30px rgba(0,0,0,0.15)', zIndex: 150, display: 'flex', flexDirection: 'column', animation: 'slideIn 0.25s forwards' }}>
-                <div style={{ padding: '24px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-primary)' }}>
-                  <h2 style={{ fontSize: '1.2rem', margin: 0 }}>
-                    {editingTask.task.wbsId ? <span style={{ color: 'var(--accent-primary)', marginRight: '8px' }}>{editingTask.task.wbsId}</span> : null}
-                    {editingTask.isNew ? 'Nueva Tarea / Hito' : 'Editar Tarea'}
-                  </h2>
-                  <button className="icon-btn" onClick={() => setEditingTask(null)}>
-                    <X size={20} />
-                  </button>
+            {/* Footer Summary Panel */}
+            <div style={{
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              padding: '12px 24px',
+              background: 'var(--bg-tertiary)',
+              border: '1px solid var(--border-subtle)',
+              borderTop: 'none',
+              borderBottomLeftRadius: 'var(--radius-md)',
+              borderBottomRightRadius: 'var(--radius-md)',
+              fontSize: '0.8rem',
+              color: 'var(--text-secondary)',
+              fontWeight: 600,
+              gap: '16px',
+              flexWrap: 'wrap'
+            }}>
+              <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Layers size={14} color="var(--accent-primary)" />
+                  <span>Fases: <strong style={{ color: 'var(--text-primary)' }}>{project.phases.length}</strong></span>
                 </div>
-                
-                <div style={{ padding: '24px', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>Nombre de la Tarea</label>
-                      <input 
-                        type="text" 
-                        value={editingTask.task.name} 
-                        onChange={e => setEditingTask({...editingTask, task: {...editingTask.task, name: e.target.value}})}
-                        style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', fontWeight: 'bold', outline: 'none' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>Jira Code</label>
-                      <input 
-                        type="text" 
-                        value={editingTask.task.jiraCode || ''} 
-                        onChange={e => setEditingTask({...editingTask, task: {...editingTask.task, jiraCode: e.target.value}})}
-                        placeholder="Ej. CLIN-402"
-                        style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--accent-primary)', outline: 'none' }}
-                      />
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>Estado</label>
-                      <select 
-                        value={editingTask.task.status}
-                        onChange={e => setEditingTask({...editingTask, task: {...editingTask.task, status: e.target.value as TaskStatus}})}
-                        style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
-                      >
-                        <option value="Not Started">No Iniciada</option>
-                        <option value="In Progress">En Progreso</option>
-                        <option value="Completed">Completada</option>
-                        <option value="At Risk">En Riesgo</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>Prioridad</label>
-                      <select 
-                        value={editingTask.task.priority || 'Media'}
-                        onChange={e => setEditingTask({...editingTask, task: {...editingTask.task, priority: e.target.value as TaskPriority}})}
-                        style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
-                      >
-                        <option value="Baja">Baja</option>
-                        <option value="Media">Media</option>
-                        <option value="Alta">Alta</option>
-                      </select>
-                    </div>
-                  </div>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>Inicio</label>
-                      <input 
-                        type="date" 
-                        value={format(editingTask.task.startDate, 'yyyy-MM-dd')} 
-                        onChange={e => handleTaskDateChange('start', e.target.value)}
-                        style={{ width: '100%', padding: '10px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>Fin</label>
-                      <input 
-                        type="date" 
-                        value={format(editingTask.task.endDate, 'yyyy-MM-dd')} 
-                        onChange={e => handleTaskDateChange('end', e.target.value)}
-                        style={{ width: '100%', padding: '10px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>Días</label>
-                      <input 
-                        type="number" 
-                        value={editingTask.task.duration} 
-                        onChange={e => handleTaskDateChange('duration', e.target.value)}
-                        style={{ width: '100%', padding: '10px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                      <label style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, margin: 0 }}>Responsable</label>
-                      <button 
-                        type="button" 
-                        onClick={() => setIsManageUsersOpen(true)}
-                        style={{ border: 'none', background: 'transparent', color: '#004B87', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                      >
-                        ⚙️ Administrar
-                      </button>
-                    </div>
-                    <select 
-                      value={editingTask.task.assignee} 
-                      onChange={e => setEditingTask({...editingTask, task: {...editingTask.task, assignee: e.target.value}})}
-                      style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
-                    >
-                      <option value="Sin Asignar">Sin Asignar</option>
-                      {users.map(u => (
-                        <option key={u.id} value={u.name}>{u.name} ({u.role})</option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                      <label style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>Progreso</label>
-                      <span style={{ fontWeight: 'bold', color: 'var(--accent-primary)' }}>{editingTask.task.progress}%</span>
-                    </div>
-                    <input 
-                      type="range" 
-                      min="0" max="100" 
-                      value={editingTask.task.progress} 
-                      onChange={e => setEditingTask({...editingTask, task: {...editingTask.task, progress: parseInt(e.target.value)}})}
-                      style={{ width: '100%', accentColor: 'var(--accent-primary)' }}
-                      disabled={editingTask.task.duration === 0} 
-                    />
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>Predecesoras (Dependencias)</label>
-                    <select 
-                      multiple 
-                      value={editingTask.task.dependencies || []} 
-                      onChange={e => {
-                        const opts = Array.from(e.target.selectedOptions, option => option.value);
-                        setEditingTask({...editingTask, task: {...editingTask.task, dependencies: opts}});
-                      }}
-                      style={{ width: '100%', height: '100px', padding: '10px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
-                    >
-                      {allTasks.filter(t => t.id !== editingTask.task.id).map(t => (
-                        <option key={t.id} value={t.id}>
-                          {t.wbsId ? `${t.wbsId} ` : ''}{t.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>Notas</label>
-                    <textarea 
-                      value={editingTask.task.notes || ''} 
-                      onChange={e => setEditingTask({...editingTask, task: {...editingTask.task, notes: e.target.value}})}
-                      rows={3}
-                      style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }}
-                    />
-                  </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <CheckSquare size={14} color="var(--accent-primary)" />
+                  <span>Tareas: <strong style={{ color: 'var(--text-primary)' }}>{allTasks.length}</strong></span>
                 </div>
-
-                <div style={{ padding: '24px', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', background: 'var(--bg-primary)' }}>
-                  {!editingTask.isNew ? (
-                    <button className="btn btn-secondary" style={{ color: 'var(--accent-danger)', borderColor: 'var(--border-light)' }} onClick={handleDeleteTask}>
-                      <Trash2 size={18} /> Eliminar Tarea
-                    </button>
-                  ) : <div/>}
-                  <button className="btn btn-primary" onClick={handleSaveTask}>
-                    <Save size={18} /> Guardar
-                  </button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Award size={14} color="var(--accent-warning)" />
+                  <span>Hitos Clínicos: <strong style={{ color: 'var(--text-primary)' }}>{allTasks.filter(t => t.duration === 0).length}</strong></span>
                 </div>
               </div>
-            )}
+              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span>🟢 Datos Sincronizados Localmente</span>
+              </div>
+            </div>
+
+            {/* Task Edit Drawer */}
+            <AnimatePresence>
+              {editingTask && (
+                <motion.div 
+                  initial={{ x: '100%', opacity: 0.9 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  exit={{ x: '100%', opacity: 0.9 }}
+                  transition={{ type: 'spring', damping: 26, stiffness: 220 }}
+                  className="gantt-drawer"
+                  style={{ position: 'fixed', top: 0, right: 0, bottom: 0, width: '450px', background: 'var(--bg-secondary)', borderLeft: '1px solid var(--border-light)', boxShadow: '-10px 0 30px rgba(0,0,0,0.15)', zIndex: 150, display: 'flex', flexDirection: 'column' }}
+                >
+                  <div style={{ padding: '24px', borderBottom: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-primary)' }}>
+                    <h2 style={{ fontSize: '1.2rem', margin: 0 }}>
+                      {editingTask.task.wbsId ? <span style={{ color: 'var(--accent-primary)', marginRight: '8px' }}>{editingTask.task.wbsId}</span> : null}
+                      {editingTask.isNew ? (editingTask.task.parentId ? 'Nueva Subtarea' : 'Nueva Tarea') : 'Editar Tarea'}
+                    </h2>
+                    <motion.button whileTap={{ scale: 0.9 }} className="icon-btn" style={{ border: 'none', background: 'transparent', cursor: 'pointer' }} onClick={() => setEditingTask(null)}>
+                      <X size={20} />
+                    </motion.button>
+                  </div>
+                  
+                  <div style={{ padding: '24px', flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Nombre de la Tarea / Hito</label>
+                        <input 
+                          type="text" 
+                          value={editingTask.task.name} 
+                          onChange={e => setEditingTask({...editingTask, task: {...editingTask.task, name: e.target.value}})}
+                          style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', fontWeight: 'bold', outline: 'none' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>ID de Jira (Opcional)</label>
+                        <input 
+                          type="text" 
+                          placeholder="Ej. BUPA-105"
+                          value={editingTask.task.jiraCode || ''} 
+                          onChange={e => setEditingTask({...editingTask, task: {...editingTask.task, jiraCode: e.target.value}})}
+                          style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--accent-primary)', fontWeight: 'bold', outline: 'none' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Estado</label>
+                        <select 
+                          value={editingTask.task.status}
+                          onChange={e => {
+                            const newStatus = e.target.value as TaskStatus;
+                            let newProgress = editingTask.task.progress;
+                            if (newStatus === 'Completed') newProgress = 100;
+                            else if (newStatus === 'Not Started') newProgress = 0;
+                            else if (newStatus === 'In Progress' && newProgress === 0) newProgress = 10;
+                            
+                            setEditingTask({
+                              ...editingTask,
+                              task: {
+                                ...editingTask.task,
+                                status: newStatus,
+                                progress: newProgress
+                              }
+                            });
+                          }}
+                          style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
+                        >
+                          <option value="Not Started">No Iniciada</option>
+                          <option value="In Progress">En Progreso</option>
+                          <option value="Completed">Completada</option>
+                          <option value="At Risk">En Riesgo</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Prioridad</label>
+                        <select 
+                          value={editingTask.task.priority || 'Media'}
+                          onChange={e => setEditingTask({...editingTask, task: {...editingTask.task, priority: e.target.value as TaskPriority}})}
+                          style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
+                        >
+                          <option value="Baja">Baja</option>
+                          <option value="Media">Media</option>
+                          <option value="Alta">Alta</option>
+                        </select>
+                      </div>
+                    </div>
+                    
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Inicio Plan</label>
+                        <input 
+                          type="date" 
+                          value={format(new Date(editingTask.task.startDate), 'yyyy-MM-dd')} 
+                          onChange={e => handleTaskDateChange('start', e.target.value)}
+                          style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Término Plan</label>
+                        <input 
+                          type="date" 
+                          value={format(new Date(editingTask.task.endDate), 'yyyy-MM-dd')} 
+                          onChange={e => handleTaskDateChange('end', e.target.value)}
+                          style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Esfuerzo (Días)</label>
+                        <input 
+                          type="number" 
+                          min="0"
+                          value={editingTask.task.duration} 
+                          onChange={e => handleTaskDateChange('duration', e.target.value)}
+                          style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Inicio Real</label>
+                        <input 
+                          type="date" 
+                          value={editingTask.task.realStartDate ? format(new Date(editingTask.task.realStartDate), 'yyyy-MM-dd') : ''} 
+                          onChange={e => setEditingTask({
+                            ...editingTask,
+                            task: { ...editingTask.task, realStartDate: e.target.value ? new Date(e.target.value) : null }
+                          })}
+                          style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Término Real</label>
+                        <input 
+                          type="date" 
+                          value={editingTask.task.realEndDate ? format(new Date(editingTask.task.realEndDate), 'yyyy-MM-dd') : ''} 
+                          onChange={e => setEditingTask({
+                            ...editingTask,
+                            task: { ...editingTask.task, realEndDate: e.target.value ? new Date(e.target.value) : null }
+                          })}
+                          style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+                        />
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Costo Estimado</label>
+                        <input 
+                          type="number" 
+                          value={editingTask.task.estimatedCost !== undefined && editingTask.task.estimatedCost !== null ? editingTask.task.estimatedCost : ''} 
+                          onChange={e => setEditingTask({
+                            ...editingTask,
+                            task: { ...editingTask.task, estimatedCost: e.target.value !== '' ? Number(e.target.value) : null }
+                          })}
+                          style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Costo Real</label>
+                        <input 
+                          type="number" 
+                          value={editingTask.task.realCost !== undefined && editingTask.task.realCost !== null ? editingTask.task.realCost : ''} 
+                          onChange={e => setEditingTask({
+                            ...editingTask,
+                            task: { ...editingTask.task, realCost: e.target.value !== '' ? Number(e.target.value) : null }
+                          })}
+                          style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Riesgo</label>
+                        <select 
+                          value={editingTask.task.risk || 'Bajo'}
+                          onChange={e => setEditingTask({
+                            ...editingTask,
+                            task: { ...editingTask.task, risk: e.target.value }
+                          })}
+                          style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+                        >
+                          <option value="Bajo">Bajo</option>
+                          <option value="Medio">Medio</option>
+                          <option value="Alto">Alto</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>
+                        Predecesoras (Dependencias)
+                      </label>
+                      
+                      {/* List of active predecessors as premium removable cards */}
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginBottom: '12px' }}>
+                        {editingTask.task.dependencies && editingTask.task.dependencies.length > 0 ? (
+                          editingTask.task.dependencies.map(depId => {
+                            const depTask = allTasks.find(t => t.id === depId);
+                            if (!depTask) return null;
+                            return (
+                              <div 
+                                key={depId} 
+                                style={{ 
+                                  display: 'flex', 
+                                  alignItems: 'center', 
+                                  justifyContent: 'space-between', 
+                                  background: 'var(--bg-primary)', 
+                                  padding: '8px 12px', 
+                                  borderRadius: 'var(--radius-sm)', 
+                                  border: '1px solid var(--border-light)' 
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
+                                  <span style={{ color: 'var(--accent-primary)', fontWeight: 'bold', fontFamily: 'monospace' }}>
+                                    {depTask.wbsId || 'Task'}
+                                  </span>
+                                  <span style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                                    {depTask.name}
+                                  </span>
+                                </div>
+                                <motion.button 
+                                  whileHover={{ scale: 1.15 }}
+                                  whileTap={{ scale: 0.85 }}
+                                  style={{ 
+                                    background: 'none', 
+                                    border: 'none', 
+                                    cursor: 'pointer', 
+                                    color: 'var(--accent-danger)', 
+                                    padding: '4px',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center'
+                                  }}
+                                  onClick={() => {
+                                    const updatedDeps = (editingTask.task.dependencies || []).filter(id => id !== depId);
+                                    setEditingTask({
+                                      ...editingTask,
+                                      task: { ...editingTask.task, dependencies: updatedDeps }
+                                    });
+                                  }}
+                                  title="Eliminar dependencia"
+                                >
+                                  ✕
+                                </motion.button>
+                              </div>
+                            );
+                          })
+                        ) : (
+                          <div style={{ padding: '12px', background: 'var(--bg-tertiary)', borderRadius: 'var(--radius-sm)', border: '1px dashed var(--border-light)', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.8rem' }}>
+                            Sin dependencias activas. Esta tarea puede iniciar libremente.
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Searchable Combobox for adding new predecessors */}
+                      <div style={{ position: 'relative' }}>
+                        <input 
+                          type="text" 
+                          placeholder="🔍 Buscar tarea para añadir como predecesora..."
+                          value={predecessorSearch}
+                          onChange={e => {
+                            setPredecessorSearch(e.target.value);
+                            setPredecessorDropdownOpen(true);
+                          }}
+                          onFocus={() => setPredecessorDropdownOpen(true)}
+                          style={{ 
+                            width: '100%', 
+                            padding: '10px 12px', 
+                            background: 'var(--bg-primary)', 
+                            border: '1px solid var(--border-light)', 
+                            borderRadius: 'var(--radius-sm)', 
+                            color: 'var(--text-primary)', 
+                            fontSize: '0.85rem', 
+                            outline: 'none' 
+                          }}
+                        />
+                        
+                        {predecessorDropdownOpen && (
+                          <>
+                            <div 
+                              style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, zIndex: 139 }} 
+                              onClick={() => setPredecessorDropdownOpen(false)}
+                            />
+                            <div 
+                              style={{ 
+                                position: 'absolute', 
+                                top: '100%', 
+                                left: 0, 
+                                right: 0, 
+                                background: 'var(--bg-secondary)', 
+                                border: '1px solid var(--border-strong)', 
+                                borderRadius: 'var(--radius-sm)', 
+                                boxShadow: '0 4px 12px rgba(0,0,0,0.1)', 
+                                maxHeight: '200px', 
+                                overflowY: 'auto', 
+                                zIndex: 140,
+                                marginTop: '4px'
+                              }}
+                            >
+                              {filteredPredecessorOptions.length > 0 ? (
+                                filteredPredecessorOptions.map(t => (
+                                  <div 
+                                    key={t.id} 
+                                    onClick={() => {
+                                      const currentDeps = editingTask.task.dependencies || [];
+                                      if (!currentDeps.includes(t.id)) {
+                                        setEditingTask({
+                                          ...editingTask,
+                                          task: { ...editingTask.task, dependencies: [...currentDeps, t.id] }
+                                        });
+                                      }
+                                      setPredecessorSearch('');
+                                      setPredecessorDropdownOpen(false);
+                                    }}
+                                    style={{ 
+                                      padding: '8px 12px', 
+                                      cursor: 'pointer', 
+                                      borderBottom: '1px solid var(--border-subtle)',
+                                      fontSize: '0.85rem',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '8px',
+                                      transition: 'background 0.2s'
+                                    }}
+                                    className="pred-option"
+                                  >
+                                    <span style={{ color: 'var(--accent-primary)', fontWeight: 'bold', fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                                      {t.wbsId || 'Task'}
+                                    </span>
+                                    <span style={{ color: 'var(--text-primary)' }}>{t.name}</span>
+                                  </div>
+                                ))
+                              ) : (
+                                <div style={{ padding: '12px', textAlign: 'center', color: 'var(--text-secondary)', fontSize: '0.85rem' }}>
+                                  No se encontraron tareas disponibles
+                                </div>
+                              )}
+                            </div>
+                          </>
+                        )}
+                      </div>
+                    </div>
+
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <label style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Progreso</label>
+                        <span style={{ fontWeight: 'bold', color: 'var(--accent-primary)' }}>{editingTask.task.progress}%</span>
+                      </div>
+                      <input 
+                        type="range" 
+                        min="0" max="100" 
+                        value={editingTask.task.progress} 
+                        onChange={e => {
+                          const newProgress = parseInt(e.target.value);
+                          let newStatus = editingTask.task.status;
+                          if (newProgress === 100) newStatus = 'Completed';
+                          else if (newProgress > 0 && newStatus === 'Not Started') newStatus = 'In Progress';
+                          else if (newProgress === 0 && newStatus === 'Completed') newStatus = 'Not Started';
+                          
+                          setEditingTask({
+                            ...editingTask,
+                            task: {
+                              ...editingTask.task,
+                              progress: newProgress,
+                              status: newStatus
+                            }
+                          });
+                        }}
+                        style={{ width: '100%', accentColor: 'var(--accent-primary)' }}
+                        disabled={editingTask.task.duration === 0} 
+                      />
+                    </div>
+
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                        <label style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600, margin: 0 }}>Responsable</label>
+                        <button 
+                          type="button" 
+                          onClick={() => setIsManageUsersOpen(true)}
+                          style={{ border: 'none', background: 'transparent', color: '#004B87', fontSize: '0.78rem', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                        >
+                          ⚙️ Administrar
+                        </button>
+                      </div>
+                      <select 
+                        value={editingTask.task.assignee} 
+                        onChange={e => setEditingTask({...editingTask, task: {...editingTask.task, assignee: e.target.value}})}
+                        style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+                      >
+                        <option value="Sin Asignar">Sin Asignar</option>
+                        {users.map(u => (
+                          <option key={u.id} value={u.name}>{u.name} ({u.role})</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {editingTask.isNew ? (
+                      <div 
+                        style={{ 
+                          background: 'var(--bg-tertiary)', 
+                          border: '1px dashed var(--border-light)', 
+                          borderRadius: 'var(--radius-md)', 
+                          padding: '20px', 
+                          display: 'flex', 
+                          flexDirection: 'column', 
+                          alignItems: 'center', 
+                          justifyContent: 'center', 
+                          marginTop: '8px',
+                          opacity: 0.7,
+                          cursor: 'not-allowed'
+                        }}
+                      >
+                        <div style={{ display: 'flex', gap: '12px', marginBottom: '8px' }}>
+                          <span style={{ fontSize: '24px' }}>📄</span>
+                          <span style={{ fontSize: '24px' }}>📊</span>
+                          <span style={{ fontSize: '24px' }}>🖼️</span>
+                        </div>
+                        <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600, margin: '0 0 4px 0', textAlign: 'center' }}>
+                          ⚠️ Guarda la tarea primero para poder adjuntar archivos
+                        </p>
+                      </div>
+                    ) : (
+                      <div 
+                        onClick={() => fileInputRef.current?.click()}
+                        onDragOver={e => e.preventDefault()}
+                        onDrop={handleFileDrop}
+                        style={{ 
+                          background: 'rgba(2, 132, 199, 0.04)', 
+                          border: '1px dashed var(--accent-primary)', 
+                          borderRadius: 'var(--radius-md)', 
+                          padding: '20px', 
+                          display: 'flex', 
+                          flexDirection: 'column', 
+                          alignItems: 'center', 
+                          justifyContent: 'center', 
+                          cursor: 'pointer', 
+                          transition: 'all 0.2s', 
+                          marginTop: '8px' 
+                        }}
+                        className="file-dropzone"
+                      >
+                        <input 
+                          type="file" 
+                          ref={fileInputRef} 
+                          onChange={handleFileChange} 
+                          style={{ display: 'none' }} 
+                        />
+                        {isUploading ? (
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px' }}>
+                            <Loader2 className="animate-spin" size={24} color="var(--accent-primary)" />
+                            <p style={{ color: 'var(--accent-primary)', fontSize: '0.85rem', fontWeight: 600, margin: 0 }}>Subiendo archivo...</p>
+                          </div>
+                        ) : (
+                          <>
+                            <div style={{ display: 'flex', gap: '12px', marginBottom: '8px' }}>
+                              <span style={{ fontSize: '24px' }}>📄</span>
+                              <span style={{ fontSize: '24px' }}>📊</span>
+                              <span style={{ fontSize: '24px' }}>🖼️</span>
+                            </div>
+                            <p style={{ color: 'var(--accent-primary)', fontSize: '0.9rem', fontWeight: 600, margin: '0 0 4px 0' }}>
+                              Arrastra entregables o haz clic aquí
+                            </p>
+                            <p style={{ color: 'var(--text-muted)', fontSize: '0.72rem', margin: 0, textAlign: 'center' }}>
+                              Archivos PDF, Word, Excel, Imágenes. (Almacenamiento Local Database)
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    )}
+                    
+                    {editingTask.task.attachments && editingTask.task.attachments.length > 0 && (
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
+                        <label style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 600 }}>Entregables Subidos:</label>
+                        {editingTask.task.attachments.map(att => {
+                          const getFileIcon = (type: string) => {
+                            const t = type.toLowerCase();
+                            if (t === 'pdf') return '📄';
+                            if (['xlsx', 'xls', 'csv'].includes(t)) return '📊';
+                            if (['doc', 'docx'].includes(t)) return '📝';
+                            if (['png', 'jpg', 'jpeg', 'gif', 'svg'].includes(t)) return '🖼️';
+                            return '📎';
+                          };
+                          return (
+                            <div key={att.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'var(--bg-primary)', padding: '8px 12px', borderRadius: '4px', border: '1px solid var(--border-subtle)' }}>
+                              <a 
+                                href={att.url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                style={{ display: 'flex', alignItems: 'center', gap: '8px', textDecoration: 'none', color: 'inherit', flex: 1, marginRight: '8px' }}
+                                title="Click para ver/descargar"
+                                className="attachment-link"
+                              >
+                                <span style={{ fontSize: '1.2rem' }}>{getFileIcon(att.type)}</span>
+                                <span style={{ fontSize: '0.85rem', color: 'var(--accent-primary)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '280px' }}>
+                                  {att.name}
+                                </span>
+                              </a>
+                              <motion.button 
+                                whileHover={{ scale: 1.15 }}
+                                whileTap={{ scale: 0.85 }}
+                                style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--accent-danger)', padding: '4px', fontSize: '0.9rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }} 
+                                onClick={(e) => handleDeleteAttachment(e, att.id)}
+                                title="Eliminar entregable"
+                              >
+                                ✕
+                              </motion.button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <div>
+                      <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Notas</label>
+                      <textarea 
+                        value={editingTask.task.notes || ''} 
+                        onChange={e => setEditingTask({...editingTask, task: {...editingTask.task, notes: e.target.value}})}
+                        rows={3}
+                        style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ padding: '24px', borderTop: '1px solid var(--border-subtle)', display: 'flex', justifyContent: 'space-between', background: 'var(--bg-primary)' }}>
+                    {!editingTask.isNew ? (
+                      <motion.button 
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
+                        className="btn btn-secondary" 
+                        style={{ color: 'var(--accent-danger)', borderColor: 'var(--border-light)', cursor: 'pointer' }} 
+                        onClick={handleDeleteTask}
+                      >
+                        <Trash2 size={18} /> Eliminar
+                      </motion.button>
+                    ) : <div/>}
+                    <motion.button 
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="btn btn-primary" 
+                      style={{ cursor: 'pointer' }}
+                      onClick={handleSaveTask}
+                    >
+                      <Save size={18} /> Guardar
+                    </motion.button>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
 
             {/* Phase Edit Drawer */}
             {editingPhase && (
@@ -2771,6 +4450,733 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
                           </tr>
                         );
                       })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        )}
+
+        {/* TAB 3.5: RISKS */}
+        {activeTab === 'risks' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'fadeIn 0.3s' }}>
+            
+            {/* Header / Title block */}
+            <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: 'var(--radius-sm)' }}>
+              <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#FFFFFF' }}>REGISTRO DE RIESGOS Y PLAN DE MITIGACIÓN — {project?.name?.toUpperCase()}</h2>
+            </div>
+            
+            <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '10px 16px', fontSize: '0.8rem', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px' }}>
+              <div>
+                <strong>Probabilidad:</strong> 1=Raro · 2=Poco Probable · 3=Posible · 4=Probable · 5=Casi Seguro
+              </div>
+              <div>
+                <strong>Impacto:</strong> 1=Insignificante · 2=Menor · 3=Moderado · 4=Mayor · 5=Catastrófico
+              </div>
+            </div>
+
+            {/* Heatmap & Interactive Filter */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(360px, 1fr))', gap: '20px' }}>
+              
+              {/* Heatmap Card */}
+              <div className="glass-panel" style={{ padding: '20px' }}>
+                <h3 style={{ margin: '0 0 16px', fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>⚡ Matriz de Calor (Heatmap PxI)</span>
+                  {selectedRiskCell && (
+                    <button 
+                      onClick={() => setSelectedRiskCell(null)}
+                      style={{ fontSize: '0.72rem', background: 'var(--accent-primary)', color: '#fff', border: 'none', padding: '2px 8px', borderRadius: '12px', cursor: 'pointer', marginLeft: 'auto' }}
+                    >
+                      Limpiar Filtro
+                    </button>
+                  )}
+                </h3>
+                
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                  {[5, 4, 3, 2, 1].map((prob) => (
+                    <div key={prob} style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <div style={{ width: '110px', fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', textAlign: 'right', paddingRight: '8px' }}>
+                        {prob === 5 ? '5-Casi Seguro' : prob === 4 ? '4-Probable' : prob === 3 ? '3-Posible' : prob === 2 ? '2-Poco Probable' : '1-Raro'}
+                      </div>
+                      {[1, 2, 3, 4, 5].map((imp) => {
+                        const level = getRiskLevel(prob, imp);
+                        const colors = RISK_LEVEL_COLORS[level];
+                        const count = (project?.risks || []).filter(r => r.probability === prob && r.impact === imp).length;
+                        const isCellSelected = selectedRiskCell?.probability === prob && selectedRiskCell?.impact === imp;
+                        return (
+                          <div
+                            key={imp}
+                            onClick={() => {
+                              if (isCellSelected) {
+                                setSelectedRiskCell(null);
+                              } else {
+                                setSelectedRiskCell({ probability: prob, impact: imp });
+                              }
+                            }}
+                            style={{
+                              flex: 1,
+                              aspectRatio: '2.4',
+                              background: colors.bg,
+                              color: colors.text,
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              fontSize: '0.9rem',
+                              fontWeight: 800,
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              border: isCellSelected ? '3px solid #000' : `1px solid ${colors.border}`,
+                              boxShadow: isCellSelected ? '0 0 8px rgba(0,0,0,0.4)' : 'none',
+                              opacity: selectedRiskCell && !isCellSelected ? 0.35 : 1,
+                              transition: 'all 0.15s ease',
+                            }}
+                            title={`Probabilidad: ${prob}, Impacto: ${imp} (${level}) - ${count} riesgos`}
+                          >
+                            {count > 0 ? count : ''}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                  
+                  {/* X-Axis labels */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginTop: '4px' }}>
+                    <div style={{ width: '110px' }} />
+                    {[1, 2, 3, 4, 5].map((imp) => (
+                      <div key={imp} style={{ flex: 1, fontSize: '0.72rem', fontWeight: 700, color: 'var(--text-secondary)', textAlign: 'center' }}>
+                        {imp === 1 ? '1-Insig.' : imp === 2 ? '2-Menor' : imp === 3 ? '3-Mod.' : imp === 4 ? '4-Mayor' : '5-Catast.'}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Controls Card */}
+              <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '16px' }}>
+                <div>
+                  <h3 style={{ margin: '0 0 16px', fontSize: '1rem', fontWeight: 800, color: 'var(--text-primary)' }}>Filtros y Búsqueda</h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    <div style={{ position: 'relative' }}>
+                      <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                      <input
+                        type="text"
+                        placeholder="Buscar por descripción, responsable, obs..."
+                        value={searchTermRisks}
+                        onChange={e => setSearchTermRisks(e.target.value)}
+                        className="control-input"
+                        style={{ width: '100%', padding: '10px 10px 10px 38px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                      <select
+                        value={filterLevelRisks}
+                        onChange={e => setFilterLevelRisks(e.target.value)}
+                        style={{ flex: 1, padding: '10px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', outline: 'none', color: 'var(--text-primary)', fontSize: '0.85rem' }}
+                      >
+                        <option value="all">Todos los Niveles</option>
+                        <option value="Bajo">Bajo</option>
+                        <option value="Medio">Medio</option>
+                        <option value="Alto">Alto</option>
+                        <option value="Crítico">Crítico</option>
+                      </select>
+                      <select
+                        value={filterStatusRisks}
+                        onChange={e => setFilterStatusRisks(e.target.value)}
+                        style={{ flex: 1, padding: '10px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', outline: 'none', color: 'var(--text-primary)', fontSize: '0.85rem' }}
+                      >
+                        <option value="all">Todos los Estados</option>
+                        <option value="Activo">Activo</option>
+                        <option value="Mitigado">Mitigado</option>
+                        <option value="Cerrado">Cerrado</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
+                  {saveStatus !== 'idle' && (
+                    <div 
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        padding: '6px 12px',
+                        borderRadius: '8px',
+                        background: saveStatus === 'saving' ? 'rgba(0, 75, 135, 0.08)' : 'rgba(13, 148, 136, 0.08)',
+                        color: saveStatus === 'saving' ? '#004B87' : '#0d9488',
+                        fontSize: '0.75rem',
+                        fontWeight: 700,
+                        border: `1px solid ${saveStatus === 'saving' ? 'rgba(0, 75, 135, 0.15)' : 'rgba(13, 148, 136, 0.15)'}`,
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {saveStatus === 'saving' ? (
+                        <>
+                          <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                          <span>Sincronizando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Check size={12} />
+                          <span>Cambios guardados</span>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  <button 
+                    className="btn btn-primary shadow-sm" 
+                    onClick={handleCreateRisk}
+                    style={{ padding: '8px 16px', background: '#0F2C59', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem', marginLeft: 'auto' }}
+                  >
+                    + Registrar Riesgo
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Spreadsheet Table View */}
+            <div className="table-container" style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto', width: '100%' }}>
+                <table className="incidents-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '1700px' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--bg-tertiary)', borderBottom: '2px solid var(--border-subtle)' }}>
+                      <th style={{ padding: '12px 16px', width: '70px', textAlign: 'center', fontWeight: 'bold' }}>#</th>
+                      <th style={{ padding: '12px 16px', minWidth: '260px' }}>Descripción del Riesgo</th>
+                      <th style={{ padding: '12px 16px', minWidth: '140px' }}>Categoría</th>
+                      <th style={{ padding: '12px 16px', width: '90px', textAlign: 'center' }}>Prob (1-5)</th>
+                      <th style={{ padding: '12px 16px', width: '90px', textAlign: 'center' }}>Imp (1-5)</th>
+                      <th style={{ padding: '12px 16px', width: '90px', textAlign: 'center' }}>Score PxI</th>
+                      <th style={{ padding: '12px 16px', width: '110px', textAlign: 'center' }}>Nivel</th>
+                      <th style={{ padding: '12px 16px', minWidth: '260px' }}>Plan de Mitigación</th>
+                      <th style={{ padding: '12px 16px', minWidth: '150px' }}>Responsable</th>
+                      <th style={{ padding: '12px 16px', width: '130px' }}>Fecha Límite</th>
+                      <th style={{ padding: '12px 16px', width: '110px', textAlign: 'center' }}>Estado</th>
+                      <th style={{ padding: '12px 16px', minWidth: '160px' }}>Actividad Asociada</th>
+                      <th style={{ padding: '12px 16px', width: '120px' }}>Costo Mit.</th>
+                      <th style={{ padding: '12px 16px', minWidth: '160px' }}>Obs.</th>
+                      <th style={{ padding: '12px 16px', width: '60px', textAlign: 'center' }}>Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredRisks.length === 0 ? (
+                      <tr>
+                        <td colSpan={15} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                          <AlertTriangle size={32} style={{ opacity: 0.2, marginBottom: '8px', display: 'inline-block' }} />
+                          <p style={{ margin: 0 }}>Cero riesgos registrados o filtrados en este proyecto.</p>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredRisks.map(risk => {
+                        const riskLevel = getRiskLevel(risk.probability, risk.impact);
+                        const levelColor = RISK_LEVEL_COLORS[riskLevel];
+                        return (
+                          <tr key={risk.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="table-row-interactive">
+                            
+                            {/* indexId */}
+                            <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                              <InlineInput
+                                value={risk.indexId}
+                                onSave={val => handleUpdateRisk(risk.id, { indexId: val })}
+                                style={{ width: '100%', padding: '6px 8px', border: '1px solid transparent', background: 'transparent', color: 'var(--accent-primary)', outline: 'none', textAlign: 'center', fontWeight: 'bold' }}
+                              />
+                            </td>
+
+                            {/* Description */}
+                            <td style={{ padding: '8px 12px' }}>
+                              <InlineTextarea
+                                value={risk.description}
+                                onSave={val => handleUpdateRisk(risk.id, { description: val })}
+                                placeholder="Descripción del riesgo..."
+                                style={{ width: '100%', padding: '6px 8px', border: '1px solid transparent', background: 'transparent', color: 'var(--text-primary)', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }}
+                              />
+                            </td>
+
+                            {/* Category */}
+                            <td style={{ padding: '8px 12px' }}>
+                              <select
+                                value={risk.category || 'Sistema LIS'}
+                                onChange={e => handleUpdateRisk(risk.id, { category: e.target.value })}
+                                style={{ width: '100%', padding: '6px', border: '1px solid transparent', background: 'transparent', outline: 'none', color: 'var(--text-primary)', fontWeight: 600 }}
+                              >
+                                {RISK_CATEGORIES.map(cat => (
+                                  <option key={cat} value={cat}>{cat}</option>
+                                ))}
+                              </select>
+                            </td>
+
+                            {/* Probability */}
+                            <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                              <select
+                                value={risk.probability}
+                                onChange={e => handleUpdateRisk(risk.id, { probability: Number(e.target.value) })}
+                                style={{ width: '100%', padding: '6px', border: '1px solid transparent', background: 'transparent', outline: 'none', color: 'var(--text-primary)', textAlignLast: 'center', fontWeight: 700 }}
+                              >
+                                {[1, 2, 3, 4, 5].map(n => (
+                                  <option key={n} value={n}>{n}</option>
+                                ))}
+                              </select>
+                            </td>
+
+                            {/* Impact */}
+                            <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                              <select
+                                value={risk.impact}
+                                onChange={e => handleUpdateRisk(risk.id, { impact: Number(e.target.value) })}
+                                style={{ width: '100%', padding: '6px', border: '1px solid transparent', background: 'transparent', outline: 'none', color: 'var(--text-primary)', textAlignLast: 'center', fontWeight: 700 }}
+                              >
+                                {[1, 2, 3, 4, 5].map(n => (
+                                  <option key={n} value={n}>{n}</option>
+                                ))}
+                              </select>
+                            </td>
+
+                            {/* Score */}
+                            <td style={{ padding: '8px 12px', textAlign: 'center', fontWeight: 'bold', fontSize: '0.95rem' }}>
+                              {risk.probability * risk.impact}
+                            </td>
+
+                            {/* Level */}
+                            <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                              <span style={{
+                                background: levelColor.bg,
+                                color: levelColor.text,
+                                padding: '4px 10px',
+                                borderRadius: '6px',
+                                fontSize: '0.78rem',
+                                fontWeight: 'bold',
+                                display: 'inline-block',
+                                width: '80px',
+                                border: `1px solid ${levelColor.border}`,
+                                textShadow: riskLevel === 'Medio' ? 'none' : '0 1px 2px rgba(0,0,0,0.15)'
+                              }}>
+                                {riskLevel}
+                              </span>
+                            </td>
+
+                            {/* Mitigation Plan */}
+                            <td style={{ padding: '8px 12px' }}>
+                              <InlineTextarea
+                                value={risk.mitigationPlan || ''}
+                                onSave={val => handleUpdateRisk(risk.id, { mitigationPlan: val })}
+                                placeholder="Medidas de mitigación..."
+                                style={{ width: '100%', padding: '6px 8px', border: '1px solid transparent', background: 'transparent', color: 'var(--text-primary)', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }}
+                              />
+                            </td>
+
+                            {/* Responsible */}
+                            <td style={{ padding: '8px 12px' }}>
+                              <InlineInput
+                                value={risk.responsible || ''}
+                                onSave={val => handleUpdateRisk(risk.id, { responsible: val })}
+                                placeholder="Responsable..."
+                                style={{ width: '100%', padding: '6px 8px', border: '1px solid transparent', background: 'transparent', color: 'var(--text-primary)', outline: 'none' }}
+                              />
+                            </td>
+
+                            {/* Limit Date */}
+                            <td style={{ padding: '8px 12px' }}>
+                              <input
+                                type="date"
+                                value={formatDateForInput(risk.limitDate)}
+                                onChange={e => handleUpdateRisk(risk.id, { limitDate: e.target.value ? new Date(e.target.value) : null })}
+                                style={{ width: '100%', padding: '6px 8px', border: '1px solid transparent', background: 'transparent', outline: 'none', color: 'var(--text-primary)' }}
+                              />
+                            </td>
+
+                            {/* Status */}
+                            <td style={{ padding: '8px 12px' }}>
+                              <select
+                                value={risk.status || 'Activo'}
+                                onChange={e => handleUpdateRisk(risk.id, { status: e.target.value })}
+                                style={{ width: '100%', padding: '6px', border: '1px solid transparent', background: 'transparent', outline: 'none', color: 'var(--text-primary)', fontWeight: 600 }}
+                              >
+                                {RISK_STATUSES.map(st => (
+                                  <option key={st} value={st}>{st}</option>
+                                ))}
+                              </select>
+                            </td>
+
+                            {/* Associated Activity */}
+                            <td style={{ padding: '8px 12px' }}>
+                              <InlineInput
+                                value={risk.associatedActivity || ''}
+                                onSave={val => handleUpdateRisk(risk.id, { associatedActivity: val })}
+                                placeholder="WBS / Hito..."
+                                style={{ width: '100%', padding: '6px 8px', border: '1px solid transparent', background: 'transparent', color: 'var(--text-primary)', outline: 'none' }}
+                              />
+                            </td>
+
+                            {/* Mitigation Cost */}
+                            <td style={{ padding: '8px 12px' }}>
+                              <input
+                                type="number"
+                                value={risk.mitigationCost || 0}
+                                onChange={e => handleUpdateRisk(risk.id, { mitigationCost: Number(e.target.value) })}
+                                style={{ width: '100%', padding: '6px 8px', border: '1px solid transparent', background: 'transparent', outline: 'none', color: 'var(--text-primary)' }}
+                              />
+                            </td>
+
+                            {/* Observations */}
+                            <td style={{ padding: '8px 12px' }}>
+                              <InlineTextarea
+                                value={risk.observations || ''}
+                                onSave={val => handleUpdateRisk(risk.id, { observations: val })}
+                                placeholder="Comentarios..."
+                                style={{ width: '100%', padding: '6px 8px', border: '1px solid transparent', background: 'transparent', color: 'var(--text-primary)', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }}
+                              />
+                            </td>
+
+                            {/* Delete Action */}
+                            <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                              <button
+                                onClick={() => handleDeleteRisk(risk.id)}
+                                style={{ border: 'none', background: 'transparent', color: 'var(--accent-danger)', cursor: 'pointer', padding: '4px' }}
+                                title="Eliminar Riesgo"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </td>
+
+                          </tr>
+                        );
+                      })
+                    )}
+                    
+                    {/* Sum/Totals bottom row */}
+                    {filteredRisks.length > 0 && (
+                      <tr style={{ background: 'var(--bg-tertiary)', fontWeight: 'bold', borderTop: '2px solid var(--border-subtle)' }}>
+                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>-</td>
+                        <td style={{ padding: '12px 16px' }}>Total / Promedio Filtrado</td>
+                        <td style={{ padding: '12px 16px' }}>-</td>
+                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                          {Math.round((filteredRisks.reduce((sum, r) => sum + r.probability, 0) / filteredRisks.length) * 10) / 10}
+                        </td>
+                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                          {Math.round((filteredRisks.reduce((sum, r) => sum + r.impact, 0) / filteredRisks.length) * 10) / 10}
+                        </td>
+                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>
+                          0
+                        </td>
+                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>-</td>
+                        <td style={{ padding: '12px 16px' }}>-</td>
+                        <td style={{ padding: '12px 16px' }}>-</td>
+                        <td style={{ padding: '12px 16px' }}>-</td>
+                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>-</td>
+                        <td style={{ padding: '12px 16px' }}>-</td>
+                        <td style={{ padding: '12px 16px' }}>
+                          ${filteredRisks.reduce((sum, r) => sum + (r.mitigationCost || 0), 0).toLocaleString('es-CL')}
+                        </td>
+                        <td style={{ padding: '12px 16px' }}>-</td>
+                        <td style={{ padding: '12px 16px' }}>-</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+          </div>
+        )}
+
+        {/* TAB 3.75: COSTS */}
+        {activeTab === 'costs' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', animation: 'fadeIn 0.3s' }}>
+            
+            {/* Header / Title block */}
+            <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '12px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderRadius: 'var(--radius-sm)' }}>
+              <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#FFFFFF' }}>CONTROL DE COSTOS — {project?.name?.toUpperCase()}</h2>
+            </div>
+            
+            <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '10px 16px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+              Registrar todos los ítems de costo asociados al proyecto. Los totales se calculan automáticamente.
+            </div>
+
+            {/* Summary Cards Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1px', background: '#0F2C59', border: '1px solid #0F2C59', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
+              <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '10px', textAlign: 'center', fontSize: '0.75rem', fontWeight: 800 }}>PRESUPUESTO TOTAL</div>
+              <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '10px', textAlign: 'center', fontSize: '0.75rem', fontWeight: 800 }}>COSTO COMPROMETIDO</div>
+              <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '10px', textAlign: 'center', fontSize: '0.75rem', fontWeight: 800 }}>COSTO EJECUTADO</div>
+              <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '10px', textAlign: 'center', fontSize: '0.75rem', fontWeight: 800 }}>SALDO DISPONIBLE</div>
+              <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '10px', textAlign: 'center', fontSize: '0.75rem', fontWeight: 800 }}>% EJECUCIÓN</div>
+              
+              <div style={{ background: '#F4F7F6', color: '#1A1A1A', padding: '12px 10px', textAlign: 'center', fontSize: '1rem', fontWeight: 800, fontFamily: 'monospace' }}>
+                {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.totalBudget)}
+              </div>
+              <div style={{ background: '#F4F7F6', color: '#1A1A1A', padding: '12px 10px', textAlign: 'center', fontSize: '1rem', fontWeight: 800, fontFamily: 'monospace' }}>
+                {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.totalCommitted)}
+              </div>
+              <div style={{ background: '#F4F7F6', color: '#1A1A1A', padding: '12px 10px', textAlign: 'center', fontSize: '1rem', fontWeight: 800, fontFamily: 'monospace' }}>
+                {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.totalExecuted)}
+              </div>
+              <div style={{ 
+                background: financialTotals.availableBalance < 0 ? 'rgba(239, 68, 68, 0.08)' : '#E8F1F5', 
+                color: financialTotals.availableBalance < 0 ? '#dc2626' : '#0F2C59', 
+                padding: '12px 10px', 
+                textAlign: 'center', 
+                fontSize: '1rem', 
+                fontWeight: 800, 
+                fontFamily: 'monospace',
+                border: financialTotals.availableBalance < 0 ? '1px solid rgba(239, 68, 68, 0.15)' : 'none'
+              }}>
+                {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.availableBalance)}
+              </div>
+              <div style={{ background: '#E8F1F5', color: '#0F2C59', padding: '12px 10px', textAlign: 'center', fontSize: '1rem', fontWeight: 800, fontFamily: 'monospace' }}>
+                {financialTotals.executionPercentage.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+              </div>
+            </div>
+
+            {/* Controls Bar */}
+            <div className="glass-panel" style={{ padding: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '12px', flex: 1, minWidth: '320px', flexWrap: 'wrap' }}>
+                <div style={{ position: 'relative', flex: 1 }}>
+                  <Search size={16} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)' }} />
+                  <input
+                    type="text"
+                    placeholder="Buscar por descripción, proveedor, OC..."
+                    value={searchTermCosts}
+                    onChange={e => setSearchTermCosts(e.target.value)}
+                    className="control-input"
+                    style={{ width: '100%', padding: '10px 10px 10px 38px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
+                  />
+                </div>
+                <select
+                  value={filterCategoryCosts}
+                  onChange={e => setFilterCategoryCosts(e.target.value)}
+                  style={{ width: '180px', padding: '10px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', outline: 'none', color: 'var(--text-primary)', fontSize: '0.85rem' }}
+                >
+                  <option value="all">Todas las Categorías</option>
+                  {COST_CATEGORIES.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+                <select
+                  value={filterStatusCosts}
+                  onChange={e => setFilterStatusCosts(e.target.value)}
+                  style={{ width: '180px', padding: '10px', background: 'var(--bg-secondary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', outline: 'none', color: 'var(--text-primary)', fontSize: '0.85rem' }}
+                >
+                  <option value="all">Todos los Estados OC</option>
+                  {OC_STATUSES.map(st => (
+                    <option key={st} value={st}>{st}</option>
+                  ))}
+                </select>
+              </div>
+              
+              <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                {saveStatus !== 'idle' && (
+                  <div 
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px',
+                      padding: '6px 12px',
+                      borderRadius: '8px',
+                      background: saveStatus === 'saving' ? 'rgba(0, 75, 135, 0.08)' : 'rgba(13, 148, 136, 0.08)',
+                      color: saveStatus === 'saving' ? '#004B87' : '#0d9488',
+                      fontSize: '0.75rem',
+                      fontWeight: 700,
+                      border: `1px solid ${saveStatus === 'saving' ? 'rgba(0, 75, 135, 0.15)' : 'rgba(13, 148, 136, 0.15)'}`,
+                      whiteSpace: 'nowrap'
+                    }}
+                  >
+                    {saveStatus === 'saving' ? (
+                      <>
+                        <Loader2 size={12} style={{ animation: 'spin 1s linear infinite' }} />
+                        <span>Sincronizando...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Check size={12} />
+                        <span>Cambios guardados</span>
+                      </>
+                    )}
+                  </div>
+                )}
+                <button 
+                  className="btn btn-primary shadow-sm" 
+                  onClick={handleCreateCostItem}
+                  style={{ padding: '8px 16px', background: '#0F2C59', color: '#fff', border: 'none', borderRadius: 'var(--radius-sm)', fontWeight: 'bold', cursor: 'pointer', fontSize: '0.85rem' }}
+                >
+                  + Registrar Costo
+                </button>
+              </div>
+            </div>
+
+            {/* Spreadsheet Table View */}
+            <div className="table-container" style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-subtle)', overflow: 'hidden' }}>
+              <div style={{ overflowX: 'auto', width: '100%' }}>
+                <table className="incidents-table" style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', minWidth: '1500px' }}>
+                  <thead>
+                    <tr style={{ background: 'var(--bg-tertiary)', borderBottom: '2px solid var(--border-subtle)' }}>
+                      <th style={{ padding: '12px 16px', width: '70px', textAlign: 'center', fontWeight: 'bold' }}>#</th>
+                      <th style={{ padding: '12px 16px', minWidth: '280px' }}>Ítem / Descripción</th>
+                      <th style={{ padding: '12px 16px', minWidth: '160px' }}>Categoría</th>
+                      <th style={{ padding: '12px 16px', minWidth: '160px' }}>Proveedor / Resp.</th>
+                      <th style={{ padding: '12px 16px', width: '180px', textAlign: 'right' }}>Presupuesto Aprobado</th>
+                      <th style={{ padding: '12px 16px', width: '180px', textAlign: 'right' }}>OC Emitida</th>
+                      <th style={{ padding: '12px 16px', width: '160px' }}>N° OC / Referencia</th>
+                      <th style={{ padding: '12px 16px', width: '180px', textAlign: 'right' }}>Costo Real Ejecutado</th>
+                      <th style={{ padding: '12px 16px', width: '130px', textAlign: 'center' }}>Estado OC</th>
+                      <th style={{ padding: '12px 16px', minWidth: '220px' }}>Observación</th>
+                      <th style={{ padding: '12px 16px', width: '60px', textAlign: 'center' }}>Acción</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filteredCostItems.length === 0 ? (
+                      <tr>
+                        <td colSpan={11} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                          <AlertTriangle size={32} style={{ opacity: 0.2, marginBottom: '8px', display: 'inline-block' }} />
+                          <p style={{ margin: 0 }}>Cero ítems de costo registrados o filtrados en este proyecto.</p>
+                        </td>
+                      </tr>
+                    ) : (
+                      filteredCostItems.map(item => {
+                        return (
+                          <tr key={item.id} style={{ borderBottom: '1px solid var(--border-subtle)' }} className="table-row-interactive">
+                            
+                            {/* indexId */}
+                            <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                              <InlineInput
+                                value={item.indexId}
+                                onSave={val => handleUpdateCostItem(item.id, { indexId: val })}
+                                style={{ width: '100%', padding: '6px 8px', border: '1px solid transparent', background: 'transparent', color: 'var(--accent-primary)', outline: 'none', textAlign: 'center', fontWeight: 'bold' }}
+                              />
+                            </td>
+
+                            {/* Description */}
+                            <td style={{ padding: '8px 12px' }}>
+                              <InlineTextarea
+                                value={item.description}
+                                onSave={val => handleUpdateCostItem(item.id, { description: val })}
+                                placeholder="Descripción del ítem..."
+                                style={{ width: '100%', padding: '6px 8px', border: '1px solid transparent', background: 'transparent', color: 'var(--text-primary)', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }}
+                              />
+                            </td>
+
+                            {/* Category */}
+                            <td style={{ padding: '8px 12px' }}>
+                              <select
+                                value={item.category || 'Licencia Software'}
+                                onChange={e => handleUpdateCostItem(item.id, { category: e.target.value })}
+                                style={{ width: '100%', padding: '6px', border: '1px solid transparent', background: 'transparent', outline: 'none', color: 'var(--text-primary)', fontWeight: 600 }}
+                              >
+                                {COST_CATEGORIES.map(cat => (
+                                  <option key={cat} value={cat}>{cat}</option>
+                                ))}
+                              </select>
+                            </td>
+
+                            {/* Provider */}
+                            <td style={{ padding: '8px 12px' }}>
+                              <InlineInput
+                                value={item.provider || ''}
+                                onSave={val => handleUpdateCostItem(item.id, { provider: val })}
+                                placeholder="Proveedor o responsable..."
+                                style={{ width: '100%', padding: '6px 8px', border: '1px solid transparent', background: 'transparent', color: 'var(--text-primary)', outline: 'none' }}
+                              />
+                            </td>
+
+                            {/* Approved Budget */}
+                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                              <InlineNumberInput
+                                value={item.approvedBudget}
+                                formatType="currency"
+                                onSave={val => handleUpdateCostItem(item.id, { approvedBudget: val || 0 })}
+                                style={{ textAlign: 'right', fontWeight: 'bold' }}
+                              />
+                            </td>
+
+                            {/* OC Emitted (Committed) */}
+                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                              <InlineNumberInput
+                                value={parseFloat(item.ocEmitted || '') || 0}
+                                formatType="currency"
+                                onSave={val => handleUpdateCostItem(item.id, { ocEmitted: String(val || 0) })}
+                                style={{ textAlign: 'right', fontWeight: 'bold' }}
+                              />
+                            </td>
+
+                            {/* OC Number / Reference */}
+                            <td style={{ padding: '8px 12px' }}>
+                              <InlineInput
+                                value={item.ocNumber || ''}
+                                onSave={val => handleUpdateCostItem(item.id, { ocNumber: val })}
+                                placeholder="N° OC / ref..."
+                                style={{ width: '100%', padding: '6px 8px', border: '1px solid transparent', background: 'transparent', color: 'var(--text-primary)', outline: 'none' }}
+                              />
+                            </td>
+
+                            {/* Real Cost Executed */}
+                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>
+                              <InlineNumberInput
+                                value={item.realCost}
+                                formatType="currency"
+                                onSave={val => handleUpdateCostItem(item.id, { realCost: val || 0 })}
+                                style={{ textAlign: 'right', fontWeight: 'bold' }}
+                              />
+                            </td>
+
+                            {/* OC Status */}
+                            <td style={{ padding: '8px 12px' }}>
+                              <select
+                                value={item.ocStatus || 'Pendiente'}
+                                onChange={e => handleUpdateCostItem(item.id, { ocStatus: e.target.value })}
+                                style={{ width: '100%', padding: '6px', border: '1px solid transparent', background: 'transparent', outline: 'none', color: 'var(--text-primary)', fontWeight: 600 }}
+                              >
+                                {OC_STATUSES.map(st => (
+                                  <option key={st} value={st}>{st}</option>
+                                ))}
+                              </select>
+                            </td>
+
+                            {/* Observations */}
+                            <td style={{ padding: '8px 12px' }}>
+                              <InlineTextarea
+                                value={item.observations || ''}
+                                onSave={val => handleUpdateCostItem(item.id, { observations: val })}
+                                placeholder="Comentarios..."
+                                style={{ width: '100%', padding: '6px 8px', border: '1px solid transparent', background: 'transparent', color: 'var(--text-primary)', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }}
+                              />
+                            </td>
+
+                            {/* Delete Action */}
+                            <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                              <button
+                                onClick={() => handleDeleteCostItem(item.id)}
+                                style={{ border: 'none', background: 'transparent', color: 'var(--accent-danger)', cursor: 'pointer', padding: '4px' }}
+                                title="Eliminar ítem de costo"
+                              >
+                                <Trash2 size={16} />
+                              </button>
+                            </td>
+
+                          </tr>
+                        );
+                      })
+                    )}
+                    
+                    {/* Sum/Totals bottom row */}
+                    {filteredCostItems.length > 0 && (
+                      <tr style={{ background: 'var(--bg-tertiary)', fontWeight: 'bold', borderTop: '2px solid var(--border-subtle)' }}>
+                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>-</td>
+                        <td style={{ padding: '12px 16px' }}>TOTAL</td>
+                        <td style={{ padding: '12px 16px' }}>-</td>
+                        <td style={{ padding: '12px 16px' }}>-</td>
+                        <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace' }}>
+                          {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(filteredBudgetSum)}
+                        </td>
+                        <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace' }}>
+                          {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(filteredCommittedSum)}
+                        </td>
+                        <td style={{ padding: '12px 16px' }}>-</td>
+                        <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace' }}>
+                          {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(filteredExecutedSum)}
+                        </td>
+                        <td style={{ padding: '12px 16px' }}>-</td>
+                        <td style={{ padding: '12px 16px' }}>-</td>
+                        <td style={{ padding: '12px 16px' }}>-</td>
+                      </tr>
                     )}
                   </tbody>
                 </table>

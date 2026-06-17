@@ -1,1 +1,0 @@
-"                      <th style={{ padding: '12px 12px', width: '195px' }}>Proyecto Asociado</th>\n                      <th style={{ padding: '12px 8px', width: '125px', minWidth: '140px', textAlign: 'center' }}>Levantamiento</th>"
