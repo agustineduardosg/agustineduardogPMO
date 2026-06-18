@@ -79,6 +79,23 @@ export default function GanttPage() {
   const [collapsedPhases, setCollapsedPhases] = useState<Record<string, boolean>>({});
   const [collapsedTasks, setCollapsedTasks] = useState<Record<string, boolean>>({});
   const [isProjectDropdownOpen, setIsProjectDropdownOpen] = useState(false);
+
+  // Inline add user state
+  const [isInlineAddUserOpen, setIsInlineAddUserOpen] = useState(false);
+  const [inlineUserName, setInlineUserName] = useState('');
+  const [inlineUserEmail, setInlineUserEmail] = useState('');
+  const [inlineUserRole, setInlineUserRole] = useState('Project Manager');
+  const [inlineUserMaxTasks, setInlineUserMaxTasks] = useState(5);
+  const [inlineUserSuccessCallback, setInlineUserSuccessCallback] = useState<((name: string) => void) | null>(null);
+
+  const handleOpenInlineAddUser = (onSuccess: (name: string) => void) => {
+    setInlineUserName('');
+    setInlineUserEmail('');
+    setInlineUserRole('Project Manager');
+    setInlineUserMaxTasks(5);
+    setInlineUserSuccessCallback(() => onSuccess);
+    setIsInlineAddUserOpen(true);
+  };
   
   const toggleTask = (taskId: string, e: React.MouseEvent) => {
     e.stopPropagation(); // Evitar abrir drawer de edición
@@ -1051,14 +1068,14 @@ export default function GanttPage() {
                         <div 
                           style={{ 
                             position: 'absolute', 
-                            top: '14px', 
+                            top: '12px', 
                             left: `${offset}px`, 
                             width: `${width}px`, 
-                            height: '14px', 
-                            background: 'rgba(148, 163, 184, 0.12)', 
+                            height: '18px', 
+                            background: 'rgba(0, 75, 135, 0.18)', 
                             borderRadius: '9999px', 
-                            border: '1px solid rgba(255, 255, 255, 0.2)',
-                            boxShadow: '0 2px 6px rgba(0,0,0,0.03)',
+                            border: '1.5px solid rgba(0, 121, 193, 0.35)',
+                            boxShadow: '0 2px 8px rgba(0, 75, 135, 0.12)',
                             overflow: 'hidden',
                             backdropFilter: 'blur(4px)',
                             display: 'flex',
@@ -1073,7 +1090,7 @@ export default function GanttPage() {
                               height: '100%', 
                               background: progressGradient, 
                               borderRadius: '9999px',
-                              boxShadow: isPhaseCompleted ? '0 0 10px rgba(13, 148, 136, 0.3)' : '0 0 10px rgba(0, 121, 193, 0.3)'
+                              boxShadow: isPhaseCompleted ? '0 0 14px rgba(13, 148, 136, 0.3)' : '0 0 14px rgba(0, 121, 193, 0.3)'
                             }} 
                           />
                         </div>
@@ -1476,13 +1493,25 @@ export default function GanttPage() {
                 <label style={{ display: 'block', marginBottom: '8px', color: 'var(--text-secondary)', fontSize: '0.9rem', fontWeight: 600 }}>Responsable</label>
                 <select 
                   value={editingTask.task.assignee} 
-                  onChange={e => setEditingTask({...editingTask, task: {...editingTask.task, assignee: e.target.value}})}
+                  onChange={e => {
+                    if (e.target.value === "ADD_NEW_USER") {
+                      handleOpenInlineAddUser((name) => {
+                        setEditingTask(prev => prev ? {
+                          ...prev,
+                          task: { ...prev.task, assignee: name }
+                        } : null);
+                      });
+                    } else {
+                      setEditingTask({...editingTask, task: {...editingTask.task, assignee: e.target.value}});
+                    }
+                  }}
                   style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
                 >
                   <option value="Sin Asignar">Sin Asignar</option>
                   {users.map(u => (
                     <option key={u.id} value={u.name}>{u.name} ({u.role})</option>
                   ))}
+                  <option value="ADD_NEW_USER" style={{ color: 'var(--accent-primary)', fontWeight: 'bold' }}>+ Agregar Nuevo...</option>
                 </select>
               </div>
 
@@ -1689,6 +1718,123 @@ export default function GanttPage() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Modal para agregar un nuevo responsable desde el gantt */}
+      {isInlineAddUserOpen && (
+        <div className="custom-modal-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(4px)' }}>
+          <div className="custom-modal-card" style={{ background: 'var(--bg-secondary)', padding: '24px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-light)', width: '450px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#004B87', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                👤 Registrar y Asignar Nuevo Actor
+              </h3>
+              <button onClick={() => setIsInlineAddUserOpen(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={18} /></button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.8rem', fontWeight: 600 }}>Nombre Completo</label>
+                <input 
+                  type="text" 
+                  value={inlineUserName}
+                  onChange={e => {
+                    const name = e.target.value;
+                    setInlineUserName(name);
+                    // Generar correo dinámico limpio sin acentos
+                    const generatedEmail = name.trim().toLowerCase()
+                      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+                      .replace(/\s+/g, '.') + '@bupa.cl';
+                    setInlineUserEmail(generatedEmail);
+                  }}
+                  placeholder="Ej: Juan Pérez"
+                  style={{ width: '100%', padding: '8px 10px', fontSize: '0.85rem', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '4px', outline: 'none', color: 'var(--text-primary)' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.8rem', fontWeight: 600 }}>Email Corporativo</label>
+                <input 
+                  type="email" 
+                  value={inlineUserEmail}
+                  onChange={e => setInlineUserEmail(e.target.value)}
+                  placeholder="juan.perez@bupa.cl"
+                  style={{ width: '100%', padding: '8px 10px', fontSize: '0.85rem', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '4px', outline: 'none', color: 'var(--text-primary)' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.8rem', fontWeight: 600 }}>Rol / Cargo</label>
+                  <select
+                    value={inlineUserRole}
+                    onChange={e => setInlineUserRole(e.target.value)}
+                    style={{ width: '100%', padding: '8px 10px', fontSize: '0.85rem', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '4px', outline: 'none', cursor: 'pointer', color: 'var(--text-primary)' }}
+                  >
+                    <option value="Project Manager">Project Manager</option>
+                    <option value="Ingeniero Biomédico">Ingeniero Biomédico</option>
+                    <option value="Físico Médico">Físico Médico</option>
+                    <option value="Técnico de TI">Técnico de TI</option>
+                    <option value="Mantenimiento Climatización">Mantenimiento Climatización</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.8rem', fontWeight: 600 }}>Límite Tareas</label>
+                  <input 
+                    type="number" 
+                    min="1" max="50"
+                    value={inlineUserMaxTasks}
+                    onChange={e => setInlineUserMaxTasks(parseInt(e.target.value) || 5)}
+                    style={{ width: '100%', padding: '8px 10px', fontSize: '0.85rem', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '4px', outline: 'none', color: 'var(--text-primary)' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                onClick={() => setIsInlineAddUserOpen(false)}
+              >
+                Cancelar
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-primary" 
+                style={{ background: '#004B87', color: 'white', border: 'none', padding: '6px 16px', fontSize: '0.8rem', fontWeight: 700 }}
+                onClick={async () => {
+                  if (!inlineUserName.trim() || !inlineUserEmail.trim()) {
+                    alert("Nombre y Email son obligatorios.");
+                    return;
+                  }
+                  try {
+                    const { addUser } = useUserStore.getState();
+                    const newUserId = `usr-${Date.now()}`;
+                    const nameTrimmed = inlineUserName.trim();
+                    await addUser({
+                      id: newUserId,
+                      name: nameTrimmed,
+                      email: inlineUserEmail.trim(),
+                      role: inlineUserRole,
+                      maxTasksLimit: inlineUserMaxTasks
+                    });
+                    
+                    if (inlineUserSuccessCallback) {
+                      inlineUserSuccessCallback(nameTrimmed);
+                    }
+                    setIsInlineAddUserOpen(false);
+                  } catch (err) {
+                    console.error(err);
+                    alert("Error al crear el nuevo responsable.");
+                  }
+                }}
+              >
+                Crear y Asignar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <style dangerouslySetInnerHTML={{__html: `
         .task-row:hover { background: rgba(241, 245, 249, 0.8) !important; }

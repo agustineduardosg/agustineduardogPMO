@@ -35,6 +35,19 @@ import {
 import { InlineInput, InlineTextarea } from '@/components/InlineInput';
 import { Drawer } from '@/components/Drawer';
 
+// Modularized components imports
+import { ParentProjectsModal } from '@/components/incidents/ParentProjectsModal';
+import { ProjectEditModal } from '@/components/incidents/ProjectEditModal';
+import { AssociateGlobalModal } from '@/components/incidents/AssociateGlobalModal';
+import { ProjectLandingCard } from '@/components/incidents/ProjectLandingCard';
+import { IndependentLandingCard } from '@/components/incidents/IndependentLandingCard';
+import { 
+  ColumnManagerModal, 
+  COLUMN_CONFIG, 
+  DEFAULT_COLUMN_ORDER, 
+  DEFAULT_COLUMN_WIDTHS 
+} from '@/components/incidents/ColumnManagerModal';
+
 // Estilos de impacto
 const IMPACT_STYLE: Record<IncidentImpact, { bg: string; color: string; border: string }> = {
   'Crítico': { bg: 'rgba(225, 29, 72, 0.1)', color: '#e11d48', border: 'rgba(225, 29, 72, 0.2)' },
@@ -60,51 +73,6 @@ const FASES_CLINICAS = [
   'Go-live'
 ];
 
-const COLUMN_CONFIG: Record<string, { label: string; width?: string; minWidth?: string }> = {
-  id: { label: 'ID', width: '55px' },
-  fecha: { label: 'Fecha', width: '120px' },
-  recintoName: { label: 'Sede / Clínica', width: '160px' },
-  equipmentName: { label: 'Equipo Afectado', width: '180px' },
-  faseAfectada: { label: 'Fase Afectada', width: '150px' },
-  descripcion: { label: 'Descripción del Incidente / Desviación', minWidth: '280px' },
-  impacto: { label: 'Impacto', width: '115px' },
-  responsable: { label: 'Responsable', width: '160px' },
-  estado: { label: 'Estado', width: '120px' },
-  planDeAccion: { label: 'Plan de Acción Inmediato / Mitigación', minWidth: '240px' },
-  fechaCierre: { label: 'F. Cierre', width: '120px' },
-  projectId: { label: 'Proyecto Asociado', width: '180px' }
-};
-
-const DEFAULT_COLUMN_ORDER = [
-  'id',
-  'fecha',
-  'recintoName',
-  'equipmentName',
-  'faseAfectada',
-  'descripcion',
-  'impacto',
-  'responsable',
-  'estado',
-  'planDeAccion',
-  'fechaCierre',
-  'projectId'
-];
-
-const DEFAULT_COLUMN_WIDTHS: Record<string, number> = {
-  id: 60,
-  fecha: 110,
-  recintoName: 150,
-  equipmentName: 180,
-  faseAfectada: 130,
-  descripcion: 320,
-  impacto: 110,
-  responsable: 150,
-  estado: 110,
-  planDeAccion: 280,
-  fechaCierre: 110,
-  projectId: 170
-};
-
 type ProjectStatus = 'Planificación' | 'Ejecución' | 'Pausado' | 'Completado';
 
 const STATUS_CONFIG: Record<ProjectStatus, { color: string; bg: string; label: string }> = {
@@ -118,498 +86,6 @@ const AREA_COLORS: Record<string, string> = {
   'Tecnología': '#6366f1', 'Operaciones': '#f59e0b', 'Salud Digital': '#0079C1',
   'Clínico': '#10b981', 'Administración': '#8b5cf6', 'Finanzas': '#ef4444',
   'Marketing': '#ec4899', 'Legal': '#14b8a6',
-};
-
-// Modal Administrador de Agrupadores
-const ParentProjectsModal = ({ 
-  onClose, 
-  parentProjects, 
-  onAdd, 
-  onUpdate, 
-  onDelete 
-}: { 
-  onClose: () => void; 
-  parentProjects: ParentProject[];
-  onAdd: (name: string, description?: string) => Promise<void>;
-  onUpdate: (id: string, name: string, description?: string) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
-}) => {
-  const [newName, setNewName] = useState('');
-  const [newDesc, setNewDesc] = useState('');
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editingName, setEditingName] = useState('');
-  const [editingDesc, setEditingDesc] = useState('');
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newName.trim()) return;
-    await onAdd(newName.trim(), newDesc.trim());
-    setNewName('');
-    setNewDesc('');
-  };
-
-  const handleUpdate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editingId || !editingName.trim()) return;
-    await onUpdate(editingId, editingName.trim(), editingDesc.trim());
-    setEditingId(null);
-  };
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={onClose}>
-      <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', width: '600px', maxWidth: '95vw', padding: '24px', boxShadow: '0 30px 60px rgba(0,0,0,0.3)', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '16px', animation: 'scaleUp 0.2s ease' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
-          <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#003B64', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <FolderPlus size={18} color="#0079C1" />
-            Gestionar Agrupadores / Programas
-          </h2>
-          <button className="icon-btn" onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={20} /></button>
-        </div>
-
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px', minHeight: '300px' }}>
-          <div style={{ borderRight: '1px solid var(--border-subtle)', paddingRight: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <h3 style={{ fontSize: '0.9rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>Crear Nuevo Agrupador</h3>
-            <form onSubmit={handleCreate} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <input 
-                type="text" 
-                placeholder="Nombre del Programa/Agrupador" 
-                value={newName} 
-                onChange={e => setNewName(e.target.value)}
-                style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-primary)', outline: 'none' }}
-                required
-              />
-              <textarea 
-                placeholder="Descripción (opcional)" 
-                value={newDesc} 
-                onChange={e => setNewDesc(e.target.value)}
-                rows={3}
-                style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.85rem', color: 'var(--text-primary)', outline: 'none', resize: 'vertical' }}
-              />
-              <button type="submit" className="btn btn-primary" style={{ padding: '8px', fontSize: '0.82rem', width: '100%' }}>Crear Agrupador</button>
-            </form>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', overflowY: 'auto', maxHeight: '350px' }}>
-            <h3 style={{ fontSize: '0.9rem', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>Agrupadores Existentes</h3>
-            {parentProjects.length === 0 ? (
-              <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', fontStyle: 'italic', textAlign: 'center', marginTop: '20px' }}>No hay agrupadores registrados.</div>
-            ) : (
-              parentProjects.map(pp => (
-                <div key={pp.id} style={{ padding: '10px', background: 'var(--bg-secondary)', border: '1px solid var(--border-subtle)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {editingId === pp.id ? (
-                    <form onSubmit={handleUpdate} style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      <input 
-                        type="text" 
-                        value={editingName} 
-                        onChange={e => setEditingName(e.target.value)} 
-                        style={{ width: '100%', padding: '6px 10px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.8rem', color: 'var(--text-primary)', outline: 'none' }}
-                        required
-                      />
-                      <input 
-                        type="text" 
-                        value={editingDesc} 
-                        onChange={e => setEditingDesc(e.target.value)} 
-                        placeholder="Descripción"
-                        style={{ width: '100%', padding: '6px 10px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.8rem', color: 'var(--text-primary)', outline: 'none' }}
-                      />
-                      <div style={{ display: 'flex', gap: '6px', justifyContent: 'flex-end' }}>
-                        <button type="button" onClick={() => setEditingId(null)} className="btn btn-secondary" style={{ padding: '4px 8px', fontSize: '0.75rem' }}>Cancelar</button>
-                        <button type="submit" className="btn btn-primary" style={{ padding: '4px 8px', fontSize: '0.75rem' }}>Guardar</button>
-                      </div>
-                    </form>
-                  ) : (
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontWeight: 'bold', fontSize: '0.85rem', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pp.name}</div>
-                        {pp.description && <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>{pp.description}</div>}
-                      </div>
-                      <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
-                        <button 
-                          onClick={() => {
-                            setEditingId(pp.id);
-                            setEditingName(pp.name);
-                            setEditingDesc(pp.description || '');
-                          }}
-                          className="btn btn-secondary" 
-                          style={{ padding: '4px 8px', fontSize: '0.7rem' }}
-                        >
-                          Editar
-                        </button>
-                        <button 
-                          onClick={() => {
-                            if (confirm(`¿Seguro que deseas eliminar el agrupador "${pp.name}"? Los proyectos hijos no se eliminarán, quedarán huérfanos.`)) {
-                              onDelete(pp.id);
-                            }
-                          }}
-                          className="btn btn-danger" 
-                          style={{ padding: '4px 8px', fontSize: '0.7rem', background: 'var(--accent-red)', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
-                        >
-                          Eliminar
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-const ProjectEditModal = ({ 
-  project, 
-  onClose, 
-  onSave 
-}: { 
-  project: Project; 
-  onClose: () => void; 
-  onSave: (id: string, updates: any) => Promise<void>;
-}) => {
-  const [name, setName] = useState(project.name);
-  const [manager, setManager] = useState(project.manager || '');
-  const [description, setDescription] = useState(project.description || '');
-  const [area, setArea] = useState(project.area || 'Tecnología');
-  const [status, setStatus] = useState(project.status || 'Planificación');
-  const [isSaving, setIsSaving] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSaving(true);
-    try {
-      await onSave(project.id, {
-        name: name.trim(),
-        manager: manager.trim(),
-        description: description.trim(),
-        area,
-        status
-      });
-      onClose();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={onClose}>
-      <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', width: '500px', maxWidth: '95vw', padding: '24px', boxShadow: '0 30px 60px rgba(0,0,0,0.3)', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '16px', animation: 'scaleUp 0.2s ease' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
-          <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#003B64', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Edit2 size={18} color="#0079C1" />
-            Editar Proyecto
-          </h2>
-          <button className="icon-btn" onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={20} /></button>
-        </div>
-
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div>
-            <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Nombre del Proyecto</label>
-            <input 
-              type="text" 
-              value={name} 
-              onChange={e => setName(e.target.value)}
-              style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none' }}
-              required
-            />
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <div>
-              <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>PM / Gerente</label>
-              <input 
-                type="text" 
-                value={manager} 
-                onChange={e => setManager(e.target.value)}
-                style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none' }}
-              />
-            </div>
-
-            <div>
-              <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Área</label>
-              <select 
-                value={area} 
-                onChange={e => setArea(e.target.value)}
-                style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
-              >
-                {Object.keys(AREA_COLORS).map(a => <option key={a} value={a}>{a}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <div>
-              <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Estado de Proyecto</label>
-              <select 
-                value={status} 
-                onChange={e => setStatus(e.target.value as any)}
-                style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
-              >
-                <option value="Planificación">Planificación</option>
-                <option value="Ejecución">En Ejecución</option>
-                <option value="Pausado">Pausado</option>
-                <option value="Completado">Completado</option>
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Descripción</label>
-            <textarea 
-              value={description} 
-              onChange={e => setDescription(e.target.value)}
-              rows={3}
-              style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none', resize: 'vertical' }}
-            />
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px', borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
-            <button type="button" onClick={onClose} className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '0.82rem' }}>Cancelar</button>
-            <button type="submit" disabled={isSaving} className="btn btn-primary" style={{ padding: '8px 20px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {isSaving && <Loader2 className="animate-spin" size={14} />}
-              Guardar
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-};
-
-const AssociateGlobalModal = ({ 
-  onClose, 
-  onSave 
-}: { 
-  onClose: () => void; 
-  onSave: (targetProjectId: string) => Promise<void>;
-}) => {
-  const projects = useProjectStore(state => state.projects);
-  const parentProjects = useProjectStore(state => state.parentProjects);
-  const addProject = useProjectStore(state => state.addProject);
-
-  const [mode, setMode] = useState<'existing' | 'new'>('existing');
-  const [selectedId, setSelectedId] = useState('');
-  
-  // Fields for new project
-  const [name, setName] = useState('');
-  const [manager, setManager] = useState('');
-  const [area, setArea] = useState('Tecnología');
-  const [status, setStatus] = useState('Planificación');
-  const [parentId, setParentId] = useState('');
-  
-  const [isSaving, setIsSaving] = useState(false);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSaving(true);
-    try {
-      if (mode === 'existing') {
-        if (!selectedId) {
-          alert('Por favor seleccione un proyecto.');
-          setIsSaving(false);
-          return;
-        }
-        await onSave(selectedId);
-      } else {
-        if (!name.trim()) {
-          alert('El nombre del proyecto es obligatorio.');
-          setIsSaving(false);
-          return;
-        }
-        const newProjectId = `proj-${Date.now()}`;
-        const newProjectObj: Project = {
-          id: newProjectId,
-          name: name.trim(),
-          description: '',
-          manager: manager.trim(),
-          sponsor: '',
-          responsible: '',
-          area,
-          status: status as any,
-          hasEquipment: false,
-          startDate: new Date(),
-          endDate: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-          parentProjectId: parentId || null,
-          phases: []
-        };
-        await addProject(newProjectObj);
-        await onSave(newProjectId);
-      }
-      onClose();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.5)', zIndex: 300, display: 'flex', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)' }} onClick={onClose}>
-      <div style={{ background: 'var(--bg-secondary)', borderRadius: 'var(--radius-lg)', width: '500px', maxWidth: '95vw', padding: '24px', boxShadow: '0 30px 60px rgba(0,0,0,0.3)', border: '1px solid var(--border-light)', display: 'flex', flexDirection: 'column', gap: '16px', animation: 'scaleUp 0.2s ease' }} onClick={e => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
-          <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: '#003B64', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Sliders size={18} color="#0079C1" />
-            Asociar Incidentes Globales a Proyecto
-          </h2>
-          <button className="icon-btn" onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={20} /></button>
-        </div>
-
-        <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0 }}>
-          Puedes mover todos los incidentes globales que no tienen proyecto a un proyecto nuevo o uno ya existente en el sistema.
-        </p>
-
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div style={{ 
-            display: 'flex', 
-            background: 'var(--bg-tertiary)', 
-            borderRadius: '8px', 
-            padding: '4px',
-            border: '1px solid var(--border-subtle)',
-            marginBottom: '4px'
-          }}>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setMode('existing');
-              }}
-              style={{
-                flex: 1,
-                padding: '8px 12px',
-                borderRadius: '6px',
-                border: 'none',
-                background: mode === 'existing' ? '#0079C1' : 'transparent',
-                color: mode === 'existing' ? '#FFFFFF' : 'var(--text-secondary)',
-                fontWeight: mode === 'existing' ? 700 : 500,
-                fontSize: '0.8rem',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                textAlign: 'center'
-              }}
-            >
-              Asociar a Proyecto Existente
-            </button>
-            <button
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                setMode('new');
-              }}
-              style={{
-                flex: 1,
-                padding: '8px 12px',
-                borderRadius: '6px',
-                border: 'none',
-                background: mode === 'new' ? '#0079C1' : 'transparent',
-                color: mode === 'new' ? '#FFFFFF' : 'var(--text-secondary)',
-                fontWeight: mode === 'new' ? 700 : 500,
-                fontSize: '0.8rem',
-                cursor: 'pointer',
-                transition: 'all 0.2s',
-                textAlign: 'center'
-              }}
-            >
-              Crear Nuevo Proyecto y Asociar
-            </button>
-          </div>
-          {mode === 'existing' ? (
-            <div>
-              <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Seleccionar Proyecto Destino</label>
-              <select 
-                value={selectedId} 
-                onChange={e => setSelectedId(e.target.value)}
-                style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
-                required
-              >
-                <option value="">-- Seleccione un proyecto --</option>
-                {projects.map(p => (
-                  <option key={p.id} value={p.id}>{p.name}</option>
-                ))}
-              </select>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <div>
-                <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Nombre del Proyecto</label>
-                <input 
-                  type="text" 
-                  value={name} 
-                  onChange={e => setName(e.target.value)}
-                  style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none' }}
-                  placeholder="Ej. Proyecto Calidad"
-                  required
-                />
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div>
-                  <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>PM / Gerente</label>
-                  <input 
-                    type="text" 
-                    value={manager} 
-                    onChange={e => setManager(e.target.value)}
-                    style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none' }}
-                  />
-                </div>
-
-                <div>
-                  <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Área</label>
-                  <select 
-                    value={area} 
-                    onChange={e => setArea(e.target.value)}
-                    style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
-                  >
-                    {Object.keys(AREA_COLORS).map(a => <option key={a} value={a}>{a}</option>)}
-                  </select>
-                </div>
-              </div>
-
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-                <div>
-                  <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Estado de Proyecto</label>
-                  <select 
-                    value={status} 
-                    onChange={e => setStatus(e.target.value as any)}
-                    style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
-                  >
-                    <option value="Planificación">Planificación</option>
-                    <option value="Ejecución">En Ejecución</option>
-                    <option value="Pausado">Pausado</option>
-                    <option value="Completado">Completado</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label style={{ fontSize: '0.75rem', fontWeight: 800, color: 'var(--text-secondary)', display: 'block', marginBottom: '6px', textTransform: 'uppercase' }}>Agrupador / Programa</label>
-                  <select 
-                    value={parentId} 
-                    onChange={e => setParentId(e.target.value)}
-                    style={{ width: '100%', padding: '8px 12px', background: 'white', border: '1px solid var(--border-light)', borderRadius: '6px', fontSize: '0.88rem', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
-                  >
-                    <option value="">📁 Independiente</option>
-                    {parentProjects.map(pp => (
-                      <option key={pp.id} value={pp.id}>📁 {pp.name}</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '10px', borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
-            <button type="button" onClick={onClose} className="btn btn-secondary" style={{ padding: '8px 16px', fontSize: '0.82rem' }}>Cancelar</button>
-            <button type="submit" disabled={isSaving} className="btn btn-primary" style={{ padding: '8px 20px', fontSize: '0.82rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              {isSaving && <Loader2 className="animate-spin" size={14} />}
-              Asociar Todos
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
 };
 
 export default function IncidentsPage() {
@@ -699,256 +175,6 @@ export default function IncidentsPage() {
 
     return groups;
   }, [projects, parentProjects, landingSearch, landingAreaFilter]);
-
-  const renderLandingProjectCard = (project: Project) => {
-    const { totalCount, openCount, progress } = getProjectStats(project.id);
-    const status = project.status || 'Planificación';
-    const sc = STATUS_CONFIG[status as ProjectStatus] || STATUS_CONFIG['Planificación'];
-    const areaColor = AREA_COLORS[project.area || ''] || '#0079C1';
-    
-    return (
-      <div 
-        key={project.id} 
-        className="glass-panel" 
-        style={{ 
-          padding: 0, 
-          overflow: 'hidden', 
-          cursor: 'pointer', 
-          transition: 'transform 0.2s, box-shadow 0.2s', 
-          display: 'flex', 
-          flexDirection: 'column',
-          border: '1px solid var(--border-light)',
-          background: 'var(--bg-primary)'
-        }}
-        onClick={() => handleSelectProject(project.id)}
-      >
-        <div style={{ height: '5px', background: `linear-gradient(90deg, ${areaColor}, ${areaColor}88)` }} />
-        
-        <div style={{ padding: '20px', flex: 1, display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
-                <h3 style={{ fontSize: '1.05rem', fontWeight: 700, margin: '0 0 6px', color: 'var(--text-primary)', lineHeight: 1.3, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', flex: 1 }} title={project.name}>
-                  {project.name}
-                </h3>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setEditingProject(project);
-                  }}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    cursor: 'pointer',
-                    color: 'var(--text-muted)',
-                    padding: '2px',
-                    borderRadius: '4px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'color 0.2s, background-color 0.2s'
-                  }}
-                  onMouseEnter={(e) => {
-                    e.currentTarget.style.color = '#0079C1';
-                    e.currentTarget.style.backgroundColor = 'rgba(0,121,193,0.05)';
-                  }}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.color = 'var(--text-muted)';
-                    e.currentTarget.style.backgroundColor = 'transparent';
-                  }}
-                  title="Editar Información del Proyecto"
-                >
-                  <Edit2 size={14} />
-                </button>
-              </div>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', background: sc.bg, color: sc.color }}>
-                  {sc.label}
-                </span>
-                {project.area && (
-                  <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', background: `${areaColor}15`, color: areaColor }}>
-                     {project.area}
-                  </span>
-                )}
-              </div>
-            </div>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <div style={{ position: 'relative', width: '45px', height: '45px' }}>
-                <svg width="45" height="45" style={{ transform: 'rotate(-90deg)' }}>
-                  <circle cx="22.5" cy="22.5" r="18" fill="none" stroke="var(--border-light)" strokeWidth="4" />
-                  <circle cx="22.5" cy="22.5" r="18" fill="none" stroke="#10b981" strokeWidth="4"
-                    strokeDasharray={2 * Math.PI * 18}
-                    strokeDashoffset={2 * Math.PI * 18 - (progress / 100) * (2 * Math.PI * 18)}
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: 800 }}>
-                  {progress}%
-                </span>
-              </div>
-              <span style={{ fontSize: '8px', color: 'var(--text-secondary)', fontWeight: 800, marginTop: '2px', textTransform: 'uppercase' }}>Cierre</span>
-            </div>
-          </div>
-
-          <p style={{ fontSize: '0.8rem', color: project.description ? 'var(--text-secondary)' : 'var(--text-muted)', margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', minHeight: '2.5em', fontStyle: project.description ? 'normal' : 'italic' }}>
-            {project.description || 'Sin descripción detallada disponible.'}
-          </p>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', borderTop: '1px solid var(--border-subtle)', paddingTop: '10px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                <User size={12} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
-                <span style={{ fontWeight: 600, flexShrink: 0 }}>PM:</span>
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{project.manager || 'No asignado'}</span>
-              </div>
-              <select
-                value={project.parentProjectId || ''}
-                onChange={async (e) => {
-                  e.stopPropagation();
-                  const newParentId = e.target.value || null;
-                  await updateProject(project.id, { parentProjectId: newParentId });
-                }}
-                onClick={(e) => e.stopPropagation()}
-                style={{
-                  padding: '2px 4px',
-                  borderRadius: '4px',
-                  border: '1px solid var(--border-light)',
-                  background: 'var(--bg-secondary)',
-                  fontSize: '0.7rem',
-                  fontWeight: 'bold',
-                  color: 'var(--text-secondary)',
-                  outline: 'none',
-                  cursor: 'pointer',
-                  maxWidth: '130px',
-                  flexShrink: 0
-                }}
-              >
-                <option value="">📁 Independiente</option>
-                {parentProjects.map(pp => (
-                  <option key={pp.id} value={pp.id}>📁 {pp.name}</option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', background: 'var(--bg-secondary)', padding: '10px', borderRadius: '8px', border: '1px solid var(--border-subtle)', marginTop: '4px' }}>
-            <div>
-              <span style={{ display: 'block', fontSize: '10px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Incidentes</span>
-              <span style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-primary)' }}>{totalCount} registrados</span>
-            </div>
-            <div>
-              <span style={{ display: 'block', fontSize: '10px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Abiertos</span>
-              <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#e11d48' }}>{openCount} pendientes</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  const renderIndependentCard = () => {
-    const { totalCount, openCount, progress } = getProjectStats(null);
-    return (
-      <div 
-        className="glass-panel" 
-        style={{ 
-          padding: 0, 
-          overflow: 'hidden', 
-          cursor: 'pointer', 
-          transition: 'transform 0.2s, box-shadow 0.2s', 
-          display: 'flex', 
-          flexDirection: 'column',
-          border: '1px solid rgba(124, 58, 237, 0.25)', 
-          background: 'rgba(124, 58, 237, 0.02)'
-        }}
-        onClick={() => handleSelectProject('independent')}
-      >
-        <div style={{ height: '5px', background: 'linear-gradient(90deg, #7c3aed, #a78bfa)' }} />
-        
-        <div style={{ padding: '20px', flex: 1, display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '12px' }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <h3 style={{ fontSize: '1.05rem', fontWeight: 800, margin: '0 0 6px', color: '#7c3aed' }}>
-                  Incidentes Globales / Sin Proyecto
-                </h3>
-                {totalCount > 0 && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setIsAssociateModalOpen(true);
-                    }}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      cursor: 'pointer',
-                      color: '#7c3aed',
-                      padding: '4px',
-                      borderRadius: '4px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      transition: 'background-color 0.2s',
-                      marginTop: '-6px'
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(124, 58, 237, 0.08)'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                    title="Asociar incidentes a un proyecto"
-                  >
-                    <Sliders size={16} />
-                  </button>
-                )}
-              </div>
-              <span style={{ fontSize: '0.68rem', fontWeight: 700, padding: '2px 8px', borderRadius: '20px', background: 'rgba(124, 58, 237, 0.1)', color: '#7c3aed' }}>
-                Global / Independiente
-              </span>
-            </div>
-            
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <div style={{ position: 'relative', width: '45px', height: '45px' }}>
-                <svg width="45" height="45" style={{ transform: 'rotate(-90deg)' }}>
-                  <circle cx="22.5" cy="22.5" r="18" fill="none" stroke="var(--border-light)" strokeWidth="4" />
-                  <circle cx="22.5" cy="22.5" r="18" fill="none" stroke="#7c3aed" strokeWidth="4"
-                    strokeDasharray={2 * Math.PI * 18}
-                    strokeDashoffset={2 * Math.PI * 18 - (progress / 100) * (2 * Math.PI * 18)}
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '9px', fontWeight: 800, color: '#7c3aed' }}>
-                  {progress}%
-                </span>
-              </div>
-              <span style={{ fontSize: '8px', color: '#7c3aed', fontWeight: 800, marginTop: '2px', textTransform: 'uppercase' }}>Cierre</span>
-            </div>
-          </div>
-
-          <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: 0, minHeight: '2.5em' }}>
-            Buzón global de incidentes reportados en sedes que aún no han sido vinculados o asignados a un proyecto formal de calibración o infraestructura.
-          </p>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', borderTop: '1px solid rgba(124, 58, 237, 0.15)', paddingTop: '10px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.78rem', color: 'var(--text-secondary)' }}>
-              <Layers size={12} style={{ color: '#7c3aed' }} />
-              <span style={{ fontWeight: 600 }}>Estado:</span>
-              <span>Monitoreo Activo Permanente</span>
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', background: 'rgba(124, 58, 237, 0.04)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(124, 58, 237, 0.1)', marginTop: '4px' }}>
-            <div>
-              <span style={{ display: 'block', fontSize: '10px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Incidentes</span>
-              <span style={{ fontSize: '0.9rem', fontWeight: 800, color: 'var(--text-primary)' }}>{totalCount} registrados</span>
-            </div>
-            <div>
-              <span style={{ display: 'block', fontSize: '10px', fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Abiertos</span>
-              <span style={{ fontSize: '0.9rem', fontWeight: 800, color: '#7c3aed' }}>{openCount} pendientes</span>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  };
 
   // Auto-save Feedback State
   const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'saved'>('idle');
@@ -1121,7 +347,6 @@ export default function IncidentsPage() {
   const [customColumns, setCustomColumns] = useState<string[]>([]);
   const [columnOrder, setColumnOrder] = useState<string[]>([]);
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>(DEFAULT_COLUMN_WIDTHS);
-  const [newColName, setNewColName] = useState('');
   const [isAddingCol, setIsAddingCol] = useState(false);
   const [editingColIndex, setEditingColIndex] = useState<number | null>(null);
   const [editingColName, setEditingColName] = useState('');
@@ -1342,9 +567,8 @@ export default function IncidentsPage() {
   };
 
   // Agregar nueva columna dinámica
-  const handleAddColumn = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const cleanName = newColName.trim();
+  const handleAddColumn = async (colName: string) => {
+    const cleanName = colName.trim();
     if (!cleanName) return;
     if (customColumns.includes(cleanName) || DEFAULT_COLUMN_ORDER.includes(cleanName)) {
       alert('Ya existe una columna con ese nombre.');
@@ -1367,8 +591,6 @@ export default function IncidentsPage() {
     } catch (e) {
       console.error('Error saving column order to DB:', e);
     }
-
-    setNewColName('');
   };
 
   // Eliminar columna dinámica
@@ -1910,7 +1132,19 @@ export default function IncidentsPage() {
                 {/* Subprojects cards */}
                 {!isCollapsed && (
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: '20px', animation: 'fadeIn 0.2s ease' }}>
-                    {subProjects.map(p => renderLandingProjectCard(p))}
+                    {subProjects.map(p => (
+                      <ProjectLandingCard
+                        key={p.id}
+                        project={p}
+                        stats={getProjectStats(p.id)}
+                        parentProjects={parentProjects}
+                        onSelect={handleSelectProject}
+                        onEdit={setEditingProject}
+                        onUpdateParent={async (projectId, parentProjectId) => {
+                          await updateProject(projectId, { parentProjectId });
+                        }}
+                      />
+                    ))}
                   </div>
                 )}
               </div>
@@ -1949,8 +1183,26 @@ export default function IncidentsPage() {
                 </div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: '20px' }}>
-                  {!landingSearch && landingAreaFilter === 'Todos' && renderIndependentCard()}
-                  {subProjects.map(p => renderLandingProjectCard(p))}
+                  {!landingSearch && landingAreaFilter === 'Todos' && (
+                    <IndependentLandingCard
+                      stats={getProjectStats(null)}
+                      onSelect={() => handleSelectProject('independent')}
+                      onAssociateClick={() => setIsAssociateModalOpen(true)}
+                    />
+                  )}
+                  {subProjects.map(p => (
+                    <ProjectLandingCard
+                      key={p.id}
+                      project={p}
+                      stats={getProjectStats(p.id)}
+                      parentProjects={parentProjects}
+                      onSelect={handleSelectProject}
+                      onEdit={setEditingProject}
+                      onUpdateParent={async (projectId, parentProjectId) => {
+                        await updateProject(projectId, { parentProjectId });
+                      }}
+                    />
+                  ))}
                 </div>
               </div>
             );
@@ -2139,212 +1391,23 @@ export default function IncidentsPage() {
 
       {/* Modal de Administración de Columnas */}
       {isAddingCol && (
-        <div className="custom-modal-backdrop">
-          <div className="custom-modal-card" style={{ width: '560px', maxWidth: '95vw' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
-              <h3 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#003B64', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <Sliders size={18} />
-                Administrar Columnas
-              </h3>
-              <button onClick={() => setIsAddingCol(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}>
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Formulario Agregar Columna */}
-            <form onSubmit={handleAddColumn} style={{ display: 'flex', flexDirection: 'column', gap: '10px', background: 'var(--bg-tertiary)', padding: '14px', borderRadius: '8px', marginBottom: '16px', border: '1px solid var(--border-subtle)' }}>
-              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase' }}>+ Crear Columna Nueva</span>
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <input 
-                  type="text" 
-                  placeholder="Ej. Jira Ticket, Observación, Nivel..." 
-                  value={newColName} 
-                  onChange={e => setNewColName(e.target.value)}
-                  className="control-input"
-                  style={{ flex: 1, padding: '8px', border: '1px solid var(--border-light)', borderRadius: '6px', outline: 'none', background: 'white', fontSize: '0.85rem' }}
-                />
-                <button type="submit" className="btn btn-primary" style={{ padding: '8px 16px', background: '#004B87', color: 'white', border: 'none', fontSize: '0.82rem' }}>Crear</button>
-              </div>
-            </form>
-
-            {/* Listado de Columnas (Reordenamiento, Visibilidad, CRUD y Anchos) */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '6px', display: 'flex', justifyContent: 'space-between' }}>
-                <span>Columna ({[...DEFAULT_COLUMN_ORDER, ...customColumns].length})</span>
-                <span>Visibilidad / Ancho / Acciones</span>
-              </span>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', maxHeight: '350px', overflowY: 'auto', paddingRight: '4px' }}>
-                {[...DEFAULT_COLUMN_ORDER, ...customColumns].map((colKey) => {
-                  const isStandard = DEFAULT_COLUMN_ORDER.includes(colKey);
-                  const label = isStandard ? COLUMN_CONFIG[colKey].label : colKey;
-                  const isVisible = columnOrder.includes(colKey);
-                  const orderIdx = columnOrder.indexOf(colKey);
-                  const cIdx = isStandard ? -1 : customColumns.indexOf(colKey);
-                  const width = columnWidths[colKey] || DEFAULT_COLUMN_WIDTHS[colKey] || 150;
-
-                  return (
-                    <div key={colKey} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', background: isVisible ? 'var(--bg-primary)' : 'rgba(0,0,0,0.02)', padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border-subtle)', opacity: isVisible ? 1 : 0.6 }}>
-                      
-                      {/* Checkbox Visibilidad + Nombre Columna */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
-                        <input 
-                          type="checkbox"
-                          checked={isVisible}
-                          onChange={() => handleToggleColumnVisibility(colKey)}
-                          title="Mostrar/Ocultar columna"
-                          style={{ cursor: 'pointer', width: '15px', height: '15px' }}
-                        />
-                        <span style={{ fontSize: '0.82rem', fontWeight: 600, color: isStandard ? 'var(--text-secondary)' : 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={colKey}>
-                          <span style={{ opacity: 0.6, fontSize: '0.9rem' }}>{isStandard ? '📌' : '⚡'}</span>
-                          <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
-                        </span>
-                      </div>
-
-                      {/* Ajuste de Ancho */}
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '3px' }}>
-                        <button
-                          type="button"
-                          onClick={() => handleAdjustColumnWidth(colKey, -15)}
-                          style={{ padding: '2px 6px', background: 'rgba(0, 75, 135, 0.05)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 'bold', color: '#004B87' }}
-                          title="Estrechar columna (-15px)"
-                        >
-                          -
-                        </button>
-                        <input 
-                          type="number"
-                          value={width}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value) || 50;
-                            handleSetColumnWidthDirect(colKey, val);
-                          }}
-                          style={{ width: '55px', textAlign: 'center', fontSize: '0.78rem', padding: '2px', border: '1px solid var(--border-light)', borderRadius: '4px', background: 'white', fontWeight: 600 }}
-                          title="Ancho de columna en px"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => handleAdjustColumnWidth(colKey, 15)}
-                          style={{ padding: '2px 6px', background: 'rgba(0, 75, 135, 0.05)', border: '1px solid var(--border-light)', borderRadius: '4px', cursor: 'pointer', fontSize: '0.75rem', fontWeight: 'bold', color: '#004B87' }}
-                          title="Ensanchar columna (+15px)"
-                        >
-                          +
-                        </button>
-                      </div>
-
-                      {/* Botones de Reordenamiento (Solo si está visible) */}
-                      <div style={{ display: 'flex', gap: '1px', alignItems: 'center' }}>
-                        <button
-                          type="button"
-                          disabled={!isVisible || orderIdx <= 0}
-                          onClick={() => handleMoveColumn(orderIdx, 'up')}
-                          style={{
-                            border: 'none',
-                            background: (!isVisible || orderIdx <= 0) ? 'transparent' : 'rgba(0, 75, 135, 0.05)',
-                            cursor: (!isVisible || orderIdx <= 0) ? 'not-allowed' : 'pointer',
-                            color: (!isVisible || orderIdx <= 0) ? 'var(--text-muted)' : '#004B87',
-                            padding: '3px 6px',
-                            borderRadius: '4px',
-                            fontSize: '0.75rem',
-                            fontWeight: 'bold',
-                            transition: 'all 0.15s'
-                          }}
-                          title="Mover hacia la izquierda"
-                        >
-                          ▲
-                        </button>
-                        <button
-                          type="button"
-                          disabled={!isVisible || orderIdx === -1 || orderIdx === columnOrder.length - 1}
-                          onClick={() => handleMoveColumn(orderIdx, 'down')}
-                          style={{
-                            border: 'none',
-                            background: (!isVisible || orderIdx === -1 || orderIdx === columnOrder.length - 1) ? 'transparent' : 'rgba(0, 75, 135, 0.05)',
-                            cursor: (!isVisible || orderIdx === -1 || orderIdx === columnOrder.length - 1) ? 'not-allowed' : 'pointer',
-                            color: (!isVisible || orderIdx === -1 || orderIdx === columnOrder.length - 1) ? 'var(--text-muted)' : '#004B87',
-                            padding: '3px 6px',
-                            borderRadius: '4px',
-                            fontSize: '0.75rem',
-                            fontWeight: 'bold',
-                            transition: 'all 0.15s'
-                          }}
-                          title="Mover hacia la derecha"
-                        >
-                          ▼
-                        </button>
-                      </div>
-
-                      {/* Botones de Edición / Borrado para Personalizadas */}
-                      {!isStandard && (
-                        <div style={{ display: 'flex', gap: '4px', borderLeft: '1px solid var(--border-subtle)', paddingLeft: '8px', alignItems: 'center' }}>
-                          {editingColIndex === cIdx ? (
-                            <>
-                              <input 
-                                type="text" 
-                                value={editingColName}
-                                onChange={e => setEditingColName(e.target.value)}
-                                className="control-input"
-                                style={{ width: '80px', padding: '2px 4px', fontSize: '0.78rem', border: '1px solid var(--accent-primary)', borderRadius: '4px', background: 'white' }}
-                                autoFocus
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter') {
-                                    handleRenameColumnDirect(colKey, editingColName);
-                                    setEditingColIndex(null);
-                                  }
-                                }}
-                              />
-                              <button 
-                                type="button"
-                                onClick={() => {
-                                  handleRenameColumnDirect(colKey, editingColName);
-                                  setEditingColIndex(null);
-                                }}
-                                style={{ border: 'none', background: 'transparent', color: '#10b981', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
-                              >
-                                <Check size={14} />
-                              </button>
-                              <button 
-                                type="button"
-                                onClick={() => setEditingColIndex(null)}
-                                style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', padding: '2px', display: 'flex', alignItems: 'center' }}
-                              >
-                                <X size={14} />
-                              </button>
-                            </>
-                          ) : (
-                            <>
-                              <button 
-                                type="button"
-                                onClick={() => {
-                                  setEditingColIndex(cIdx);
-                                  setEditingColName(colKey);
-                                }}
-                                style={{ border: 'none', background: 'transparent', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
-                                title="Renombrar columna"
-                              >
-                                <Edit2 size={12} />
-                              </button>
-                              <button 
-                                type="button"
-                                onClick={() => handleDeleteColumn(colKey)}
-                                style={{ border: 'none', background: 'transparent', color: 'red', cursor: 'pointer', display: 'flex', alignItems: 'center', padding: '2px' }}
-                                title="Eliminar columna"
-                              >
-                                <Trash2 size={12} />
-                              </button>
-                            </>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px', borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
-              <button type="button" onClick={() => setIsAddingCol(false)} className="btn btn-secondary" style={{ padding: '8px 16px', background: '#004B87', color: 'white', border: 'none' }}>Listo</button>
-            </div>
-          </div>
-        </div>
+        <ColumnManagerModal
+          onClose={() => setIsAddingCol(false)}
+          customColumns={customColumns}
+          columnOrder={columnOrder}
+          columnWidths={columnWidths}
+          onToggleColumnVisibility={handleToggleColumnVisibility}
+          onAdjustColumnWidth={handleAdjustColumnWidth}
+          onSetColumnWidthDirect={handleSetColumnWidthDirect}
+          onMoveColumn={handleMoveColumn}
+          onAddColumn={handleAddColumn}
+          onRenameColumn={handleRenameColumnDirect}
+          onDeleteColumn={handleDeleteColumn}
+          editingColIndex={editingColIndex}
+          setEditingColIndex={setEditingColIndex}
+          editingColName={editingColName}
+          setEditingColName={setEditingColName}
+        />
       )}
 
       {/* 2. Faja de KPIs en grid de 4 columnas */}

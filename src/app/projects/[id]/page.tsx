@@ -8,7 +8,8 @@ import {
   Task, 
   Phase, 
   TaskStatus, 
-  TaskPriority 
+  TaskPriority,
+  CostItem
 } from '@/store/projectStore';
 import { useStakeholderStore, Stakeholder } from '@/store/stakeholderStore';
 import { useIncidentStore, Incident, IncidentImpact, IncidentStatus } from '@/store/incidentStore';
@@ -66,12 +67,13 @@ import {
   Check
 } from 'lucide-react';
 import { addBusinessDays, differenceInBusinessDays } from '@/utils/dateUtils';
-import { InlineInput, InlineTextarea, InlineNumberInput, InlineDateInput } from '@/components/InlineInput';
+import { InlineInput, InlineTextarea, InlineNumberInput, InlineDateInput, InlineCombobox, InlineMoneyInput } from '@/components/InlineInput';
 import ReportViewer from '@/components/ReportViewer';
 import { EquipmentCommentsModal } from '@/components/EquipmentCommentsModal';
 import { parseComments } from '@/utils/commentUtils';
-import { MessageSquare, Flag } from 'lucide-react';
+import { MessageSquare, Flag, Paperclip } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import * as XLSX from 'xlsx';
 
 
 type ViewMode = 'day' | 'week' | 'month';
@@ -308,11 +310,15 @@ const PROJECT_STATUS_CONFIG = {
   'Completado':    { color: '#10b981', bg: 'rgba(16,185,129,0.1)', icon: <CheckCircle2 size={14} />, label: 'Completado' },
 };
 
-const AREA_COLORS: Record<string, string> = {
+const BASE_AREA_COLORS: Record<string, string> = {
   'Tecnología': '#6366f1', 'Operaciones': '#f59e0b', 'Salud Digital': '#0079C1',
   'Clínico': '#10b981', 'Administración': '#8b5cf6', 'Finanzas': '#ef4444',
   'Marketing': '#ec4899', 'Legal': '#14b8a6',
 };
+
+const AREA_COLORS = new Proxy(BASE_AREA_COLORS, {
+  get: (target, prop: string) => target[prop] || '#0079C1' // Default Bupa blue fallback
+});
 
 export default function ProjectConsolePage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -465,6 +471,28 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
   const [searchTermCosts, setSearchTermCosts] = useState('');
   const [filterCategoryCosts, setFilterCategoryCosts] = useState<string>('all');
   const [filterStatusCosts, setFilterStatusCosts] = useState<string>('all');
+  const [exchangeRates, setExchangeRates] = useState<{ usd: number; uf: number; date: string } | null>(null);
+  const [customCategoryEditing, setCustomCategoryEditing] = useState<Record<string, boolean>>({});
+  const [customCategoryInput, setCustomCategoryInput] = useState<Record<string, string>>({});
+  const [costItemAttachmentsOpen, setCostItemAttachmentsOpen] = useState(false);
+  const [activeCostItemForFiles, setActiveCostItemForFiles] = useState<CostItem | null>(null);
+  const [isUploadingCostFile, setIsUploadingCostFile] = useState(false);
+
+  // Fetch exchange rates on mount
+  useEffect(() => {
+    const fetchRates = async () => {
+      try {
+        const res = await fetch('/api/exchange-rates');
+        if (res.ok) {
+          const data = await res.json();
+          setExchangeRates(data);
+        }
+      } catch (e) {
+        console.error('Error fetching exchange rates:', e);
+      }
+    };
+    fetchRates();
+  }, []);
 
   // Equipments State
   const [searchTermEquipments, setSearchTermEquipments] = useState('');
@@ -485,6 +513,7 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
   const [editProjectDescription, setEditProjectDescription] = useState('');
   const [editProjectManager, setEditProjectManager] = useState('');
   const [editProjectArea, setEditProjectArea] = useState('');
+  const [isCustomArea, setIsCustomArea] = useState(false);
   const [editProjectStartDate, setEditProjectStartDate] = useState('');
   const [editProjectEndDate, setEditProjectEndDate] = useState('');
   const [editProjectHasEquipment, setEditProjectHasEquipment] = useState(false);
@@ -495,6 +524,23 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
   const [userEmail, setUserEmail] = useState('');
   const [userRole, setUserRole] = useState('Ingeniero Biomédico');
   const [userMaxTasksLimit, setUserMaxTasksLimit] = useState(5);
+
+  // Inline add user state
+  const [isInlineAddUserOpen, setIsInlineAddUserOpen] = useState(false);
+  const [inlineUserName, setInlineUserName] = useState('');
+  const [inlineUserEmail, setInlineUserEmail] = useState('');
+  const [inlineUserRole, setInlineUserRole] = useState('Project Manager');
+  const [inlineUserMaxTasks, setInlineUserMaxTasks] = useState(5);
+  const [inlineUserSuccessCallback, setInlineUserSuccessCallback] = useState<((name: string) => void) | null>(null);
+
+  const handleOpenInlineAddUser = (onSuccess: (name: string) => void) => {
+    setInlineUserName('');
+    setInlineUserEmail('');
+    setInlineUserRole('Project Manager');
+    setInlineUserMaxTasks(5);
+    setInlineUserSuccessCallback(() => onSuccess);
+    setIsInlineAddUserOpen(true);
+  };
 
   // Gantt Search & Filter States
   const [searchGanttTask, setSearchGanttTask] = useState('');
@@ -1019,7 +1065,10 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
     });
   }, [projectRisks, selectedRiskCell, searchTermRisks, filterLevelRisks, filterStatusRisks]);
 
-  const projectCostItems = useMemo(() => project?.costItems || [], [project]);
+  const projectCostItems = useMemo(() => {
+    const items = project?.costItems || [];
+    return [...items].sort((a, b) => (a.indexId || '').localeCompare(b.indexId || ''));
+  }, [project]);
 
   const filteredCostItems = useMemo(() => {
     return projectCostItems.filter(c => {
@@ -1049,23 +1098,124 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
 
   const financialTotals = useMemo(() => {
     const items = projectCostItems;
-    const budget = items.reduce((sum, c) => sum + (c.approvedBudget || 0), 0);
-    const committed = items.reduce((sum, c) => sum + (parseFloat(c.ocEmitted || '') || 0), 0);
-    const executed = items.reduce((sum, c) => sum + (c.realCost || 0), 0);
-    const balance = budget - executed;
-    const pct = budget > 0 ? (executed / budget) * 100 : 0;
+    
+    const getItemNetAndGross = (originalVal: number, rate: number, tax: string) => {
+      let net = 0;
+      let gross = 0;
+      const val = originalVal || 0;
+      const r = rate || 1.0;
+      
+      if (tax === 'BRUTO') {
+        gross = val * r;
+        net = (val / 1.19) * r;
+      } else if (tax === 'EXENTO') {
+        net = val * r;
+        gross = val * r;
+      } else { // NETO
+        net = val * r;
+        gross = val * r * 1.19;
+      }
+      return { net, gross };
+    };
+
+    let totalBudgetNet = 0;
+    let totalBudgetGross = 0;
+    let totalCommittedNet = 0;
+    let totalCommittedGross = 0;
+    let totalExecutedNet = 0;
+    let totalExecutedGross = 0;
+
+    items.forEach(item => {
+      const origBudget = item.originalBudget !== undefined && item.originalBudget !== null ? item.originalBudget : item.approvedBudget;
+      const b = getItemNetAndGross(origBudget, item.exchangeRate || 1.0, item.taxType || 'NETO');
+      totalBudgetNet += b.net;
+      totalBudgetGross += b.gross;
+
+      const origReal = item.originalRealCost !== undefined && item.originalRealCost !== null ? item.originalRealCost : item.realCost;
+      const r = getItemNetAndGross(origReal, item.exchangeRate || 1.0, item.taxType || 'NETO');
+      totalExecutedNet += r.net;
+      totalExecutedGross += r.gross;
+
+      const commVal = parseFloat(item.ocEmitted || '') || 0;
+      const c = getItemNetAndGross(commVal, item.exchangeRate || 1.0, item.taxType || 'NETO');
+      totalCommittedNet += c.net;
+      totalCommittedGross += c.gross;
+    });
+
+    const availableBalanceNet = totalBudgetNet - totalExecutedNet;
+    const availableBalanceGross = totalBudgetGross - totalExecutedGross;
+    const executionPercentage = totalBudgetNet > 0 ? (totalExecutedNet / totalBudgetNet) * 100 : 0;
+
     return {
-      totalBudget: budget,
-      totalCommitted: committed,
-      totalExecuted: executed,
-      availableBalance: balance,
-      executionPercentage: pct
+      totalBudget: totalBudgetNet,
+      totalBudgetNet,
+      totalBudgetGross,
+      totalCommitted: totalCommittedNet,
+      totalCommittedNet,
+      totalCommittedGross,
+      totalExecuted: totalExecutedNet,
+      totalExecutedNet,
+      totalExecutedGross,
+      availableBalance: availableBalanceNet,
+      availableBalanceNet,
+      availableBalanceGross,
+      executionPercentage
     };
   }, [projectCostItems]);
 
-  const filteredBudgetSum = useMemo(() => filteredCostItems.reduce((sum, c) => sum + (c.approvedBudget || 0), 0), [filteredCostItems]);
-  const filteredCommittedSum = useMemo(() => filteredCostItems.reduce((sum, c) => sum + (parseFloat(c.ocEmitted || '') || 0), 0), [filteredCostItems]);
-  const filteredExecutedSum = useMemo(() => filteredCostItems.reduce((sum, c) => sum + (c.realCost || 0), 0), [filteredCostItems]);
+  const filteredFinancialSums = useMemo(() => {
+    const getItemNetAndGross = (originalVal: number, rate: number, tax: string) => {
+      let net = 0;
+      let gross = 0;
+      const val = originalVal || 0;
+      const r = rate || 1.0;
+      
+      if (tax === 'BRUTO') {
+        gross = val * r;
+        net = (val / 1.19) * r;
+      } else if (tax === 'EXENTO') {
+        net = val * r;
+        gross = val * r;
+      } else { // NETO
+        net = val * r;
+        gross = val * r * 1.19;
+      }
+      return { net, gross };
+    };
+
+    let budgetNet = 0;
+    let budgetGross = 0;
+    let committedNet = 0;
+    let committedGross = 0;
+    let executedNet = 0;
+    let executedGross = 0;
+
+    filteredCostItems.forEach(item => {
+      const origBudget = item.originalBudget !== undefined && item.originalBudget !== null ? item.originalBudget : item.approvedBudget;
+      const b = getItemNetAndGross(origBudget, item.exchangeRate || 1.0, item.taxType || 'NETO');
+      budgetNet += b.net;
+      budgetGross += b.gross;
+
+      const origReal = item.originalRealCost !== undefined && item.originalRealCost !== null ? item.originalRealCost : item.realCost;
+      const r = getItemNetAndGross(origReal, item.exchangeRate || 1.0, item.taxType || 'NETO');
+      executedNet += r.net;
+      executedGross += r.gross;
+
+      const commVal = parseFloat(item.ocEmitted || '') || 0;
+      const c = getItemNetAndGross(commVal, item.exchangeRate || 1.0, item.taxType || 'NETO');
+      committedNet += c.net;
+      committedGross += c.gross;
+    });
+
+    return {
+      budgetNet,
+      budgetGross,
+      committedNet,
+      committedGross,
+      executedNet,
+      executedGross
+    };
+  }, [filteredCostItems]);
 
   const formatDateForInput = (date: any) => {
     if (!date) return '';
@@ -1306,11 +1456,16 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
       category: 'Licencia Software',
       provider: defaultUser,
       approvedBudget: 0,
+      currency: 'CLP',
+      originalBudget: 0,
+      exchangeRate: 1.0,
       ocEmitted: '',
       ocNumber: '',
       realCost: 0,
+      originalRealCost: 0,
       ocStatus: 'Pendiente',
-      observations: ''
+      observations: '',
+      taxType: 'NETO'
     };
     try {
       await addCostItem(project.id, newCostItem);
@@ -1532,6 +1687,280 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
     } catch (err: any) {
       alert(`Error al eliminar el archivo: ${err.message}`);
     }
+  };
+
+  const handleUploadCostFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !activeCostItemForFiles) return;
+
+    setIsUploadingCostFile(true);
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await fetch(`/api/costs/${activeCostItemForFiles.id}/attachments`, {
+        method: 'POST',
+        body: formData
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || 'Error al subir archivo');
+      }
+
+      const newAttachment = await response.json();
+      
+      const updatedAttachments = [...(activeCostItemForFiles.attachments || []), newAttachment];
+      const updatedCostItem = {
+        ...activeCostItemForFiles,
+        attachments: updatedAttachments
+      };
+      setActiveCostItemForFiles(updatedCostItem);
+
+      await fetchProjects();
+    } catch (err: any) {
+      alert(`Error al subir el archivo: ${err.message}`);
+    } finally {
+      setIsUploadingCostFile(false);
+    }
+  };
+
+  const handleDeleteCostFile = async (attachmentId: string) => {
+    if (!confirm('¿Estás seguro de que deseas eliminar este archivo?')) return;
+    try {
+      const response = await fetch(`/api/attachments/${attachmentId}`, {
+        method: 'DELETE'
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || 'Error al eliminar archivo');
+      }
+
+      if (activeCostItemForFiles) {
+        const updatedAttachments = (activeCostItemForFiles.attachments || []).filter(
+          att => att.id !== attachmentId
+        );
+        const updatedCostItem = {
+          ...activeCostItemForFiles,
+          attachments: updatedAttachments
+        };
+        setActiveCostItemForFiles(updatedCostItem);
+      }
+
+      await fetchProjects();
+    } catch (err: any) {
+      alert(`Error al eliminar el archivo: ${err.message}`);
+    }
+  };
+
+  const currentActiveCostItem = useMemo(() => {
+    if (!activeCostItemForFiles || !project) return null;
+    return (project.costItems || []).find(c => c.id === activeCostItemForFiles.id) || activeCostItemForFiles;
+  }, [activeCostItemForFiles, project]);
+
+  const handleExportProjectToExcel = () => {
+    if (!project) return;
+
+    // Helper to format Date as YYYY-MM-DD
+    const formatDateStr = (d: any) => {
+      if (!d) return '';
+      const date = new Date(d);
+      if (isNaN(date.getTime())) return '';
+      return format(date, 'yyyy-MM-dd');
+    };
+
+    // Rows array for SheetJS
+    const rows: any[] = [];
+
+    // Traverse phases and tasks
+    project.phases.forEach((phase) => {
+      // 1. Add Phase row
+      rows.push({
+        WBS: phase.wbsId || '',
+        Tipo: 'FASE',
+        Nombre: phase.name.toUpperCase(),
+        'Duración Plan (Días)': differenceInDays(new Date(phase.endDate), new Date(phase.startDate)) || 0,
+        'Inicio Plan': formatDateStr(phase.startDate),
+        'Fin Plan': formatDateStr(phase.endDate),
+        'Inicio Real': '',
+        'Fin Real': '',
+        '% Avance': `${phase.progress}%`,
+        '% Esperado': '',
+        Desviación: '',
+        Responsable: '',
+        Estado: phase.progress === 100 ? 'Completado' : (phase.progress > 0 ? 'En Progreso' : 'Sin Iniciar'),
+        Prioridad: '',
+        'Costo Estimado': '',
+        'Costo Real': '',
+        Riesgo: '',
+        Observación: 'Fase del proyecto'
+      });
+
+      // Helper for recursive task addition (DFS)
+      const addTaskRowRecursive = (task: Task, depth: number, wbsStr: string) => {
+        // Calculate expected progress
+        const expectedProgress = (() => {
+          const today = new Date();
+          today.setHours(0,0,0,0);
+          const start = new Date(task.startDate);
+          start.setHours(0,0,0,0);
+          const end = new Date(task.endDate);
+          end.setHours(0,0,0,0);
+          if (today < start) return 0;
+          if (today > end) return 100;
+          const totalDays = differenceInDays(end, start);
+          if (totalDays <= 0) return 100;
+          const elapsed = differenceInDays(today, start);
+          return Math.min(100, Math.max(0, Math.round((elapsed / totalDays) * 100)));
+        })();
+
+        // Indent task name to show hierarchy
+        const indentation = '   '.repeat(depth);
+
+        rows.push({
+          WBS: wbsStr,
+          Tipo: depth === 0 ? 'ACTIVIDAD' : 'SUB-ACTIVIDAD',
+          Nombre: indentation + task.name,
+          'Duración Plan (Días)': task.duration,
+          'Inicio Plan': formatDateStr(task.startDate),
+          'Fin Plan': formatDateStr(task.endDate),
+          'Inicio Real': formatDateStr(task.realStartDate),
+          'Fin Real': formatDateStr(task.realEndDate),
+          '% Avance': `${task.progress}%`,
+          '% Esperado': `${expectedProgress}%`,
+          Desviación: task.delayDays !== null && task.delayDays !== undefined ? task.delayDays : 0,
+          Responsable: task.assignee || '',
+          Estado: task.status === 'Completed' ? 'Completado' : (task.status === 'In Progress' ? 'En Progreso' : (task.status === 'At Risk' ? 'En Riesgo' : 'Sin Iniciar')),
+          Prioridad: task.priority || 'Media',
+          'Costo Estimado': task.estimatedCost || 0,
+          'Costo Real': task.realCost || 0,
+          Riesgo: task.risk || '',
+          Observación: task.notes || ''
+        });
+
+        // Find and sort subtasks
+        const subtasks = phase.tasks.filter(t => t.parentId === task.id);
+        subtasks.forEach((sub, idx) => {
+          addTaskRowRecursive(sub, depth + 1, `${wbsStr}.${idx + 1}`);
+        });
+      };
+
+      // 2. Add root tasks of this phase
+      const rootTasks = phase.tasks.filter(t => !t.parentId);
+      rootTasks.forEach((task, idx) => {
+        addTaskRowRecursive(task, 0, `${phase.wbsId}.${idx + 1}`);
+      });
+    });
+
+    // Create Worksheet
+    const worksheet = XLSX.utils.json_to_sheet(rows);
+
+    // Apply header style and column widths
+    const max_len = rows.reduce((w, r) => Math.max(w, r.Nombre ? r.Nombre.length : 10), 10);
+    worksheet['!cols'] = [
+      { wch: 8 },  // WBS
+      { wch: 15 }, // Tipo
+      { wch: Math.min(max_len + 4, 50) }, // Nombre
+      { wch: 20 }, // Duración
+      { wch: 12 }, // Inicio Plan
+      { wch: 12 }, // Fin Plan
+      { wch: 12 }, // Inicio Real
+      { wch: 12 }, // Fin Real
+      { wch: 10 }, // % Avance
+      { wch: 12 }, // % Esperado
+      { wch: 12 }, // Desviación
+      { wch: 20 }, // Responsable
+      { wch: 15 }, // Estado
+      { wch: 10 }, // Prioridad
+      { wch: 15 }, // Costo Est
+      { wch: 15 }, // Costo Real
+      { wch: 15 }, // Riesgo
+      { wch: 30 }  // Observación
+    ];
+
+    // Create Workbook
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Cronograma');
+
+    // 3. Create CostItems Worksheet
+    const costRows: any[] = [];
+    const costItems = [...(project.costItems || [])].sort((a, b) => (a.indexId || '').localeCompare(b.indexId || ''));
+    
+    costItems.forEach(item => {
+      const origBudget = item.originalBudget !== undefined && item.originalBudget !== null ? item.originalBudget : item.approvedBudget;
+      const origReal = item.originalRealCost !== undefined && item.originalRealCost !== null ? item.originalRealCost : item.realCost;
+      
+      const getItemNetAndGross = (val: number, r: number, tax: string) => {
+        let net = 0;
+        let gross = 0;
+        if (tax === 'BRUTO') {
+          gross = val * r;
+          net = (val / 1.19) * r;
+        } else if (tax === 'EXENTO') {
+          net = val * r;
+          gross = val * r;
+        } else { // NETO
+          net = val * r;
+          gross = val * r * 1.19;
+        }
+        return { net, gross };
+      };
+
+      const b = getItemNetAndGross(origBudget, item.exchangeRate || 1.0, item.taxType || 'NETO');
+      const r = getItemNetAndGross(origReal, item.exchangeRate || 1.0, item.taxType || 'NETO');
+      const c = getItemNetAndGross(parseFloat(item.ocEmitted || '') || 0, item.exchangeRate || 1.0, item.taxType || 'NETO');
+
+      costRows.push({
+        'ID Costo': item.indexId,
+        'Descripción': item.description,
+        'Categoría': item.category || '',
+        'Proveedor / Responsable': item.provider || '',
+        'Moneda Original': item.currency,
+        'Monto Presupuesto Orig.': origBudget,
+        'Monto Costo Real Orig.': origReal,
+        'Tipo Cambio': item.exchangeRate || 1.0,
+        'Condición IVA': item.taxType || 'NETO',
+        'Presupuesto Neto (CLP)': Math.round(b.net),
+        'Presupuesto IVA Incluido (CLP)': Math.round(b.gross),
+        'Comprometido Neto (CLP)': Math.round(c.net),
+        'Comprometido IVA Incluido (CLP)': Math.round(c.gross),
+        'Ejecutado Neto (CLP)': Math.round(r.net),
+        'Ejecutado IVA Incluido (CLP)': Math.round(r.gross),
+        'N° OC / Ref': item.ocNumber || '',
+        'Estado OC': item.ocStatus || 'Pendiente',
+        'Observación': item.observations || ''
+      });
+    });
+
+    const costWorksheet = XLSX.utils.json_to_sheet(costRows);
+    costWorksheet['!cols'] = [
+      { wch: 10 }, // ID Costo
+      { wch: 30 }, // Descripción
+      { wch: 20 }, // Categoría
+      { wch: 25 }, // Responsable
+      { wch: 15 }, // Moneda Original
+      { wch: 22 }, // Presupuesto Orig
+      { wch: 22 }, // Costo Real Orig
+      { wch: 15 }, // Tipo Cambio
+      { wch: 15 }, // Condición IVA
+      { wch: 22 }, // Presupuesto Neto
+      { wch: 22 }, // Presupuesto IVA Incluido
+      { wch: 22 }, // Comprometido Neto
+      { wch: 22 }, // Comprometido IVA Incluido
+      { wch: 22 }, // Ejecutado Neto
+      { wch: 22 }, // Ejecutado IVA Incluido
+      { wch: 15 }, // OC Ref
+      { wch: 15 }, // Estado OC
+      { wch: 30 }  // Observación
+    ];
+
+    XLSX.utils.book_append_sheet(workbook, costWorksheet, 'Control de Costos');
+
+    // Download Workbook
+    const dateStr = format(new Date(), 'dd-MM-yyyy');
+    const sanitizedProjName = project.name.replace(/[^a-zA-Z0-9]/g, '_');
+    XLSX.writeFile(workbook, `Reporte_Fiel_Proyecto_${sanitizedProjName}_${dateStr}.xlsx`);
   };
 
   const handleCreatePhase = () => {
@@ -1822,16 +2251,12 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
   }, [project]);
 
   const totalBudget = useMemo(() => {
-    if (!project) return 0;
-    const rootTasks = project.phases.flatMap(ph => ph.tasks).filter(t => !t.parentId);
-    return rootTasks.reduce((sum, t) => sum + (t.estimatedCost || 0), 0);
-  }, [project]);
+    return financialTotals.totalBudgetNet;
+  }, [financialTotals]);
 
   const totalRealCost = useMemo(() => {
-    if (!project) return 0;
-    const rootTasks = project.phases.flatMap(ph => ph.tasks).filter(t => !t.parentId);
-    return rootTasks.reduce((sum, t) => sum + (t.realCost || 0), 0);
-  }, [project]);
+    return financialTotals.totalExecutedNet;
+  }, [financialTotals]);
 
   const projectSemaphore = useMemo(() => {
     if (projectDeviationDays > 5) return { label: 'Rojo', color: '#EF4444', bg: '#FEE2E2', icon: '🔴' };
@@ -1956,30 +2381,22 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
 
           {/* 7. PM/Resp. */}
           <div style={{ width: `${colWidths.assignee}px`, flexShrink: 0, padding: '0 6px', borderRight: '1px solid var(--border-subtle)', height: '100%', display: 'flex', alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
-            <select
+            <InlineCombobox
               value={task.assignee}
-              onChange={(e) => updateTask(project.id, phase.id, task.id, { assignee: e.target.value })}
+              onSave={(val) => {
+                if (val) updateTask(project.id, phase.id, task.id, { assignee: val });
+              }}
+              options={['Sin Asignar', ...users.map(u => u.name)]}
+              placeholder="Asignar..."
               style={{
-                width: '100%',
-                fontSize: '0.72rem',
+                textAlign: 'center',
+                fontWeight: 'bold',
+                color: '#475569',
                 background: '#F1F5F9',
-                border: '1px solid var(--border-subtle)',
                 borderRadius: '12px',
                 padding: '3px 8px',
-                outline: 'none',
-                color: '#475569',
-                fontWeight: 'bold',
-                cursor: 'pointer',
-                appearance: 'none',
-                WebkitAppearance: 'none',
-                textAlign: 'center'
               }}
-            >
-              <option value="Sin Asignar">Sin Asignar</option>
-              {users.map(u => (
-                <option key={u.id} value={u.name}>{u.name}</option>
-              ))}
-            </select>
+            />
           </div>
 
           {/* 8. % Av. R. */}
@@ -2259,18 +2676,24 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
               </div>
 
               {/* 5. COSTO EJECUTADO */}
-              <div className="glass-panel" style={{ padding: '12px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '76px', background: 'var(--bg-tertiary)' }}>
+              <div className="glass-panel" style={{ padding: '8px 4px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '76px', background: 'var(--bg-tertiary)' }}>
                 <div style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>Costo Ejecutado</div>
-                <div style={{ fontSize: '0.98rem', fontWeight: 900, color: 'var(--text-primary)', textOverflow: 'ellipsis', overflow: 'hidden', width: '100%', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
-                  {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(totalRealCost)}
+                <div style={{ fontSize: '0.92rem', fontWeight: 900, color: 'var(--text-primary)', textOverflow: 'ellipsis', overflow: 'hidden', width: '100%', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
+                  N: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.totalExecutedNet)}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 600, fontFamily: 'monospace', textOverflow: 'ellipsis', overflow: 'hidden', width: '100%', whiteSpace: 'nowrap' }}>
+                  IVA Inc: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.totalExecutedGross)}
                 </div>
               </div>
 
               {/* 6. PRESUPUESTO APROBADO */}
-              <div className="glass-panel" style={{ padding: '12px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '76px', background: 'var(--bg-tertiary)' }}>
+              <div className="glass-panel" style={{ padding: '8px 4px', textAlign: 'center', display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', minHeight: '76px', background: 'var(--bg-tertiary)' }}>
                 <div style={{ fontSize: '0.68rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', marginBottom: '4px', letterSpacing: '0.5px' }}>Presupuesto Aprobado</div>
-                <div style={{ fontSize: '0.98rem', fontWeight: 900, color: 'var(--text-primary)', textOverflow: 'ellipsis', overflow: 'hidden', width: '100%', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
-                  {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(totalBudget)}
+                <div style={{ fontSize: '0.92rem', fontWeight: 900, color: 'var(--text-primary)', textOverflow: 'ellipsis', overflow: 'hidden', width: '100%', whiteSpace: 'nowrap', fontFamily: 'monospace' }}>
+                  N: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.totalBudgetNet)}
+                </div>
+                <div style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 600, fontFamily: 'monospace', textOverflow: 'ellipsis', overflow: 'hidden', width: '100%', whiteSpace: 'nowrap' }}>
+                  IVA Inc: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.totalBudgetGross)}
                 </div>
               </div>
 
@@ -3151,9 +3574,30 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
                   </button>
                 </div>
 
-                <button className="btn btn-primary" onClick={handleCreatePhase} style={{ padding: '8px 16px', fontSize: '0.85rem', gap: '6px' }}>
-                  <Plus size={16} /> Nueva Fase Clínica
-                </button>
+                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                  <button 
+                    className="btn" 
+                    onClick={handleExportProjectToExcel} 
+                    style={{ 
+                      padding: '8px 16px', 
+                      fontSize: '0.85rem', 
+                      gap: '6px', 
+                      background: '#10B981', 
+                      color: 'white', 
+                      border: 'none', 
+                      borderRadius: 'var(--radius-sm)', 
+                      fontWeight: 600, 
+                      display: 'flex', 
+                      alignItems: 'center', 
+                      cursor: 'pointer' 
+                    }}
+                  >
+                    <FileSpreadsheet size={16} /> Exportar a Excel
+                  </button>
+                  <button className="btn btn-primary" onClick={handleCreatePhase} style={{ padding: '8px 16px', fontSize: '0.85rem', gap: '6px', display: 'flex', alignItems: 'center' }}>
+                    <Plus size={16} /> Nueva Fase Clínica
+                  </button>
+                </div>
               </div>
 
               {/* Búsqueda y Filtros */}
@@ -3805,16 +4249,25 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
                           ⚙️ Administrar
                         </button>
                       </div>
-                      <select 
+                      <input 
+                        list="users-list"
+                        type="text"
                         value={editingTask.task.assignee} 
-                        onChange={e => setEditingTask({...editingTask, task: {...editingTask.task, assignee: e.target.value}})}
-                        style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
-                      >
-                        <option value="Sin Asignar">Sin Asignar</option>
+                        onChange={e => {
+                          setEditingTask(prev => prev ? {
+                            ...prev,
+                            task: { ...prev.task, assignee: e.target.value }
+                          } : null);
+                        }}
+                        className="modal-input"
+                        placeholder="Asignar o escribir nuevo..."
+                        style={{ width: '100%', padding: '12px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
+                      />
+                      <datalist id="users-list">
                         {users.map(u => (
                           <option key={u.id} value={u.name}>{u.name} ({u.role})</option>
                         ))}
-                      </select>
+                      </datalist>
                     </div>
 
                     {editingTask.isNew ? (
@@ -4889,40 +5342,54 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
               <h2 style={{ margin: 0, fontSize: '1.1rem', fontWeight: 800, color: '#FFFFFF' }}>CONTROL DE COSTOS — {project?.name?.toUpperCase()}</h2>
             </div>
             
-            <div style={{ background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '10px 16px', fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-              Registrar todos los ítems de costo asociados al proyecto. Los totales se calculan automáticamente.
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-tertiary)', border: '1px solid var(--border-subtle)', borderRadius: 'var(--radius-sm)', padding: '10px 16px', fontSize: '0.8rem', color: 'var(--text-secondary)', gap: '16px', flexWrap: 'wrap' }}>
+              <span>Registrar todos los ítems de costo asociados al proyecto. Los totales se calculan automáticamente.</span>
+              {exchangeRates ? (
+                <span style={{ fontSize: '0.78rem', fontWeight: 600, background: 'rgba(2, 132, 199, 0.1)', padding: '4px 8px', borderRadius: '4px', border: '1px solid rgba(2, 132, 199, 0.2)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981' }} />
+                  Divisas Hoy ({exchangeRates.date}): UF: <strong>${new Intl.NumberFormat('es-CL').format(exchangeRates.uf)}</strong> | USD: <strong>${new Intl.NumberFormat('es-CL').format(exchangeRates.usd)}</strong>
+                </span>
+              ) : (
+                <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>Cargando divisas...</span>
+              )}
             </div>
 
             {/* Summary Cards Grid */}
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '1px', background: '#0F2C59', border: '1px solid #0F2C59', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
-              <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '10px', textAlign: 'center', fontSize: '0.75rem', fontWeight: 800 }}>PRESUPUESTO TOTAL</div>
-              <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '10px', textAlign: 'center', fontSize: '0.75rem', fontWeight: 800 }}>COSTO COMPROMETIDO</div>
-              <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '10px', textAlign: 'center', fontSize: '0.75rem', fontWeight: 800 }}>COSTO EJECUTADO</div>
-              <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '10px', textAlign: 'center', fontSize: '0.75rem', fontWeight: 800 }}>SALDO DISPONIBLE</div>
-              <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '10px', textAlign: 'center', fontSize: '0.75rem', fontWeight: 800 }}>% EJECUCIÓN</div>
+              <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '10px', textAlign: 'center', fontSize: '0.72rem', fontWeight: 800 }}>PRESUPUESTO (NETO/IVA INC.)</div>
+              <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '10px', textAlign: 'center', fontSize: '0.72rem', fontWeight: 800 }}>COSTO COMPROMETIDO</div>
+              <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '10px', textAlign: 'center', fontSize: '0.72rem', fontWeight: 800 }}>COSTO EJECUTADO</div>
+              <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '10px', textAlign: 'center', fontSize: '0.72rem', fontWeight: 800 }}>SALDO DISPONIBLE</div>
+              <div style={{ background: '#0F2C59', color: '#FFFFFF', padding: '10px', textAlign: 'center', fontSize: '0.72rem', fontWeight: 800 }}>% EJECUCIÓN (NETO)</div>
               
-              <div style={{ background: '#F4F7F6', color: '#1A1A1A', padding: '12px 10px', textAlign: 'center', fontSize: '1rem', fontWeight: 800, fontFamily: 'monospace' }}>
-                {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.totalBudget)}
+              <div style={{ background: '#F4F7F6', color: '#1A1A1A', padding: '8px 10px', textAlign: 'center', fontFamily: 'monospace', display: 'flex', flexDirection: 'column', gap: '2px', justifyContent: 'center' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 800 }}>N: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.totalBudgetNet)}</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 600 }}>IVA Inc: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.totalBudgetGross)}</span>
               </div>
-              <div style={{ background: '#F4F7F6', color: '#1A1A1A', padding: '12px 10px', textAlign: 'center', fontSize: '1rem', fontWeight: 800, fontFamily: 'monospace' }}>
-                {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.totalCommitted)}
+              <div style={{ background: '#F4F7F6', color: '#1A1A1A', padding: '8px 10px', textAlign: 'center', fontFamily: 'monospace', display: 'flex', flexDirection: 'column', gap: '2px', justifyContent: 'center' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 800 }}>N: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.totalCommittedNet)}</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 600 }}>IVA Inc: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.totalCommittedGross)}</span>
               </div>
-              <div style={{ background: '#F4F7F6', color: '#1A1A1A', padding: '12px 10px', textAlign: 'center', fontSize: '1rem', fontWeight: 800, fontFamily: 'monospace' }}>
-                {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.totalExecuted)}
+              <div style={{ background: '#F4F7F6', color: '#1A1A1A', padding: '8px 10px', textAlign: 'center', fontFamily: 'monospace', display: 'flex', flexDirection: 'column', gap: '2px', justifyContent: 'center' }}>
+                <span style={{ fontSize: '0.85rem', fontWeight: 800 }}>N: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.totalExecutedNet)}</span>
+                <span style={{ fontSize: '0.72rem', color: 'var(--text-secondary)', fontWeight: 600 }}>IVA Inc: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.totalExecutedGross)}</span>
               </div>
               <div style={{ 
-                background: financialTotals.availableBalance < 0 ? 'rgba(239, 68, 68, 0.08)' : '#E8F1F5', 
-                color: financialTotals.availableBalance < 0 ? '#dc2626' : '#0F2C59', 
-                padding: '12px 10px', 
+                background: financialTotals.availableBalanceNet < 0 ? 'rgba(239, 68, 68, 0.08)' : '#E8F1F5', 
+                color: financialTotals.availableBalanceNet < 0 ? '#dc2626' : '#0F2C59', 
+                padding: '8px 10px', 
                 textAlign: 'center', 
-                fontSize: '1rem', 
-                fontWeight: 800, 
                 fontFamily: 'monospace',
-                border: financialTotals.availableBalance < 0 ? '1px solid rgba(239, 68, 68, 0.15)' : 'none'
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '2px',
+                justifyContent: 'center',
+                border: financialTotals.availableBalanceNet < 0 ? '1px solid rgba(239, 68, 68, 0.15)' : 'none'
               }}>
-                {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.availableBalance)}
+                <span style={{ fontSize: '0.85rem', fontWeight: 800 }}>N: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.availableBalanceNet)}</span>
+                <span style={{ fontSize: '0.72rem', color: financialTotals.availableBalanceNet < 0 ? '#f43f5e' : 'var(--text-secondary)', fontWeight: 600 }}>IVA Inc: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(financialTotals.availableBalanceGross)}</span>
               </div>
-              <div style={{ background: '#E8F1F5', color: '#0F2C59', padding: '12px 10px', textAlign: 'center', fontSize: '1rem', fontWeight: 800, fontFamily: 'monospace' }}>
+              <div style={{ background: '#E8F1F5', color: '#0F2C59', padding: '12px 10px', textAlign: 'center', fontSize: '1rem', fontWeight: 800, fontFamily: 'monospace', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 {financialTotals.executionPercentage.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
               </div>
             </div>
@@ -5013,10 +5480,11 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
                       <th style={{ padding: '12px 16px', minWidth: '280px' }}>Ítem / Descripción</th>
                       <th style={{ padding: '12px 16px', minWidth: '160px' }}>Categoría</th>
                       <th style={{ padding: '12px 16px', minWidth: '160px' }}>Proveedor / Resp.</th>
-                      <th style={{ padding: '12px 16px', width: '180px', textAlign: 'right' }}>Presupuesto Aprobado</th>
+                      <th style={{ padding: '12px 16px', width: '220px', textAlign: 'right' }}>Presupuesto Aprobado</th>
+                      <th style={{ padding: '12px 16px', width: '100px', textAlign: 'center' }}>Adjuntos</th>
                       <th style={{ padding: '12px 16px', width: '180px', textAlign: 'right' }}>OC Emitida</th>
                       <th style={{ padding: '12px 16px', width: '160px' }}>N° OC / Referencia</th>
-                      <th style={{ padding: '12px 16px', width: '180px', textAlign: 'right' }}>Costo Real Ejecutado</th>
+                      <th style={{ padding: '12px 16px', width: '200px', textAlign: 'right' }}>Costo Real Ejecutado</th>
                       <th style={{ padding: '12px 16px', width: '130px', textAlign: 'center' }}>Estado OC</th>
                       <th style={{ padding: '12px 16px', minWidth: '220px' }}>Observación</th>
                       <th style={{ padding: '12px 16px', width: '60px', textAlign: 'center' }}>Acción</th>
@@ -5025,7 +5493,7 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
                   <tbody>
                     {filteredCostItems.length === 0 ? (
                       <tr>
-                        <td colSpan={11} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                        <td colSpan={12} style={{ padding: '32px', textAlign: 'center', color: 'var(--text-secondary)' }}>
                           <AlertTriangle size={32} style={{ opacity: 0.2, marginBottom: '8px', display: 'inline-block' }} />
                           <p style={{ margin: 0 }}>Cero ítems de costo registrados o filtrados en este proyecto.</p>
                         </td>
@@ -5056,15 +5524,63 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
 
                             {/* Category */}
                             <td style={{ padding: '8px 12px' }}>
-                              <select
-                                value={item.category || 'Licencia Software'}
-                                onChange={e => handleUpdateCostItem(item.id, { category: e.target.value })}
-                                style={{ width: '100%', padding: '6px', border: '1px solid transparent', background: 'transparent', outline: 'none', color: 'var(--text-primary)', fontWeight: 600 }}
-                              >
-                                {COST_CATEGORIES.map(cat => (
-                                  <option key={cat} value={cat}>{cat}</option>
-                                ))}
-                              </select>
+                              {customCategoryEditing[item.id] ? (
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                  <input
+                                    type="text"
+                                    value={customCategoryInput[item.id] ?? ''}
+                                    onChange={e => setCustomCategoryInput({ ...customCategoryInput, [item.id]: e.target.value })}
+                                    style={{ flex: 1, padding: '4px 6px', fontSize: '0.8rem', border: '1px solid var(--accent-primary)', borderRadius: '4px', background: 'white', color: 'var(--text-primary)', outline: 'none' }}
+                                    autoFocus
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') {
+                                        handleUpdateCostItem(item.id, { category: customCategoryInput[item.id] });
+                                        setCustomCategoryEditing({ ...customCategoryEditing, [item.id]: false });
+                                      } else if (e.key === 'Escape') {
+                                        setCustomCategoryEditing({ ...customCategoryEditing, [item.id]: false });
+                                      }
+                                    }}
+                                  />
+                                  <button
+                                    onClick={() => {
+                                      handleUpdateCostItem(item.id, { category: customCategoryInput[item.id] });
+                                      setCustomCategoryEditing({ ...customCategoryEditing, [item.id]: false });
+                                    }}
+                                    style={{ border: 'none', background: 'transparent', color: '#10b981', cursor: 'pointer', display: 'flex', padding: '4px' }}
+                                    title="Guardar"
+                                  >
+                                    <Check size={14} />
+                                  </button>
+                                  <button
+                                    onClick={() => setCustomCategoryEditing({ ...customCategoryEditing, [item.id]: false })}
+                                    style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: '4px' }}
+                                    title="Cancelar"
+                                  >
+                                    <X size={14} />
+                                  </button>
+                                </div>
+                              ) : (
+                                <select
+                                  value={item.category || 'Licencia Software'}
+                                  onChange={e => {
+                                    if (e.target.value === '__CUSTOM__') {
+                                      setCustomCategoryInput({ ...customCategoryInput, [item.id]: item.category || '' });
+                                      setCustomCategoryEditing({ ...customCategoryEditing, [item.id]: true });
+                                    } else {
+                                      handleUpdateCostItem(item.id, { category: e.target.value });
+                                    }
+                                  }}
+                                  style={{ width: '100%', padding: '6px', border: '1px solid transparent', background: 'transparent', outline: 'none', color: 'var(--text-primary)', fontWeight: 600 }}
+                                >
+                                  {item.category && !COST_CATEGORIES.includes(item.category) && (
+                                    <option value={item.category}>{item.category} (Personalizado)</option>
+                                  )}
+                                  {COST_CATEGORIES.map(cat => (
+                                    <option key={cat} value={cat}>{cat}</option>
+                                  ))}
+                                  <option value="__CUSTOM__">+ Personalizar...</option>
+                                </select>
+                              )}
                             </td>
 
                             {/* Provider */}
@@ -5078,23 +5594,95 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
                             </td>
 
                             {/* Approved Budget */}
-                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                              <InlineNumberInput
-                                value={item.approvedBudget}
-                                formatType="currency"
-                                onSave={val => handleUpdateCostItem(item.id, { approvedBudget: val || 0 })}
-                                style={{ textAlign: 'right', fontWeight: 'bold' }}
+                            <td style={{ padding: '8px 12px', textAlign: 'right', verticalAlign: 'middle' }}>
+                              <InlineMoneyInput
+                                amount={item.originalBudget !== undefined && item.originalBudget !== null ? item.originalBudget : item.approvedBudget}
+                                currency={item.currency || 'CLP'}
+                                taxType={item.taxType || 'NETO'}
+                                exchangeRates={exchangeRates}
+                                onSave={(amt, curr, tax) => {
+                                  let rate = 1.0;
+                                  if (curr === 'USD') rate = exchangeRates?.usd || 885.0;
+                                  if (curr === 'UF') rate = exchangeRates?.uf || 40787.7;
+                                  handleUpdateCostItem(item.id, {
+                                    originalBudget: amt,
+                                    currency: curr,
+                                    taxType: tax,
+                                    exchangeRate: rate
+                                  });
+                                }}
                               />
+                            </td>
+
+                            {/* Attachments */}
+                            <td style={{ padding: '8px 12px', textAlign: 'center', verticalAlign: 'middle' }}>
+                              <button
+                                onClick={() => {
+                                  setActiveCostItemForFiles(item);
+                                  setCostItemAttachmentsOpen(true);
+                                }}
+                                style={{
+                                  cursor: 'pointer',
+                                  display: 'inline-flex',
+                                  alignItems: 'center',
+                                  gap: '4px',
+                                  padding: '6px 10px',
+                                  borderRadius: '6px',
+                                  color: (item.attachments || []).length > 0 ? '#004B87' : 'var(--text-secondary)',
+                                  background: (item.attachments || []).length > 0 ? 'rgba(0, 75, 135, 0.08)' : 'transparent',
+                                  border: `1px solid ${(item.attachments || []).length > 0 ? 'rgba(0, 75, 135, 0.15)' : 'var(--border-subtle)'}`,
+                                  fontSize: '0.75rem',
+                                  fontWeight: 600,
+                                  transition: 'all 0.2s'
+                                }}
+                                title="Administrar cotizaciones y documentos adjuntos"
+                              >
+                                <Paperclip size={14} />
+                                <span>{(item.attachments || []).length}</span>
+                              </button>
                             </td>
 
                             {/* OC Emitted (Committed) */}
                             <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                              <InlineNumberInput
-                                value={parseFloat(item.ocEmitted || '') || 0}
-                                formatType="currency"
-                                onSave={val => handleUpdateCostItem(item.id, { ocEmitted: String(val || 0) })}
-                                style={{ textAlign: 'right', fontWeight: 'bold' }}
-                              />
+                              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '2px' }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px', justifyContent: 'flex-end', width: '100%' }}>
+                                  <InlineNumberInput
+                                    value={parseFloat(item.ocEmitted || '') || 0}
+                                    formatType="number"
+                                    onSave={val => handleUpdateCostItem(item.id, { ocEmitted: String(val || 0) })}
+                                    style={{ textAlign: 'right', fontWeight: 'bold', width: '90px', padding: '4px 6px', border: '1px solid transparent', background: 'transparent' }}
+                                  />
+                                  <span style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-secondary)', padding: '2px 4px', background: 'var(--bg-tertiary)', borderRadius: '4px' }}>
+                                    {item.currency || 'CLP'}
+                                  </span>
+                                </div>
+                                {item.currency && item.currency !== 'CLP' && (() => {
+                                  const val = parseFloat(item.ocEmitted || '') || 0;
+                                  const r = item.exchangeRate || 1.0;
+                                  const tax = item.taxType || 'NETO';
+                                  let net = val * r;
+                                  let gross = val * r;
+                                  if (tax === 'BRUTO') {
+                                    gross = val * r;
+                                    net = (val / 1.19) * r;
+                                  } else if (tax === 'NETO') {
+                                    gross = val * r * 1.19;
+                                  }
+                                  return (
+                                    <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', fontFamily: 'monospace' }}>
+                                      <span>Neto: ≈ {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(net)}</span>
+                                      {tax === 'NETO' && (
+                                        <span>IVA Inc: ≈ {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(gross)}</span>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
+                                {item.currency === 'CLP' && item.taxType === 'NETO' && (
+                                  <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)', fontFamily: 'monospace' }}>
+                                    IVA Inc: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format((parseFloat(item.ocEmitted || '') || 0) * 1.19)}
+                                  </span>
+                                )}
+                              </div>
                             </td>
 
                             {/* OC Number / Reference */}
@@ -5108,12 +5696,23 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
                             </td>
 
                             {/* Real Cost Executed */}
-                            <td style={{ padding: '8px 12px', textAlign: 'right' }}>
-                              <InlineNumberInput
-                                value={item.realCost}
-                                formatType="currency"
-                                onSave={val => handleUpdateCostItem(item.id, { realCost: val || 0 })}
-                                style={{ textAlign: 'right', fontWeight: 'bold' }}
+                            <td style={{ padding: '8px 12px', textAlign: 'right', verticalAlign: 'middle' }}>
+                              <InlineMoneyInput
+                                amount={item.originalRealCost !== undefined && item.originalRealCost !== null ? item.originalRealCost : item.realCost}
+                                currency={item.currency || 'CLP'}
+                                taxType={item.taxType || 'NETO'}
+                                exchangeRates={exchangeRates}
+                                onSave={(amt, curr, tax) => {
+                                  let rate = 1.0;
+                                  if (curr === 'USD') rate = exchangeRates?.usd || 885.0;
+                                  if (curr === 'UF') rate = exchangeRates?.uf || 40787.7;
+                                  handleUpdateCostItem(item.id, {
+                                    originalRealCost: amt,
+                                    currency: curr,
+                                    taxType: tax,
+                                    exchangeRate: rate
+                                  });
+                                }}
                               />
                             </td>
 
@@ -5156,28 +5755,61 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
                       })
                     )}
                     
-                    {/* Sum/Totals bottom row */}
-                    {filteredCostItems.length > 0 && (
-                      <tr style={{ background: 'var(--bg-tertiary)', fontWeight: 'bold', borderTop: '2px solid var(--border-subtle)' }}>
-                        <td style={{ padding: '12px 16px', textAlign: 'center' }}>-</td>
-                        <td style={{ padding: '12px 16px' }}>TOTAL</td>
-                        <td style={{ padding: '12px 16px' }}>-</td>
-                        <td style={{ padding: '12px 16px' }}>-</td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace' }}>
-                          {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(filteredBudgetSum)}
-                        </td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace' }}>
-                          {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(filteredCommittedSum)}
-                        </td>
-                        <td style={{ padding: '12px 16px' }}>-</td>
-                        <td style={{ padding: '12px 16px', textAlign: 'right', fontFamily: 'monospace' }}>
-                          {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(filteredExecutedSum)}
-                        </td>
-                        <td style={{ padding: '12px 16px' }}>-</td>
-                        <td style={{ padding: '12px 16px' }}>-</td>
-                        <td style={{ padding: '12px 16px' }}>-</td>
-                      </tr>
-                    )}
+                     {/* Sum/Totals bottom row */}
+                     {filteredCostItems.length > 0 && (
+                       <tr style={{ background: 'var(--bg-tertiary)', fontWeight: 'bold', borderTop: '2px solid var(--border-subtle)' }}>
+                         {/* 1. # */}
+                         <td style={{ padding: '12px 16px', textAlign: 'center' }}>-</td>
+                         
+                         {/* 2. Ítem / Descripción */}
+                         <td style={{ padding: '12px 16px' }}>TOTAL</td>
+                         
+                         {/* 3. Categoría */}
+                         <td style={{ padding: '12px 16px' }}>-</td>
+                         
+                         {/* 4. Proveedor / Resp. */}
+                         <td style={{ padding: '12px 16px' }}>-</td>
+                         
+                         {/* 5. Presupuesto Aprobado */}
+                         <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', fontSize: '0.74rem', gap: '1px' }}>
+                             <span style={{ color: 'var(--text-primary)' }}>N: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(filteredFinancialSums.budgetNet)}</span>
+                             <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal' }}>IVA Inc: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(filteredFinancialSums.budgetGross)}</span>
+                           </div>
+                         </td>
+                         
+                         {/* 6. Adjuntos */}
+                         <td style={{ padding: '12px 16px', textAlign: 'center' }}>-</td>
+                         
+                         {/* 7. OC Emitida */}
+                         <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', fontSize: '0.74rem', gap: '1px' }}>
+                             <span style={{ color: 'var(--text-primary)' }}>N: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(filteredFinancialSums.committedNet)}</span>
+                             <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal' }}>IVA Inc: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(filteredFinancialSums.committedGross)}</span>
+                           </div>
+                         </td>
+                         
+                         {/* 8. N° OC / Referencia */}
+                         <td style={{ padding: '12px 16px', textAlign: 'center' }}>-</td>
+                         
+                         {/* 9. Costo Real Ejecutado */}
+                         <td style={{ padding: '8px 12px', textAlign: 'right', fontFamily: 'monospace' }}>
+                           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', fontSize: '0.74rem', gap: '1px' }}>
+                             <span style={{ color: 'var(--text-primary)' }}>N: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(filteredFinancialSums.executedNet)}</span>
+                             <span style={{ color: 'var(--text-secondary)', fontWeight: 'normal' }}>IVA Inc: {new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(filteredFinancialSums.executedGross)}</span>
+                           </div>
+                         </td>
+                         
+                         {/* 10. Estado OC */}
+                         <td style={{ padding: '12px 16px', textAlign: 'center' }}>-</td>
+                         
+                         {/* 11. Observación */}
+                         <td style={{ padding: '12px 16px' }}>-</td>
+                         
+                         {/* 12. Acción */}
+                         <td style={{ padding: '12px 16px', textAlign: 'center' }}>-</td>
+                       </tr>
+                     )}
                   </tbody>
                 </table>
               </div>
@@ -5574,13 +6206,22 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
                             <td style={{ padding: '8px 12px' }}>
                               <select 
                                 value={inc.responsable} 
-                                onChange={e => handleUpdateIncident(inc.id, { responsable: e.target.value })}
+                                onChange={e => {
+                                  if (e.target.value === "ADD_NEW_USER") {
+                                    handleOpenInlineAddUser((name) => {
+                                      handleUpdateIncident(inc.id, { responsable: name });
+                                    });
+                                  } else {
+                                    handleUpdateIncident(inc.id, { responsable: e.target.value });
+                                  }
+                                }}
                                 style={{ width: '100%', padding: '6px', border: '1px solid transparent', background: 'transparent', outline: 'none' }}
                               >
                                 {users.map(u => (
                                   <option key={u.id} value={u.name}>{u.name}</option>
                                 ))}
                                 <option value="PMO Admin">PMO Admin</option>
+                                <option value="ADD_NEW_USER" style={{ color: 'var(--accent-primary)', fontWeight: 'bold' }}>+ Agregar Nuevo...</option>
                               </select>
                             </td>
 
@@ -6411,32 +7052,68 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                   <div>
                     <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)' }}>Director / PM</label>
-                    <select
+                    <input
+                      list="users-list"
+                      type="text"
                       value={editProjectManager}
                       onChange={e => setEditProjectManager(e.target.value)}
-                      style={{ width: '100%', padding: '10px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
-                    >
-                      <option value="">-- No Asignado --</option>
+                      className="modal-input"
+                      placeholder="Escribir nombre o seleccionar..."
+                      style={{ width: '100%', padding: '10px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
+                    />
+                      <datalist id="users-list">
                       {users.map(u => (
                         <option key={u.id} value={u.name}>{u.name} ({u.role})</option>
                       ))}
-                    </select>
+                      </datalist>
                   </div>
                   <div>
                     <label style={{ display: 'block', marginBottom: '6px', fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-secondary)' }}>Área de Negocio</label>
-                    <select
-                      value={editProjectArea}
-                      onChange={e => setEditProjectArea(e.target.value)}
-                      style={{ width: '100%', padding: '10px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
-                    >
-                      <option value="">-- Sin Área --</option>
-                      <option value="Salud Digital">Salud Digital</option>
-                      <option value="Tecnología">Tecnología</option>
-                      <option value="Operaciones">Operaciones</option>
-                      <option value="Clínico">Clínico</option>
-                      <option value="Administración">Administración</option>
-                      <option value="Finanzas">Finanzas</option>
-                    </select>
+                    {isCustomArea ? (
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        <input
+                          type="text"
+                          value={editProjectArea}
+                          onChange={e => setEditProjectArea(e.target.value)}
+                          placeholder="Ej: Innovación Clínica"
+                          autoFocus
+                          onKeyDown={e => { if (e.key === 'Enter') setIsCustomArea(false); }}
+                          style={{ flex: 1, padding: '10px', background: 'var(--bg-primary)', border: '1px solid var(--accent-primary)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none' }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setIsCustomArea(false)}
+                          style={{ padding: '8px 12px', background: 'var(--accent-primary)', color: 'white', border: 'none', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontWeight: 700 }}
+                        >✔</button>
+                      </div>
+                    ) : (
+                      <select
+                        value={editProjectArea}
+                        onChange={e => {
+                          if (e.target.value === '__CUSTOM__') {
+                            setEditProjectArea('');
+                            setIsCustomArea(true);
+                          } else {
+                            setEditProjectArea(e.target.value);
+                          }
+                        }}
+                        style={{ width: '100%', padding: '10px', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: 'var(--radius-sm)', color: 'var(--text-primary)', outline: 'none', cursor: 'pointer' }}
+                      >
+                        <option value="">-- Sin Área --</option>
+                        <option value="Salud Digital">Salud Digital</option>
+                        <option value="Tecnología">Tecnología</option>
+                        <option value="Operaciones">Operaciones</option>
+                        <option value="Clínico">Clínico</option>
+                        <option value="Administración">Administración</option>
+                        <option value="Finanzas">Finanzas</option>
+                        <option value="Marketing">Marketing</option>
+                        <option value="Legal">Legal</option>
+                        {editProjectArea && !['', 'Salud Digital', 'Tecnología', 'Operaciones', 'Clínico', 'Administración', 'Finanzas', 'Marketing', 'Legal'].includes(editProjectArea) && (
+                          <option value={editProjectArea}>{editProjectArea}</option>
+                        )}
+                        <option value="__CUSTOM__">+ Personalizar...</option>
+                      </select>
+                    )}
                   </div>
                 </div>
 
@@ -6697,6 +7374,113 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
           </div>
         )}
 
+      {/* MODAL ADJUNTOS CONTROL DE COSTOS */}
+      {costItemAttachmentsOpen && currentActiveCostItem && (
+        <div className="custom-modal-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1010, backdropFilter: 'blur(4px)' }}>
+          <div className="custom-modal-card" style={{ background: 'var(--bg-secondary)', padding: '24px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-light)', width: '500px', maxHeight: '90vh', overflowY: 'auto', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#004B87', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Paperclip size={18} />
+                Documentos y Cotizaciones Adjuntas
+              </h3>
+              <button onClick={() => { setCostItemAttachmentsOpen(false); setActiveCostItemForFiles(null); }} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={20} /></button>
+            </div>
+
+            <div style={{ fontSize: '0.85rem', marginBottom: '16px', color: 'var(--text-secondary)' }}>
+              Ítem: <strong style={{ color: 'var(--text-primary)' }}>{currentActiveCostItem.indexId} - {currentActiveCostItem.description}</strong>
+            </div>
+
+            {/* Subir archivo */}
+            <div style={{ background: 'var(--bg-primary)', padding: '16px', borderRadius: '8px', border: '1px solid var(--border-subtle)', marginBottom: '20px', textAlign: 'center' }}>
+              <label style={{ display: 'block', marginBottom: '8px', fontSize: '0.8rem', fontWeight: 700, color: '#004B87' }}>SUBIR DOCUMENTO (PDF, EXCEL, IMAGEN)</label>
+              <input
+                type="file"
+                id="cost-file-upload-input"
+                onChange={handleUploadCostFile}
+                disabled={isUploadingCostFile}
+                style={{ display: 'none' }}
+              />
+              <button
+                type="button"
+                onClick={() => document.getElementById('cost-file-upload-input')?.click()}
+                disabled={isUploadingCostFile}
+                className="btn btn-primary"
+                style={{
+                  background: '#0F2C59',
+                  color: 'white',
+                  border: 'none',
+                  padding: '8px 16px',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                  fontSize: '0.8rem',
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px'
+                }}
+              >
+                {isUploadingCostFile ? (
+                  <>
+                    <Loader2 size={14} style={{ animation: 'spin 1s linear infinite' }} />
+                    <span>Subiendo...</span>
+                  </>
+                ) : (
+                  <>
+                    <Plus size={14} />
+                    <span>Seleccionar Archivo</span>
+                  </>
+                )}
+              </button>
+            </div>
+
+            {/* Lista de adjuntos */}
+            <div>
+              <span style={{ fontSize: '0.78rem', fontWeight: 800, color: 'var(--text-secondary)', textTransform: 'uppercase', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '6px', display: 'block', marginBottom: '8px' }}>
+                Archivos Cargados ({(currentActiveCostItem.attachments || []).length})
+              </span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '250px', overflowY: 'auto' }}>
+                {(currentActiveCostItem.attachments || []).length === 0 ? (
+                  <div style={{ padding: '16px', textAlign: 'center', fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                    No hay documentos adjuntos para este ítem.
+                  </div>
+                ) : (
+                  (currentActiveCostItem.attachments || []).map(att => (
+                    <div key={att.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-primary)', padding: '10px 12px', borderRadius: '6px', border: '1px solid var(--border-subtle)', gap: '12px' }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <a
+                          href={att.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          style={{ fontSize: '0.85rem', fontWeight: 600, color: '#004B87', textDecoration: 'none', display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                          title="Click para ver documento"
+                        >
+                          {att.name}
+                        </a>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--text-secondary)' }}>
+                          {att.type.toUpperCase()}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteCostFile(att.id)}
+                        style={{ border: 'none', background: 'transparent', color: 'red', cursor: 'pointer', padding: '4px' }}
+                        title="Eliminar archivo"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '20px', borderTop: '1px solid var(--border-subtle)', paddingTop: '12px' }}>
+              <button type="button" onClick={() => { setCostItemAttachmentsOpen(false); setActiveCostItemForFiles(null); }} className="btn btn-secondary" style={{ background: '#004B87', color: 'white', border: 'none' }}>Cerrar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Modal de Comentarios de Historial de Equipamiento */}
       {isCommentsOpen && selectedEqForComments && (
         <EquipmentCommentsModal
@@ -6713,6 +7497,123 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
           }}
           availableUsers={users}
         />
+      )}
+
+      {/* Modal para agregar un nuevo responsable desde cualquier campo */}
+      {isInlineAddUserOpen && (
+        <div className="custom-modal-backdrop" style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, backdropFilter: 'blur(4px)' }}>
+          <div className="custom-modal-card" style={{ background: 'var(--bg-secondary)', padding: '24px', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-light)', width: '450px', boxShadow: '0 20px 40px rgba(0,0,0,0.2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', borderBottom: '1px solid var(--border-subtle)', paddingBottom: '12px' }}>
+              <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#004B87', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                👤 Registrar y Asignar Nuevo Actor
+              </h3>
+              <button onClick={() => setIsInlineAddUserOpen(false)} style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: 'var(--text-muted)' }}><X size={18} /></button>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '20px' }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.8rem', fontWeight: 600 }}>Nombre Completo</label>
+                <input 
+                  type="text" 
+                  value={inlineUserName}
+                  onChange={e => {
+                    const name = e.target.value;
+                    setInlineUserName(name);
+                    // Generar correo dinámico limpio sin acentos
+                    const generatedEmail = name.trim().toLowerCase()
+                      .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+                      .replace(/\s+/g, '.') + '@bupa.cl';
+                    setInlineUserEmail(generatedEmail);
+                  }}
+                  placeholder="Ej: Juan Pérez"
+                  style={{ width: '100%', padding: '8px 10px', fontSize: '0.85rem', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '4px', outline: 'none', color: 'var(--text-primary)' }}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.8rem', fontWeight: 600 }}>Email Corporativo</label>
+                <input 
+                  type="email" 
+                  value={inlineUserEmail}
+                  onChange={e => setInlineUserEmail(e.target.value)}
+                  placeholder="juan.perez@bupa.cl"
+                  style={{ width: '100%', padding: '8px 10px', fontSize: '0.85rem', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '4px', outline: 'none', color: 'var(--text-primary)' }}
+                />
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 0.8fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.8rem', fontWeight: 600 }}>Rol / Cargo</label>
+                  <select
+                    value={inlineUserRole}
+                    onChange={e => setInlineUserRole(e.target.value)}
+                    style={{ width: '100%', padding: '8px 10px', fontSize: '0.85rem', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '4px', outline: 'none', cursor: 'pointer', color: 'var(--text-primary)' }}
+                  >
+                    <option value="Project Manager">Project Manager</option>
+                    <option value="Ingeniero Biomédico">Ingeniero Biomédico</option>
+                    <option value="Físico Médico">Físico Médico</option>
+                    <option value="Técnico de TI">Técnico de TI</option>
+                    <option value="Mantenimiento Climatización">Mantenimiento Climatización</option>
+                  </select>
+                </div>
+                <div>
+                  <label style={{ display: 'block', marginBottom: '4px', fontSize: '0.8rem', fontWeight: 600 }}>Límite Tareas</label>
+                  <input 
+                    type="number" 
+                    min="1" max="50"
+                    value={inlineUserMaxTasks}
+                    onChange={e => setInlineUserMaxTasks(parseInt(e.target.value) || 5)}
+                    style={{ width: '100%', padding: '8px 10px', fontSize: '0.85rem', background: 'var(--bg-primary)', border: '1px solid var(--border-light)', borderRadius: '4px', outline: 'none', color: 'var(--text-primary)' }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+              <button 
+                type="button" 
+                className="btn btn-secondary" 
+                style={{ padding: '6px 12px', fontSize: '0.8rem' }}
+                onClick={() => setIsInlineAddUserOpen(false)}
+              >
+                Cancelar
+              </button>
+              <button 
+                type="button" 
+                className="btn btn-primary" 
+                style={{ background: '#004B87', color: 'white', border: 'none', padding: '6px 16px', fontSize: '0.8rem', fontWeight: 700 }}
+                onClick={async () => {
+                  if (!inlineUserName.trim() || !inlineUserEmail.trim()) {
+                    alert("Nombre y Email son obligatorios.");
+                    return;
+                  }
+                  try {
+                    const { addUser } = useUserStore.getState();
+                    const newUserId = `usr-${Date.now()}`;
+                    const nameTrimmed = inlineUserName.trim();
+                    await addUser({
+                      id: newUserId,
+                      name: nameTrimmed,
+                      email: inlineUserEmail.trim(),
+                      role: inlineUserRole,
+                      maxTasksLimit: inlineUserMaxTasks
+                    });
+                    
+                    if (inlineUserSuccessCallback) {
+                      inlineUserSuccessCallback(nameTrimmed);
+                    }
+                    setIsInlineAddUserOpen(false);
+                  } catch (err) {
+                    console.error(err);
+                    alert("Error al crear el nuevo responsable.");
+                  }
+                }}
+              >
+                Crear y Asignar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       </div>
@@ -6755,6 +7656,13 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
           to { opacity: 1; transform: translateY(0); }
         }
       `}} />
+      {/* Global Datalist for users */}
+      <datalist id="users-list">
+        {users.map(u => (
+          <option key={u.id} value={u.name} />
+        ))}
+      </datalist>
+
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { addBusinessDays, differenceInBusinessDays } from '@/utils/dateUtils';
+import { compareWbs } from '@/utils/wbs';
 
 
 // Algoritmo DFS para detectar dependencias circulares y bucles infinitos en Gantt
@@ -119,11 +120,17 @@ export interface CostItem {
   category?: string | null;
   provider?: string | null;
   approvedBudget: number;
+  currency: string;
+  originalBudget: number;
+  exchangeRate: number;
+  taxType: string;
   ocEmitted?: string | null;
   ocNumber?: string | null;
   realCost: number;
+  originalRealCost: number;
   ocStatus: string;
   observations?: string | null;
+  attachments?: { id: string; name: string; type: string; url: string }[];
   projectId: string;
   createdAt: Date;
   updatedAt: Date;
@@ -357,35 +364,39 @@ const mapProjectFromApi = (p: any): Project => ({
     ...c,
     createdAt: new Date(c.createdAt),
     updatedAt: new Date(c.updatedAt)
-  })),
-  phases: (p.phases || []).map((ph: any) => ({
-    ...ph,
-    startDate: new Date(ph.startDate),
-    endDate: new Date(ph.endDate),
-    tasks: (ph.tasks || []).map((t: any) => {
-      const taskObj = {
-        ...t,
-        startDate: new Date(t.startDate),
-        endDate: new Date(t.endDate),
-        realStartDate: t.realStartDate ? new Date(t.realStartDate) : null,
-        realEndDate: t.realEndDate ? new Date(t.realEndDate) : null,
-        dependencies: typeof t.dependencies === 'string' 
-          ? JSON.parse(t.dependencies) 
-          : (Array.isArray(t.dependencies) ? t.dependencies : [])
-      };
-      const refDate = taskObj.realEndDate || (taskObj.progress < 100 && new Date() > taskObj.endDate ? new Date() : null);
-      const delay = calculateDelayDays(taskObj.endDate, refDate);
-      taskObj.delayDays = delay;
-      if (delay === null || delay <= 0) {
-        taskObj.semaphore = 'Verde';
-      } else if (delay <= 5) {
-        taskObj.semaphore = 'Amarillo';
-      } else {
-        taskObj.semaphore = 'Rojo';
-      }
-      return taskObj;
-    })
-  }))
+  })).sort((a: any, b: any) => (a.indexId || '').localeCompare(b.indexId || '')),
+  phases: (p.phases || [])
+    .map((ph: any) => ({
+      ...ph,
+      startDate: new Date(ph.startDate),
+      endDate: new Date(ph.endDate),
+      tasks: (ph.tasks || [])
+        .map((t: any) => {
+          const taskObj = {
+            ...t,
+            startDate: new Date(t.startDate),
+            endDate: new Date(t.endDate),
+            realStartDate: t.realStartDate ? new Date(t.realStartDate) : null,
+            realEndDate: t.realEndDate ? new Date(t.realEndDate) : null,
+            dependencies: typeof t.dependencies === 'string' 
+              ? JSON.parse(t.dependencies) 
+              : (Array.isArray(t.dependencies) ? t.dependencies : [])
+          };
+          const refDate = taskObj.realEndDate || (taskObj.progress < 100 && new Date() > taskObj.endDate ? new Date() : null);
+          const delay = calculateDelayDays(taskObj.endDate, refDate);
+          taskObj.delayDays = delay;
+          if (delay === null || delay <= 0) {
+            taskObj.semaphore = 'Verde';
+          } else if (delay <= 5) {
+            taskObj.semaphore = 'Amarillo';
+          } else {
+            taskObj.semaphore = 'Rojo';
+          }
+          return taskObj;
+        })
+        .sort((t1: any, t2: any) => compareWbs(t1.wbsId, t2.wbsId))
+    }))
+    .sort((ph1: any, ph2: any) => compareWbs(ph1.wbsId, ph2.wbsId))
 });
 
 let syncTimeout: NodeJS.Timeout | null = null;
@@ -1237,7 +1248,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
             if (p.id !== projectId) return p;
             return {
               ...p,
-              costItems: [...(p.costItems || []), parsedCost]
+              costItems: [...(p.costItems || []), parsedCost].sort((a, b) => (a.indexId || '').localeCompare(b.indexId || ''))
             };
           }),
           isLoading: false
@@ -1270,7 +1281,7 @@ export const useProjectStore = create<ProjectState>()((set, get) => {
             if (p.id !== projectId) return p;
             return {
               ...p,
-              costItems: (p.costItems || []).map(c => c.id === itemId ? parsedCost : c)
+              costItems: (p.costItems || []).map(c => c.id === itemId ? parsedCost : c).sort((a, b) => (a.indexId || '').localeCompare(b.indexId || ''))
             };
           }),
           isLoading: false

@@ -12,7 +12,9 @@ import {
   User,
   ArrowRight,
   TrendingUp,
-  Activity
+  Activity,
+  DollarSign,
+  Wallet
 } from "lucide-react";
 import Link from "next/link";
 import { motion } from "framer-motion";
@@ -164,6 +166,21 @@ export default function Home() {
     });
 
     return nearestTask;
+  }, [projects]);
+
+  // 5. Resumen Financiero del Portafolio
+  const portfolioFinancials = useMemo(() => {
+    let totalBudget = 0;
+    let totalExecuted = 0;
+    projects.forEach((proj) => {
+      (proj.costItems || []).forEach((c: any) => {
+        totalBudget += c.approvedBudget || 0;
+        totalExecuted += c.realCost || 0;
+      });
+    });
+    const balance = totalBudget - totalExecuted;
+    const executionPct = totalBudget > 0 ? Math.round((totalExecuted / totalBudget) * 100) : 0;
+    return { totalBudget, totalExecuted, balance, executionPct };
   }, [projects]);
 
   const containerVariants = {
@@ -321,6 +338,52 @@ export default function Home() {
           </div>
         </motion.div>
 
+      </section>
+
+      {/* RESUMEN FINANCIERO DEL PORTAFOLIO */}
+      <section style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '20px' }}>
+        <motion.div variants={itemVariants} className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px', borderLeft: '4px solid #0079C1' }}>
+          <div style={{ width: '48px', height: '48px', borderRadius: 'var(--radius-md)', background: 'rgba(0, 121, 193, 0.08)', color: '#0079C1', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <DollarSign size={24} />
+          </div>
+          <div>
+            <h3 style={{ fontSize: '1.5rem', fontWeight: 800 }}>{new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(portfolioFinancials.totalBudget)}</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 500 }}>Presupuesto Total Portafolio</p>
+          </div>
+        </motion.div>
+        <motion.div variants={itemVariants} className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px', borderLeft: `4px solid ${portfolioFinancials.executionPct > 90 ? 'var(--accent-danger)' : portfolioFinancials.executionPct > 80 ? 'var(--accent-warning)' : 'var(--accent-success)'}` }}>
+          <div style={{ 
+            width: '48px', 
+            height: '48px', 
+            borderRadius: 'var(--radius-md)', 
+            background: portfolioFinancials.executionPct > 90 ? 'rgba(225, 29, 72, 0.08)' : portfolioFinancials.executionPct > 80 ? 'rgba(245, 158, 11, 0.08)' : 'rgba(13, 148, 136, 0.08)', 
+            color: portfolioFinancials.executionPct > 90 ? 'var(--accent-danger)' : portfolioFinancials.executionPct > 80 ? 'var(--accent-warning)' : 'var(--accent-success)', 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'center' 
+          }}>
+            <TrendingUp size={24} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <h3 style={{ fontSize: '1.5rem', fontWeight: 800 }}>{new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(portfolioFinancials.totalExecuted)}</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 500, display: 'flex', justifyContent: 'space-between' }}>
+              <span>Costo Ejecutado</span>
+              <span style={{ fontWeight: 700, color: portfolioFinancials.executionPct > 90 ? 'var(--accent-danger)' : portfolioFinancials.executionPct > 80 ? 'var(--accent-warning)' : 'var(--accent-success)' }}>{portfolioFinancials.executionPct}%</span>
+            </p>
+            <div style={{ width: '100%', height: '6px', background: 'var(--border-subtle)', borderRadius: '3px', marginTop: '6px', overflow: 'hidden' }}>
+              <div style={{ width: `${Math.min(100, portfolioFinancials.executionPct)}%`, height: '100%', background: portfolioFinancials.executionPct > 90 ? 'var(--accent-danger)' : portfolioFinancials.executionPct > 80 ? 'var(--accent-warning)' : 'var(--accent-success)', borderRadius: '3px', transition: 'width 0.8s ease-out' }} />
+            </div>
+          </div>
+        </motion.div>
+        <motion.div variants={itemVariants} className="glass-panel" style={{ padding: '20px', display: 'flex', alignItems: 'center', gap: '16px', borderLeft: `4px solid ${portfolioFinancials.balance >= 0 ? 'var(--accent-success)' : 'var(--accent-danger)'}` }}>
+          <div style={{ width: '48px', height: '48px', borderRadius: 'var(--radius-md)', background: portfolioFinancials.balance >= 0 ? 'rgba(13, 148, 136, 0.08)' : 'rgba(225, 29, 72, 0.08)', color: portfolioFinancials.balance >= 0 ? 'var(--accent-success)' : 'var(--accent-danger)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Wallet size={24} />
+          </div>
+          <div>
+            <h3 style={{ fontSize: '1.5rem', fontWeight: 800, color: portfolioFinancials.balance >= 0 ? 'var(--accent-success)' : 'var(--accent-danger)' }}>{new Intl.NumberFormat('es-CL', { style: 'currency', currency: 'CLP', maximumFractionDigits: 0 }).format(portfolioFinancials.balance)}</h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.85rem', fontWeight: 500 }}>Saldo Disponible</p>
+          </div>
+        </motion.div>
       </section>
 
       {/* CUERPO CENTRAL: CURVA S & HEATMAP DE COLABORADORES */}

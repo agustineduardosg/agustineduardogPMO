@@ -3,6 +3,15 @@ import { prisma } from '@/lib/prisma';
 
 export const dynamic = 'force-dynamic';
 
+const getNetClpValue = (originalVal: number, rate: number, tax: string) => {
+  const val = originalVal || 0;
+  const r = rate || 1.0;
+  if (tax === 'BRUTO') {
+    return (val / 1.19) * r;
+  }
+  return val * r;
+};
+
 export async function GET(
   req: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -11,6 +20,7 @@ export async function GET(
     const { id: projectId } = await params;
     const costs = await prisma.costItem.findMany({
       where: { projectId },
+      include: { attachments: true },
       orderBy: { indexId: 'asc' }
     });
     return NextResponse.json(costs);
@@ -28,19 +38,51 @@ export async function POST(
     const { id: projectId } = await params;
     const body = await req.json();
     
+    const taxType = body.taxType || 'NETO';
+    const currency = body.currency || 'CLP';
+    const exchangeRate = body.exchangeRate !== undefined ? Number(body.exchangeRate) : 1.0;
+
+    let originalBudget = body.originalBudget !== undefined ? Number(body.originalBudget) : null;
+    let approvedBudget = 0;
+
+    if (originalBudget !== null) {
+      approvedBudget = getNetClpValue(originalBudget, exchangeRate, taxType);
+    } else {
+      approvedBudget = body.approvedBudget !== undefined ? Number(body.approvedBudget) : 0;
+      originalBudget = approvedBudget;
+    }
+
+    let originalRealCost = body.originalRealCost !== undefined ? Number(body.originalRealCost) : null;
+    let realCost = 0;
+
+    if (originalRealCost !== null) {
+      realCost = getNetClpValue(originalRealCost, exchangeRate, taxType);
+    } else {
+      realCost = body.realCost !== undefined ? Number(body.realCost) : 0;
+      originalRealCost = realCost;
+    }
+
     const cost = await prisma.costItem.create({
       data: {
         indexId: body.indexId || 'C01',
         description: body.description || '',
         category: body.category || '',
         provider: body.provider || '',
-        approvedBudget: body.approvedBudget ? Number(body.approvedBudget) : 0,
+        currency,
+        originalBudget,
+        exchangeRate,
+        approvedBudget,
+        taxType,
         ocEmitted: body.ocEmitted || '',
         ocNumber: body.ocNumber || '',
-        realCost: body.realCost ? Number(body.realCost) : 0,
+        originalRealCost,
+        realCost,
         ocStatus: body.ocStatus || 'Pendiente',
         observations: body.observations || '',
         projectId
+      },
+      include: {
+        attachments: true
       }
     });
     return NextResponse.json(cost);
@@ -57,22 +99,58 @@ export async function PUT(
   try {
     const body = await req.json();
     const { id, ...data } = body;
+
+    const existing = await prisma.costItem.findUnique({
+      where: { id }
+    });
+
+    if (!existing) {
+      return NextResponse.json({ error: 'Item de costo no encontrado' }, { status: 404 });
+    }
     
-    const updateData: any = {};
+    const taxType = data.taxType !== undefined ? data.taxType : existing.taxType;
+    const currency = data.currency !== undefined ? data.currency : existing.currency;
+    const exchangeRate = data.exchangeRate !== undefined ? Number(data.exchangeRate) : existing.exchangeRate;
+
+    let originalBudget = existing.originalBudget;
+    let approvedBudget = existing.approvedBudget;
+    if (data.originalBudget !== undefined) {
+      originalBudget = Number(data.originalBudget);
+    }
+    approvedBudget = getNetClpValue(originalBudget, exchangeRate, taxType);
+
+    let originalRealCost = existing.originalRealCost;
+    let realCost = existing.realCost;
+    if (data.originalRealCost !== undefined) {
+      originalRealCost = Number(data.originalRealCost);
+    }
+    realCost = getNetClpValue(originalRealCost, exchangeRate, taxType);
+    
+    const updateData: any = {
+      currency,
+      exchangeRate,
+      taxType,
+      originalBudget,
+      approvedBudget,
+      originalRealCost,
+      realCost
+    };
+
     if (data.indexId !== undefined) updateData.indexId = data.indexId;
     if (data.description !== undefined) updateData.description = data.description;
     if (data.category !== undefined) updateData.category = data.category;
     if (data.provider !== undefined) updateData.provider = data.provider;
-    if (data.approvedBudget !== undefined) updateData.approvedBudget = Number(data.approvedBudget) || 0;
     if (data.ocEmitted !== undefined) updateData.ocEmitted = data.ocEmitted;
     if (data.ocNumber !== undefined) updateData.ocNumber = data.ocNumber;
-    if (data.realCost !== undefined) updateData.realCost = Number(data.realCost) || 0;
     if (data.ocStatus !== undefined) updateData.ocStatus = data.ocStatus;
     if (data.observations !== undefined) updateData.observations = data.observations;
 
     const cost = await prisma.costItem.update({
       where: { id },
-      data: updateData
+      data: updateData,
+      include: {
+        attachments: true
+      }
     });
     return NextResponse.json(cost);
   } catch (error: any) {

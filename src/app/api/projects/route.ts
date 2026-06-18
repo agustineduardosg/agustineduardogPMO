@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { checkSession, unauthorizedResponse } from '@/lib/apiAuth';
+import { compareWbs } from '@/utils/wbs';
 
 
 export async function GET() {
@@ -22,11 +23,24 @@ export async function GET() {
           orderBy: { createdAt: 'asc' }
         },
         risks: true,
-        costItems: true
+        costItems: {
+          include: {
+            attachments: true
+          },
+          orderBy: { indexId: 'asc' }
+        }
       },
       orderBy: { createdAt: 'desc' }
     });
-    return NextResponse.json(projects);
+    // Ordenar lógicamente por WBS
+    const sortedProjects = projects.map(p => {
+      const sortedPhases = p.phases.map(ph => {
+        const sortedTasks = [...ph.tasks].sort((t1, t2) => compareWbs(t1.wbsId, t2.wbsId));
+        return { ...ph, tasks: sortedTasks };
+      }).sort((ph1, ph2) => compareWbs(ph1.wbsId, ph2.wbsId));
+      return { ...p, phases: sortedPhases };
+    });
+    return NextResponse.json(sortedProjects);
   } catch (error: any) {
     console.error('Error fetching projects:', error);
     return NextResponse.json({ error: error.message || 'Error fetching projects' }, { status: 500 });
@@ -145,10 +159,23 @@ export async function POST(req: Request) {
             orderBy: { createdAt: 'asc' }
           },
           risks: true,
-          costItems: true
+          costItems: {
+            include: {
+              attachments: true
+            }
+          }
         }
       });
     });
+
+    if (newProject) {
+      const sortedPhases = newProject.phases.map(ph => {
+        const sortedTasks = [...ph.tasks].sort((t1, t2) => compareWbs(t1.wbsId, t2.wbsId));
+        return { ...ph, tasks: sortedTasks };
+      }).sort((ph1, ph2) => compareWbs(ph1.wbsId, ph2.wbsId));
+      const sortedProject = { ...newProject, phases: sortedPhases };
+      return NextResponse.json(sortedProject, { status: 201 });
+    }
 
     return NextResponse.json(newProject, { status: 201 });
   } catch (error: any) {

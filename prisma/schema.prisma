@@ -132,10 +132,13 @@ model Attachment {
   task       Task?     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   incidentId String?
   incident   Incident? @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  costItemId String?
+  costItem   CostItem? @relation(fields: [costItemId], references: [id], onDelete: Cascade)
   createdAt  DateTime  @default(now())
 
   @@index([taskId])
   @@index([incidentId])
+  @@index([costItemId])
 }
 
 model Recinto {
@@ -345,23 +348,29 @@ model Risk {
 }
 
 model CostItem {
-  id             String   @id @default(cuid())
-  indexId        String   // C01, C02, etc.
-  description    String
-  category       String?  // Licencia Software, Hardware TI, Reserva, etc.
-  provider       String?  // Proveedor / Resp.
-  approvedBudget Float    @default(0) // Presupuesto Aprobado
-  ocEmitted      String?  // OC Emitida (Sí/No/Referencia)
-  ocNumber       String?  // N° OC / Referencia
-  realCost       Float    @default(0) // Costo Real Ejecutado
-  ocStatus       String   @default("Pendiente") // Vacío / Emitida / Facturada / Pagada
-  observations   String?
+  id               String       @id @default(cuid())
+  indexId          String       // C01, C02, etc.
+  description      String
+  category         String?      // Licencia Software, Hardware TI, Reserva, etc.
+  provider         String?      // Proveedor / Resp.
+  approvedBudget   Float        @default(0) // Presupuesto Aprobado en CLP
+  currency         String       @default("CLP") // CLP, USD, UF
+  originalBudget   Float        @default(0) // Presupuesto Aprobado en Moneda Original
+  exchangeRate     Float        @default(1.0) // Tasa de Cambio aplicada
+  taxType          String       @default("NETO") // NETO (Afecto), EXENTO (Exento), BRUTO (Bruto)
+  ocEmitted        String?      // OC Emitida (Sí/No/Referencia)
+  ocNumber         String?      // N° OC / Referencia
+  realCost         Float        @default(0) // Costo Real Ejecutado en CLP
+  originalRealCost Float        @default(0) // Costo Real en Moneda Original
+  ocStatus         String       @default("Pendiente") // Vacío / Emitida / Facturada / Pagada
+  observations     String?
+  attachments      Attachment[]
   
-  projectId      String
-  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId        String
+  project          Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
 
   @@index([projectId])
 }

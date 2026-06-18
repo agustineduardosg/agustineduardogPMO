@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
+import { compareWbs } from '@/utils/wbs';
 
 export async function POST(
   req: Request,
@@ -116,6 +117,15 @@ export async function POST(
         },
       });
     });
+
+    if (result) {
+      const sortedPhases = result.phases.map(ph => {
+        const sortedTasks = [...ph.tasks].sort((t1, t2) => compareWbs(t1.wbsId, t2.wbsId));
+        return { ...ph, tasks: sortedTasks };
+      }).sort((ph1, ph2) => compareWbs(ph1.wbsId, ph2.wbsId));
+      const sortedProject = { ...result, phases: sortedPhases };
+      return NextResponse.json(sortedProject);
+    }
 
     return NextResponse.json(result);
   } catch (error: any) {
