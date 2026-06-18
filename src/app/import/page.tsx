@@ -532,6 +532,11 @@ export default function ImportPage() {
   const parseSafeDate = (val: any, fallback: Date): Date => {
     if (!val) return fallback;
     
+    // Si viene como string, limpiamos posibles nombres de días al inicio (ej: 'miércoles 29/04/2026')
+    if (typeof val === 'string') {
+      val = val.replace(/^[a-zA-ZáéíóúÁÉÍÓÚñÑüÜ\s,]+/i, '').trim();
+    }
+    
     // Si viene como número (serial de Excel), lo convertimos
     if (typeof val === 'number') {
       const excelEpoch = new Date(Date.UTC(1899, 11, 30));
