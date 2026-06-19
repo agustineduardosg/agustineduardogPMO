@@ -829,8 +829,8 @@ export default function ProjectsPage() {
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px', fontSize: '0.82rem', color: 'var(--text-secondary)' }}>
               <span>{taskCount} tarea{taskCount !== 1 ? 's' : ''}</span>
-              <span style={{ color: daysLeft < 0 ? '#ef4444' : daysLeft < 7 ? '#f59e0b' : 'var(--text-muted)' }}>
-                {daysLeft < 0 ? `Venció hace ${Math.abs(daysLeft)} días` : daysLeft === 0 ? 'Vence hoy' : `${daysLeft} días restantes`}
+              <span style={{ color: (progress === 100 || status === 'Completado') ? '#10b981' : daysLeft < 0 ? '#ef4444' : daysLeft < 7 ? '#f59e0b' : 'var(--text-muted)' }}>
+                {(progress === 100 || status === 'Completado') ? 'Finalizado' : daysLeft < 0 ? `Venció hace ${Math.abs(daysLeft)} días` : daysLeft === 0 ? 'Vence hoy' : `${daysLeft} días restantes`}
               </span>
             </div>
           </div>

@@ -2629,8 +2629,8 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Clock size={14} color="var(--text-muted)" />
                   <span style={{ color: 'var(--text-secondary)' }}>Plazo de Entrega:</span>
-                  <strong style={{ color: daysRemaining < 0 ? 'var(--accent-danger)' : daysRemaining < 7 ? 'var(--accent-warning)' : 'var(--accent-success)' }}>
-                    {daysRemaining < 0 ? `Vencido hace ${Math.abs(daysRemaining)} días` : daysRemaining === 0 ? 'Vence hoy' : `${daysRemaining} días restantes`}
+                  <strong style={{ color: (progress === 100 || projectStatus === 'Completado') ? 'var(--accent-success)' : daysRemaining < 0 ? 'var(--accent-danger)' : daysRemaining < 7 ? 'var(--accent-warning)' : 'var(--accent-success)' }}>
+                    {(progress === 100 || projectStatus === 'Completado') ? 'Finalizado' : daysRemaining < 0 ? `Vencido hace ${Math.abs(daysRemaining)} días` : daysRemaining === 0 ? 'Vence hoy' : `${daysRemaining} días restantes`}
                   </strong>
                 </div>
               </div>
