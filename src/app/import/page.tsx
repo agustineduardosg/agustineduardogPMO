@@ -986,7 +986,8 @@ export default function ImportPage() {
 
           if (isPhase) {
             const phaseName = cleanName || phaseVal || `Fase ${wbsId || autoPhaseCounter}`;
-            const phaseKey = wbsId ? normalizePhaseName(wbsId) : normalizePhaseName(phaseName);
+            const currentAutoCounter = autoPhaseCounter;
+            const phaseKey = wbsId ? normalizePhaseName(wbsId) : `auto-${currentAutoCounter}-${normalizePhaseName(phaseName)}`;
             
             const phaseObj: Phase = {
               id: `ph-${Date.now()}-${index}`,
@@ -1008,7 +1009,8 @@ export default function ImportPage() {
           // Resolve current phase contexts
           if (!currentPhase) {
             if (phaseVal) {
-              const phaseKey = normalizePhaseName(phaseVal);
+              const currentAutoCounter = autoPhaseCounter;
+              const phaseKey = colWbs ? normalizePhaseName(phaseVal) : `auto-${currentAutoCounter}-${normalizePhaseName(phaseVal)}`;
               let phaseObj = phaseWbsMap.get(phaseKey);
               if (!phaseObj) {
                 phaseObj = {
@@ -1026,7 +1028,8 @@ export default function ImportPage() {
               currentPhase = phaseObj;
             } else {
               const defaultPhaseName = 'Fase 1';
-              const phaseKey = normalizePhaseName(defaultPhaseName);
+              const currentAutoCounter = autoPhaseCounter;
+              const phaseKey = colWbs ? normalizePhaseName(defaultPhaseName) : `auto-${currentAutoCounter}-${normalizePhaseName(defaultPhaseName)}`;
               let phaseObj = phaseWbsMap.get(phaseKey);
               if (!phaseObj) {
                 phaseObj = {
@@ -1065,7 +1068,8 @@ export default function ImportPage() {
             }
             currentPhase = targetPhase;
           } else if (phaseVal && normalizePhaseName(phaseVal) !== normalizePhaseName(currentPhase.name)) {
-            const phaseKey = normalizePhaseName(phaseVal);
+            const currentAutoCounter = autoPhaseCounter;
+            const phaseKey = colWbs ? normalizePhaseName(phaseVal) : `auto-${currentAutoCounter}-${normalizePhaseName(phaseVal)}`;
             let targetPhase = phaseWbsMap.get(phaseKey);
             if (!targetPhase) {
               targetPhase = {
