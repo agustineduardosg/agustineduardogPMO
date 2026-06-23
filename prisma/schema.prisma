@@ -47,6 +47,7 @@ model Project {
 
   risks             Risk[]
   costItems         CostItem[]
+  closureAct        ClosureAct?
 
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -382,4 +383,19 @@ model ImportTemplate {
   mapping     String   // Almacena JSON string de la relación ColumnaOriginal -> CampoOficial
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model ClosureAct {
+  id                  String    @id @default(cuid())
+  projectId           String    @unique
+  project             Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  acceptanceCriteria  String?   // Criterios de aceptación/objetivos logrados
+  lessonsLearned      String?   // Lecciones Aprendidas
+  handoverNotes       String?   // Notas de traspaso operativo
+  pendingItems        String?   // Tareas menores pendientes o mantenimiento
+  signedByPm          String?   // Firma digital PM (nombre/fecha/correo)
+  signedBySponsor     String?   // Firma digital Sponsor
+  signedByPmo         String?   // Firma digital PMO
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 }

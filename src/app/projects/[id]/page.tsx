@@ -76,8 +76,10 @@ import { motion, AnimatePresence } from 'framer-motion';
 import * as XLSX from 'xlsx';
 
 
+import ClosureActTab from '@/components/ClosureActTab';
+
 type ViewMode = 'day' | 'week' | 'month';
-type TabType = 'summary' | 'dashboard' | 'gantt' | 'risks' | 'costs' | 'stakeholders' | 'incidents' | 'equipments';
+type TabType = 'summary' | 'dashboard' | 'gantt' | 'risks' | 'costs' | 'stakeholders' | 'incidents' | 'equipments' | 'closure-act';
 
 const PHASE_STATUSES: EquipmentPhaseStatus[] = ['No iniciado', 'En progreso', 'Completado', 'Descartado', 'Desestimado'];
 
@@ -2742,6 +2744,7 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
               { id: 'costs', label: `💰 Control de Costos (${(project?.costItems || []).length})` },
               { id: 'stakeholders', label: `👥 Matriz Stakeholders (${projectStakeholders.length})` },
               { id: 'incidents', label: `⚠️ Log de Incidentes (${projectIncidents.length})` },
+              { id: 'closure-act', label: '🎓 Acta de Cierre' }
             ];
             if (project.hasEquipment) {
               tabs.push({ id: 'equipments', label: `🩺 Equipos Clínicos (${projectEquipments.length})` });
@@ -7016,6 +7019,15 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
             </div>
             
           </div>
+        )}
+
+        {/* TAB: CLOSURE ACT */}
+        {activeTab === 'closure-act' && (
+          <ClosureActTab 
+            projectId={project.id}
+            project={project}
+            users={users}
+          />
         )}
 
         {/* Visor de Informes Corporativo */}
