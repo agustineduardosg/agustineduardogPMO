@@ -7027,6 +7027,7 @@ export default function ProjectConsolePage({ params }: { params: Promise<{ id: s
             projectId={project.id}
             project={project}
             users={users}
+            equipments={projectEquipments}
           />
         )}
 

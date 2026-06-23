@@ -393,6 +393,7 @@ model ClosureAct {
   lessonsLearned      String?   // Lecciones Aprendidas
   handoverNotes       String?   // Notas de traspaso operativo
   pendingItems        String?   // Tareas menores pendientes o mantenimiento
+  customSections      String    @default("[]") // Nuevo campo para guardar secciones adicionales
   signedByPm          String?   // Firma digital PM (nombre/fecha/correo)
   signedBySponsor     String?   // Firma digital Sponsor
   signedByPmo         String?   // Firma digital PMO

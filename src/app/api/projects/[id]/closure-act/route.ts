@@ -37,6 +37,7 @@ export async function GET(
         lessonsLearned: '1. ¿Qué funcionó bien?:\n- Excelente coordinación entre el equipo clínico y de TI.\n- El pre-mapeo del importador redujo el tiempo de configuración inicial.\n\n2. ¿Qué se puede mejorar?:\n- Planificar las capacitaciones de usuarios clave con mayor anticipación para asegurar disponibilidad de turnos.\n\n3. Recomendaciones para futuros proyectos:\n- Homologar plantillas de Excel con los proveedores clínicos previo a la etapa de desarrollo.',
         handoverNotes: 'Traspaso formal a operaciones completado. Se capacitó a los usuarios clínicos clave, se entregó la matriz de analitos configurada y se completó la integración con el sistema de transmisión LIS.',
         pendingItems: 'Ninguno. Proyecto cerrado al 100% sin pendientes críticos.',
+        customSections: '[]',
         signedByPm: null,
         signedBySponsor: null,
         signedByPmo: null,
@@ -71,6 +72,7 @@ export async function PUT(
       lessonsLearned,
       handoverNotes,
       pendingItems,
+      customSections,
       signedByPm,
       signedBySponsor,
       signedByPmo
@@ -83,6 +85,7 @@ export async function PUT(
         lessonsLearned,
         handoverNotes,
         pendingItems,
+        customSections,
         signedByPm,
         signedBySponsor,
         signedByPmo
@@ -93,6 +96,7 @@ export async function PUT(
         lessonsLearned,
         handoverNotes,
         pendingItems,
+        customSections,
         signedByPm,
         signedBySponsor,
         signedByPmo
